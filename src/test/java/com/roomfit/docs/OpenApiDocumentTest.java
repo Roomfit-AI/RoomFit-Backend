@@ -37,4 +37,13 @@ class OpenApiDocumentTest {
                 .contains("interpretedIntent")
                 .contains("INVALID_REQUEST_BODY");
     }
+
+    @Test
+    void openApiDocument_doesNotPlaceSiblingPropertiesNextToReferenceObjects() throws IOException {
+        Path path = Path.of("docs/openapi/roomfit-api.yaml");
+
+        String document = Files.readString(path);
+
+        assertThat(document).doesNotContainPattern("nullable: true\\R\\s+\\$ref:");
+    }
 }

@@ -310,7 +310,8 @@ components:
           nullable: true
         error:
           nullable: true
-          $ref: "#/components/schemas/ErrorPayload"
+          allOf:
+            - $ref: "#/components/schemas/ErrorPayload"
     ErrorPayload:
       type: object
       properties:
@@ -647,7 +648,8 @@ components:
             $ref: "#/components/schemas/Furniture"
         scoreSummary:
           nullable: true
-          $ref: "#/components/schemas/ScoreSummary"
+          allOf:
+            - $ref: "#/components/schemas/ScoreSummary"
         validationResult:
           $ref: "#/components/schemas/ValidationResult"
     ScoreSummary:
