@@ -56,7 +56,7 @@ public class LayoutService {
 
         ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
 
-        return LayoutResponse.ofRecommendation(layout, placementResult.getStatus(), validationResult);
+        return LayoutResponse.ofRecommendation(layout, placementResult, validationResult);
     }
 
     public ValidationResult validateOnly(ValidateRequest request) {

@@ -1,5 +1,7 @@
 package com.roomfit.room;
 
+import java.util.List;
+
 /**
  * 가구 도메인 모델.
  * width/depth/height: 전체 길이(full extent) 기준 — Three.js BoxGeometry 인자와 동일 기준.
@@ -16,6 +18,8 @@ public class Furniture {
     private Position position;
     private double rotation;  // degree
     private FurnitureStatus status;
+    private String productId;
+    private List<String> styleTags = List.of();
 
     protected Furniture() {
         // JSON 역직렬화용
@@ -23,6 +27,12 @@ public class Furniture {
 
     public Furniture(String id, String type, String label, double width, double depth, double height,
                       Position position, double rotation, FurnitureStatus status) {
+        this(id, type, label, width, depth, height, position, rotation, status, null, List.of());
+    }
+
+    public Furniture(String id, String type, String label, double width, double depth, double height,
+                      Position position, double rotation, FurnitureStatus status,
+                      String productId, List<String> styleTags) {
         this.id = id;
         this.type = type;
         this.label = label;
@@ -32,6 +42,8 @@ public class Furniture {
         this.position = position;
         this.rotation = rotation;
         this.status = status;
+        this.productId = productId;
+        this.styleTags = styleTags == null ? List.of() : List.copyOf(styleTags);
     }
 
     public String getId() {
@@ -80,5 +92,13 @@ public class Furniture {
 
     public void setStatus(FurnitureStatus status) {
         this.status = status;
+    }
+
+    public String getProductId() {
+        return productId;
+    }
+
+    public List<String> getStyleTags() {
+        return styleTags;
     }
 }

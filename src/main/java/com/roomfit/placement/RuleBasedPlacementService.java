@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.product.domain.MockProduct;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
@@ -9,6 +10,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 규칙 기반 배치 추천 구현체.
@@ -24,23 +28,79 @@ public class RuleBasedPlacementService implements PlacementService {
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
         List<Furniture> recommended = new ArrayList<>();
+        recommended.addAll(room.getFurniture().stream()
+                .filter(furniture -> furniture.getStatus() == FurnitureStatus.EXISTING)
+                .map(this::copyFurniture)
+                .toList());
 
-        double cursorX = 0.3;
-        for (String itemType : context.getRequiredItems()) {
-            // TODO: itemType 별 기본 크기 테이블 참조, 기존 가구와 겹치지 않는 위치 계산
-            Furniture furniture = new Furniture(
-                    itemType + "-rec-" + System.nanoTime(),
-                    itemType,
-                    itemType,
-                    1.0, 0.6, 0.7,
-                    new Position(cursorX, 0.3),
-                    0,
-                    FurnitureStatus.RECOMMENDED
-            );
-            recommended.add(furniture);
-            cursorX += 1.2;
+        Map<String, MockProduct> selectedProductByType = context.getSelectedProducts().stream()
+                .collect(Collectors.toMap(MockProduct::getType, Function.identity(), (first, ignored) -> first));
+
+        List<String> placementItems = new ArrayList<>(context.getRequiredItems());
+        placementItems.addAll(context.getOptionalItems());
+
+        for (int index = 0; index < placementItems.size(); index++) {
+            String itemType = placementItems.get(index);
+            recommended.add(createRecommendedFurniture(itemType, index, selectedProductByType.get(itemType)));
         }
 
-        return new PlacementResult(RecommendationStatus.SUCCESS, recommended);
+        return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary());
+    }
+
+    private Furniture createRecommendedFurniture(String itemType, int index, MockProduct product) {
+        FurnitureSpec spec = FurnitureSpec.from(itemType, product);
+        double x = 0.8 + (index % 3) * 0.8;
+        double z = 0.8 + (index / 3) * 0.8;
+
+        return new Furniture(
+                itemType + "-rec-" + (index + 1),
+                itemType,
+                spec.label(),
+                spec.width(),
+                spec.depth(),
+                spec.height(),
+                new Position(x, z),
+                0,
+                FurnitureStatus.RECOMMENDED,
+                spec.productId(),
+                spec.styleTags()
+        );
+    }
+
+    private Furniture copyFurniture(Furniture furniture) {
+        return new Furniture(
+                furniture.getId(),
+                furniture.getType(),
+                furniture.getLabel(),
+                furniture.getWidth(),
+                furniture.getDepth(),
+                furniture.getHeight(),
+                new Position(furniture.getPosition().getX(), furniture.getPosition().getZ()),
+                furniture.getRotation(),
+                furniture.getStatus(),
+                furniture.getProductId(),
+                furniture.getStyleTags()
+        );
+    }
+
+    private record FurnitureSpec(String label, double width, double depth, double height,
+                                 String productId, List<String> styleTags) {
+
+        private static FurnitureSpec from(String itemType, MockProduct product) {
+            if (product != null) {
+                return new FurnitureSpec(product.getName(), product.getWidth(), product.getDepth(),
+                        product.getHeight(), product.getProductId(), product.getStyleTags());
+            }
+
+            return switch (itemType) {
+                case "bed" -> new FurnitureSpec("bed", 1.1, 2.0, 0.45, null, List.of());
+                case "desk" -> new FurnitureSpec("desk", 1.0, 0.6, 0.75, null, List.of());
+                case "chair" -> new FurnitureSpec("chair", 0.45, 0.45, 0.8, null, List.of());
+                case "storage" -> new FurnitureSpec("storage", 0.8, 0.4, 1.6, null, List.of());
+                case "rug" -> new FurnitureSpec("rug", 1.2, 1.6, 0.02, null, List.of());
+                case "lamp" -> new FurnitureSpec("lamp", 0.25, 0.25, 1.4, null, List.of());
+                default -> new FurnitureSpec(itemType, 1.0, 0.6, 0.7, null, List.of());
+            };
+        }
     }
 }
