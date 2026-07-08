@@ -5,6 +5,7 @@ import com.roomfit.product.domain.RequiredClearance;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class MockProductRepository {
@@ -92,5 +93,11 @@ public class MockProductRepository {
 
     public List<MockProduct> findAll() {
         return products;
+    }
+
+    public Optional<MockProduct> findById(String productId) {
+        return products.stream()
+                .filter(product -> product.getProductId().equals(productId))
+                .findFirst();
     }
 }

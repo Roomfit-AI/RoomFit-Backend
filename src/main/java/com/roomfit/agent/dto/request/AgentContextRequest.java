@@ -1,15 +1,16 @@
-package com.roomfit.agent.dto;
+package com.roomfit.agent.dto.request;
 
 import java.util.List;
 
 public class AgentContextRequest {
 
     private Long roomId;
-    private String lifestyleGoal;   // study_focused / relax_focused / storage_focused / wfh_focused
+    private String lifestyleGoal;
     private List<String> designStyle;
     private List<String> requiredItems;
     private List<String> optionalItems;
-    private List<String> styleTags;
+    private List<Long> selectedImageIds;
+    private List<String> selectedProductIds;
 
     protected AgentContextRequest() {
         // JSON 역직렬화용
@@ -35,7 +36,11 @@ public class AgentContextRequest {
         return optionalItems;
     }
 
-    public List<String> getStyleTags() {
-        return styleTags;
+    public List<Long> getSelectedImageIds() {
+        return selectedImageIds;
+    }
+
+    public List<String> getSelectedProductIds() {
+        return selectedProductIds;
     }
 }

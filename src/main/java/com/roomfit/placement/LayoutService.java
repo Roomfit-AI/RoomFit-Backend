@@ -1,7 +1,7 @@
 package com.roomfit.placement;
 
-import com.roomfit.agent.AgentContext;
-import com.roomfit.agent.AgentContextRepository;
+import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.agent.repository.AgentContextRepository;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.placement.dto.*;

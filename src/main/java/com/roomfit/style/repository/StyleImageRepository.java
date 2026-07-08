@@ -4,6 +4,7 @@ import com.roomfit.style.domain.StyleImage;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class StyleImageRepository {
@@ -31,5 +32,11 @@ public class StyleImageRepository {
 
     public List<StyleImage> findAll() {
         return styleImages;
+    }
+
+    public Optional<StyleImage> findById(Long imageId) {
+        return styleImages.stream()
+                .filter(styleImage -> styleImage.getImageId().equals(imageId))
+                .findFirst();
     }
 }

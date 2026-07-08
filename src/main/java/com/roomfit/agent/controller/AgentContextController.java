@@ -1,7 +1,8 @@
-package com.roomfit.agent;
+package com.roomfit.agent.controller;
 
-import com.roomfit.agent.dto.AgentContextRequest;
-import com.roomfit.agent.dto.AgentContextResponse;
+import com.roomfit.agent.dto.request.AgentContextRequest;
+import com.roomfit.agent.dto.response.AgentContextResponse;
+import com.roomfit.agent.service.AgentContextService;
 import com.roomfit.common.CommonResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;

@@ -1,4 +1,4 @@
-package com.roomfit.agent;
+package com.roomfit.agent.domain;
 
 public enum LifestyleGoal {
     STUDY_FOCUSED,
