@@ -6,6 +6,7 @@ import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.placement.dto.*;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 import com.roomfit.room.RoomRepository;
@@ -157,6 +158,7 @@ public class LayoutService {
     }
 
     private Furniture copyWithOverride(Furniture furniture, FurniturePositionDto override) {
+        FurnitureStatus status = parseFurnitureStatus(override.getStatus(), furniture.getStatus());
         return new Furniture(
                 furniture.getId(),
                 furniture.getType(),
@@ -166,9 +168,20 @@ public class LayoutService {
                 furniture.getHeight(),
                 new Position(override.getPosition().getX(), override.getPosition().getZ()),
                 override.getRotation(),
-                furniture.getStatus(),
+                status,
                 furniture.getProductId(),
                 furniture.getStyleTags()
         );
+    }
+
+    private FurnitureStatus parseFurnitureStatus(String rawStatus, FurnitureStatus fallback) {
+        if (rawStatus == null) {
+            return fallback;
+        }
+        try {
+            return FurnitureStatus.valueOf(rawStatus);
+        } catch (IllegalArgumentException e) {
+            throw new CustomException(ErrorCode.INVALID_FURNITURE_STATUS);
+        }
     }
 }
