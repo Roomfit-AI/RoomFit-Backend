@@ -96,6 +96,22 @@ public class LayoutService {
         return ConfirmResponse.from(layout);
     }
 
+    public FeedbackResponse feedback(FeedbackRequest request) {
+        Layout baseLayout = findLayoutOrThrow(request.getLayoutId());
+        Room room = roomRepository.findById(baseLayout.getRoomId())
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+
+        FeedbackIntent intent = interpretFeedback(request.getFeedback());
+        List<Furniture> recommended = applyFeedbackIntent(baseLayout.getFurniture(), intent);
+
+        Layout newLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), recommended);
+        layoutRepository.save(newLayout);
+
+        ValidationResult validationResult = validationService.validate(room, recommended);
+        return FeedbackResponse.of(newLayout, RecommendationStatus.SUCCESS,
+                ScoreSummary.defaultSummary(), validationResult, intent.interpretedIntent());
+    }
+
     private Layout findLayoutOrThrow(Long layoutId) {
         return layoutRepository.findById(layoutId)
                 .orElseThrow(() -> new CustomException(ErrorCode.LAYOUT_NOT_FOUND));
@@ -183,5 +199,97 @@ public class LayoutService {
         } catch (IllegalArgumentException e) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_STATUS);
         }
+    }
+
+    private FeedbackIntent interpretFeedback(String feedback) {
+        return switch (feedback) {
+            case "책상 더 크게" -> new FeedbackIntent(FeedbackIntentType.LARGER_DESK,
+                    Map.of("deskMinWidth", 1.4));
+            case "수납 늘려줘" -> new FeedbackIntent(FeedbackIntentType.STORAGE_PRIORITY,
+                    Map.of("storagePriority", "HIGH"));
+            case "방이 넓어 보이게" -> new FeedbackIntent(FeedbackIntentType.OPEN_SPACE_PRIORITY,
+                    Map.of("openSpacePriority", "HIGH"));
+            default -> throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
+        };
+    }
+
+    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackIntent intent) {
+        return switch (intent.type()) {
+            case LARGER_DESK -> furniture.stream()
+                    .map(this::copyWithLargerDesk)
+                    .collect(Collectors.toList());
+            case STORAGE_PRIORITY -> applyStoragePriority(furniture);
+            case OPEN_SPACE_PRIORITY -> applyOpenSpacePriority(furniture);
+        };
+    }
+
+    private Furniture copyWithLargerDesk(Furniture furniture) {
+        double width = "desk".equals(furniture.getType()) ? Math.max(furniture.getWidth(), 1.4) : furniture.getWidth();
+        return copyFurniture(furniture, furniture.getPosition(), furniture.getRotation(), width,
+                furniture.getDepth(), furniture.getHeight(), furniture.getStatus());
+    }
+
+    private List<Furniture> applyStoragePriority(List<Furniture> furniture) {
+        boolean hasStorage = furniture.stream().anyMatch(item -> "storage".equals(item.getType()));
+        List<Furniture> updated = furniture.stream()
+                .map(item -> {
+                    if (!"storage".equals(item.getType())) {
+                        return copyFurniture(item, item.getPosition(), item.getRotation(),
+                                item.getWidth(), item.getDepth(), item.getHeight(), item.getStatus());
+                    }
+                    return copyFurniture(item, item.getPosition(), item.getRotation(),
+                            Math.max(item.getWidth(), 1.0), Math.max(item.getDepth(), 0.45),
+                            Math.max(item.getHeight(), 1.8), item.getStatus());
+                })
+                .collect(Collectors.toList());
+
+        if (!hasStorage) {
+            updated.add(new Furniture("storage-feedback-1", "storage", "storage",
+                    1.0, 0.45, 1.8, new Position(0.7, 3.6), 0,
+                    FurnitureStatus.RECOMMENDED, null, List.of()));
+        }
+        return updated;
+    }
+
+    private List<Furniture> applyOpenSpacePriority(List<Furniture> furniture) {
+        return furniture.stream()
+                .map(item -> {
+                    Position position = switch (item.getType()) {
+                        case "bed" -> new Position(0.8, 1.4);
+                        case "desk" -> new Position(2.4, 1.0);
+                        case "chair" -> new Position(2.4, 1.7);
+                        case "storage" -> new Position(2.6, 3.7);
+                        default -> item.getPosition();
+                    };
+                    return copyFurniture(item, position, item.getRotation(),
+                            item.getWidth(), item.getDepth(), item.getHeight(), item.getStatus());
+                })
+                .collect(Collectors.toList());
+    }
+
+    private Furniture copyFurniture(Furniture furniture, Position position, double rotation,
+                                     double width, double depth, double height, FurnitureStatus status) {
+        return new Furniture(
+                furniture.getId(),
+                furniture.getType(),
+                furniture.getLabel(),
+                width,
+                depth,
+                height,
+                new Position(position.getX(), position.getZ()),
+                rotation,
+                status,
+                furniture.getProductId(),
+                furniture.getStyleTags()
+        );
+    }
+
+    private enum FeedbackIntentType {
+        LARGER_DESK,
+        STORAGE_PRIORITY,
+        OPEN_SPACE_PRIORITY
+    }
+
+    private record FeedbackIntent(FeedbackIntentType type, Map<String, Object> interpretedIntent) {
     }
 }
