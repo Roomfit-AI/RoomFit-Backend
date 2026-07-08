@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -11,11 +12,13 @@ import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class LayoutRecommendControllerTest {
 
     @Autowired
@@ -23,6 +26,19 @@ class LayoutRecommendControllerTest {
 
     @Test
     void recommend_returnsLayoutWithScoreSummaryAndValidationResult() throws Exception {
+        mockMvc.perform(put("/api/rooms/{roomId}/furniture", 1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furnitureUpdates": [
+                                    { "id": "bed-1", "status": "EXISTING" },
+                                    { "id": "desk-1", "status": "DELETED" },
+                                    { "id": "wardrobe-1", "status": "EXISTING" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk());
+
         String contextResponse = mockMvc.perform(post("/api/agent/context")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -30,10 +46,10 @@ class LayoutRecommendControllerTest {
                                   "roomId": 1,
                                   "lifestyleGoal": "STUDY_FOCUSED",
                                   "designStyle": ["MINIMAL", "WHITE_TONE"],
-                                  "requiredItems": ["desk", "chair"],
+                                  "requiredItems": ["bed", "desk", "chair"],
                                   "optionalItems": ["lamp"],
                                   "selectedImageIds": [1, 3],
-                                  "selectedProductIds": ["desk-01", "chair-01"]
+                                  "selectedProductIds": ["desk-01", "chair-01", "lamp-01"]
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -60,6 +76,7 @@ class LayoutRecommendControllerTest {
                 .andExpect(jsonPath("$.data.recommendedFurniture[*].productId").value(hasItems("desk-01")))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.productId == 'desk-01')].width").value(hasItems(1.2)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.productId == 'desk-01')].styleTags[0]").value(hasItems("minimal")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'bed' && @.status == 'RECOMMENDED')].id").isEmpty())
                 .andExpect(jsonPath("$.data.scoreSummary.totalScore").value(590))
                 .andExpect(jsonPath("$.data.scoreSummary.collisionScore").value(100))
                 .andExpect(jsonPath("$.data.scoreSummary.boundaryScore").value(100))
