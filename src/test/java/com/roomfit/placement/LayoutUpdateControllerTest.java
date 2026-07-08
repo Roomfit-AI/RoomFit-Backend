@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -42,11 +43,13 @@ class LayoutUpdateControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data.layoutId").value(layoutId))
-                .andExpect(jsonPath("$.data.status").value(nullValue()))
-                .andExpect(jsonPath("$.data.scoreSummary").value(nullValue()))
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.scoreSummary", notNullValue()))
+                .andExpect(jsonPath("$.data.scoreSummary.collisionScore").value(100))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-rec-1')].position.x").value(hasItems(1.8)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-rec-1')].rotation").value(hasItems(15.0)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-rec-1')].status").value(hasItems("USER_MODIFIED")))
+                .andExpect(jsonPath("$.data.validationResult.collisionFree").value(true))
                 .andExpect(jsonPath("$.data.validationResult.validationItems.length()").value(5));
     }
 

@@ -86,13 +86,16 @@ public class LayoutService {
         }
         Room room = roomRepository.findById(layout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        AgentContext context = agentContextRepository.findById(layout.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
 
         List<Furniture> updated = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         layout.setFurniture(updated);
         layoutRepository.save(layout);
 
         ValidationResult validationResult = validationService.validate(room, updated);
-        return LayoutResponse.ofUpdate(layout, validationResult);
+        ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
+        return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
     }
 
     public ConfirmResponse confirmLayout(Long layoutId) {
