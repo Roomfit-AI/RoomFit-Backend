@@ -1,6 +1,8 @@
 package com.roomfit.common;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -15,5 +17,13 @@ public class GlobalExceptionHandler {
                 .body(CommonResponse.fail(errorCode));
     }
 
-    // TODO: MethodArgumentNotValidException 등 Bean Validation 예외 핸들러 추가
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class
+    })
+    public ResponseEntity<CommonResponse<Void>> handleInvalidRequestBody(Exception e) {
+        return ResponseEntity
+                .status(ErrorCode.INVALID_REQUEST_BODY.getStatus())
+                .body(CommonResponse.fail(ErrorCode.INVALID_REQUEST_BODY));
+    }
 }
