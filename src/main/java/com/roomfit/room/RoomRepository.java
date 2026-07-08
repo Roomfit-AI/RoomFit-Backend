@@ -4,6 +4,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -28,5 +29,11 @@ public class RoomRepository {
 
     public Optional<Room> findById(Long id) {
         return Optional.ofNullable(store.get(id));
+    }
+
+    public List<Room> findAll() {
+        return store.values().stream()
+                .sorted((first, second) -> Long.compare(first.getId(), second.getId()))
+                .toList();
     }
 }

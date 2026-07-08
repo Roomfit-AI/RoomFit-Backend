@@ -6,6 +6,7 @@ import com.roomfit.room.dto.FurnitureUpdateRequest;
 import com.roomfit.room.dto.RoomResponse;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -21,6 +22,12 @@ public class RoomService {
     public RoomResponse getRoom(Long roomId) {
         Room room = findRoomOrThrow(roomId);
         return RoomResponse.from(room);
+    }
+
+    public List<RoomResponse> getSampleRooms() {
+        return roomRepository.findAll().stream()
+                .map(RoomResponse::from)
+                .toList();
     }
 
     public RoomResponse updateFurnitureStatus(Long roomId, FurnitureUpdateRequest request) {
