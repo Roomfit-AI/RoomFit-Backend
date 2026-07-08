@@ -166,7 +166,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentContextCommonResponse"
         "400":
-          $ref: "#/components/responses/InvalidRequestBody"
+          description: Invalid request body or selected product id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
         "404":
           $ref: "#/components/responses/RoomNotFound"
   /api/layouts/recommend:
@@ -742,6 +746,7 @@ components:
           $ref: "#/components/schemas/ValidationResult"
     ScoreSummary:
       type: object
+      description: MVP rule-based score summary calculated from validation result, lifestyle goal, and style tag overlap.
       properties:
         totalScore:
           type: integer

@@ -9,7 +9,7 @@ public enum ErrorCode {
     LAYOUT_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 배치를 찾을 수 없습니다."),
     FURNITURE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 가구를 찾을 수 없습니다."),
     STYLE_IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 취향 이미지를 찾을 수 없습니다."),
-    PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 Mock Product를 찾을 수 없습니다."),
+    PRODUCT_NOT_FOUND(HttpStatus.BAD_REQUEST, "해당 Mock Product를 찾을 수 없습니다."),
     INVALID_FURNITURE_STATUS(HttpStatus.BAD_REQUEST, "가구 status 값이 올바르지 않습니다."),
     INVALID_LIFESTYLE_GOAL(HttpStatus.BAD_REQUEST, "생활 목적 값이 올바르지 않습니다."),
     INVALID_DESIGN_STYLE(HttpStatus.BAD_REQUEST, "디자인 취향 값이 올바르지 않습니다."),

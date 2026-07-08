@@ -9,7 +9,7 @@ import com.roomfit.agent.repository.AgentContextRepository;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.product.domain.MockProduct;
-import com.roomfit.product.repository.MockProductRepository;
+import com.roomfit.product.service.MockProductService;
 import com.roomfit.room.RoomRepository;
 import com.roomfit.style.domain.StyleImage;
 import com.roomfit.style.repository.StyleImageRepository;
@@ -28,16 +28,16 @@ public class AgentContextService {
     private final AgentContextRepository agentContextRepository;
     private final RoomRepository roomRepository;
     private final StyleImageRepository styleImageRepository;
-    private final MockProductRepository mockProductRepository;
+    private final MockProductService mockProductService;
 
     public AgentContextService(AgentContextRepository agentContextRepository,
                                RoomRepository roomRepository,
                                StyleImageRepository styleImageRepository,
-                               MockProductRepository mockProductRepository) {
+                               MockProductService mockProductService) {
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
         this.styleImageRepository = styleImageRepository;
-        this.mockProductRepository = mockProductRepository;
+        this.mockProductService = mockProductService;
     }
 
     public AgentContextResponse createContext(AgentContextRequest request) {
@@ -63,10 +63,7 @@ public class AgentContextService {
                         .orElseThrow(() -> new CustomException(ErrorCode.STYLE_IMAGE_NOT_FOUND)))
                 .toList();
 
-        List<MockProduct> selectedProducts = selectedProductIds.stream()
-                .map(productId -> mockProductRepository.findById(productId)
-                        .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND)))
-                .toList();
+        List<MockProduct> selectedProducts = mockProductService.findByProductIds(selectedProductIds);
 
         List<String> styleTags = collectStyleTags(selectedImages, selectedProducts);
 

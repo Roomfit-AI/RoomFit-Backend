@@ -26,19 +26,22 @@ public class LayoutService {
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
     private final FeedbackParserService feedbackParserService;
+    private final ScoreService scoreService;
 
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
                           RoomRepository roomRepository,
                           PlacementService placementService,
                           ValidationService validationService,
-                          FeedbackParserService feedbackParserService) {
+                          FeedbackParserService feedbackParserService,
+                          ScoreService scoreService) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
         this.placementService = placementService;
         this.validationService = validationService;
         this.feedbackParserService = feedbackParserService;
+        this.scoreService = scoreService;
     }
 
     public LayoutResponse recommend(RecommendRequest request) {
@@ -60,8 +63,11 @@ public class LayoutService {
         layoutRepository.save(layout);
 
         ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
+        ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
+        PlacementResult scoredPlacementResult = new PlacementResult(placementResult.getStatus(),
+                placementResult.getRecommendedFurniture(), scoreSummary);
 
-        return LayoutResponse.ofRecommendation(layout, placementResult, validationResult);
+        return LayoutResponse.ofRecommendation(layout, scoredPlacementResult, validationResult);
     }
 
     public ValidationResult validateOnly(ValidateRequest request) {
@@ -101,6 +107,8 @@ public class LayoutService {
 
     public FeedbackResponse feedback(FeedbackRequest request) {
         Layout baseLayout = findLayoutOrThrow(request.getLayoutId());
+        AgentContext context = agentContextRepository.findById(baseLayout.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
         Room room = roomRepository.findById(baseLayout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
@@ -111,8 +119,9 @@ public class LayoutService {
         layoutRepository.save(newLayout);
 
         ValidationResult validationResult = validationService.validate(room, recommended);
+        ScoreSummary scoreSummary = scoreService.calculate(context, recommended, validationResult);
         return FeedbackResponse.of(newLayout, RecommendationStatus.SUCCESS,
-                ScoreSummary.defaultSummary(), validationResult, intent.interpretedIntent());
+                scoreSummary, validationResult, intent.interpretedIntent());
     }
 
     private Layout findLayoutOrThrow(Long layoutId) {
