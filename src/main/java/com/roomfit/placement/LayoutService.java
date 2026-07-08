@@ -25,17 +25,20 @@ public class LayoutService {
     private final RoomRepository roomRepository;
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
+    private final FeedbackParserService feedbackParserService;
 
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
                           RoomRepository roomRepository,
                           PlacementService placementService,
-                          ValidationService validationService) {
+                          ValidationService validationService,
+                          FeedbackParserService feedbackParserService) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
         this.placementService = placementService;
         this.validationService = validationService;
+        this.feedbackParserService = feedbackParserService;
     }
 
     public LayoutResponse recommend(RecommendRequest request) {
@@ -101,7 +104,7 @@ public class LayoutService {
         Room room = roomRepository.findById(baseLayout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
-        FeedbackIntent intent = interpretFeedback(request.getFeedback());
+        FeedbackParserService.FeedbackIntent intent = feedbackParserService.parse(request.getFeedback());
         List<Furniture> recommended = applyFeedbackIntent(baseLayout.getFurniture(), intent);
 
         Layout newLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), recommended);
@@ -201,19 +204,7 @@ public class LayoutService {
         }
     }
 
-    private FeedbackIntent interpretFeedback(String feedback) {
-        return switch (feedback) {
-            case "책상 더 크게" -> new FeedbackIntent(FeedbackIntentType.LARGER_DESK,
-                    Map.of("deskMinWidth", 1.4));
-            case "수납 늘려줘" -> new FeedbackIntent(FeedbackIntentType.STORAGE_PRIORITY,
-                    Map.of("storagePriority", "HIGH"));
-            case "방이 넓어 보이게" -> new FeedbackIntent(FeedbackIntentType.OPEN_SPACE_PRIORITY,
-                    Map.of("openSpacePriority", "HIGH"));
-            default -> throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
-        };
-    }
-
-    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackIntent intent) {
+    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackParserService.FeedbackIntent intent) {
         return switch (intent.type()) {
             case LARGER_DESK -> furniture.stream()
                     .map(this::copyWithLargerDesk)
@@ -284,12 +275,4 @@ public class LayoutService {
         );
     }
 
-    private enum FeedbackIntentType {
-        LARGER_DESK,
-        STORAGE_PRIORITY,
-        OPEN_SPACE_PRIORITY
-    }
-
-    private record FeedbackIntent(FeedbackIntentType type, Map<String, Object> interpretedIntent) {
-    }
 }

@@ -3,6 +3,8 @@ package com.roomfit.room;
 import com.roomfit.common.CommonResponse;
 import com.roomfit.room.dto.FurnitureUpdateRequest;
 import com.roomfit.room.dto.RoomResponse;
+import com.roomfit.room.dto.RoomUploadRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,6 +27,12 @@ public class RoomController {
     @GetMapping("/{roomId}")
     public CommonResponse<RoomResponse> getRoom(@PathVariable Long roomId) {
         return CommonResponse.ok(roomService.getRoom(roomId));
+    }
+
+    @PostMapping("/upload")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommonResponse<RoomResponse> uploadRoom(@RequestBody RoomUploadRequest request) {
+        return CommonResponse.ok(roomService.uploadRoom(request));
     }
 
     @PutMapping("/{roomId}/furniture")

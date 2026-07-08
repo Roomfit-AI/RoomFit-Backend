@@ -20,6 +20,7 @@ class OpenApiDocumentTest {
 
         assertThat(document)
                 .contains("/api/rooms/samples")
+                .contains("/api/rooms/upload")
                 .contains("/api/rooms/{roomId}")
                 .contains("/api/rooms/{roomId}/furniture")
                 .contains("/api/styles/images")
@@ -35,6 +36,8 @@ class OpenApiDocumentTest {
                 .contains("scoreSummary")
                 .contains("validationResult")
                 .contains("interpretedIntent")
+                .contains("RoomUploadRequest")
+                .contains("ROOMPLAN")
                 .contains("INVALID_REQUEST_BODY");
     }
 

@@ -25,6 +25,7 @@ class SwaggerUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(jsonPath("$.info.title").value("RoomFit-Backend"))
+                .andExpect(jsonPath("$.paths['/api/rooms/upload']").exists())
                 .andExpect(jsonPath("$.paths['/api/products/mock']").exists());
     }
 
