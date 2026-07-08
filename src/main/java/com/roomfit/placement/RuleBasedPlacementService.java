@@ -49,8 +49,7 @@ public class RuleBasedPlacementService implements PlacementService {
 
     private Furniture createRecommendedFurniture(String itemType, int index, MockProduct product) {
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
-        double x = 0.8 + (index % 3) * 0.8;
-        double z = 0.8 + (index / 3) * 0.8;
+        Position position = recommendedPosition(index);
 
         return new Furniture(
                 itemType + "-rec-" + (index + 1),
@@ -59,12 +58,22 @@ public class RuleBasedPlacementService implements PlacementService {
                 spec.width(),
                 spec.depth(),
                 spec.height(),
-                new Position(x, z),
+                position,
                 0,
                 FurnitureStatus.RECOMMENDED,
                 spec.productId(),
                 spec.styleTags()
         );
+    }
+
+    private Position recommendedPosition(int index) {
+        List<Position> positions = List.of(
+                new Position(2.2, 2.0),
+                new Position(1.6, 3.1),
+                new Position(1.1, 3.6),
+                new Position(0.8, 3.3)
+        );
+        return positions.get(index % positions.size());
     }
 
     private Furniture copyFurniture(Furniture furniture) {

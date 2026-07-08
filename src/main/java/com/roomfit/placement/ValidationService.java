@@ -18,13 +18,19 @@ import java.util.List;
 @Service
 public class ValidationService {
 
+    private static final double MIN_PATH_WIDTH = 0.6;
+    private static final double DOOR_CLEARANCE_DEPTH = 0.8;
+    private static final double DOOR_SIDE_MARGIN = 0.1;
+    private static final double WINDOW_CLEARANCE_DEPTH = 0.4;
+    private static final double WINDOW_SIDE_MARGIN = 0.1;
+
     public ValidationResult validate(Room room, List<Furniture> furniture) {
         List<String> warnings = new ArrayList<>();
 
         boolean collisionFree = checkCollisionFree(furniture, warnings);
         boolean boundaryValid = checkBoundaryValid(room, furniture, warnings);
-        boolean doorClearance = checkOpeningClearance(room.getOpenings(), furniture, "door", warnings);
-        boolean windowClearance = checkOpeningClearance(room.getOpenings(), furniture, "window", warnings);
+        boolean doorClearance = checkOpeningClearance(room, furniture, "door", warnings);
+        boolean windowClearance = checkOpeningClearance(room, furniture, "window", warnings);
         boolean pathSecured = checkPathSecured(room, furniture, warnings);
 
         List<ValidationItem> validationItems = List.of(
@@ -40,23 +46,116 @@ public class ValidationService {
     }
 
     private boolean checkCollisionFree(List<Furniture> furniture, List<String> warnings) {
-        // TODO: 가구 간 AABB(사각형 바운딩 박스) 겹침 검사 구현
+        for (int i = 0; i < furniture.size(); i++) {
+            Rect current = Rect.from(furniture.get(i));
+            for (int j = i + 1; j < furniture.size(); j++) {
+                Rect other = Rect.from(furniture.get(j));
+                if (current.overlaps(other)) {
+                    warnings.add("가구 충돌이 감지되었습니다.");
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
     private boolean checkBoundaryValid(Room room, List<Furniture> furniture, List<String> warnings) {
-        // TODO: 가구 중심 좌표와 full extent 기준 방 경계 검사 구현
+        for (Furniture item : furniture) {
+            Rect rect = Rect.from(item);
+            if (rect.minX() < 0 || rect.maxX() > room.getWidth()
+                    || rect.minZ() < 0 || rect.maxZ() > room.getDepth()) {
+                warnings.add("방 범위를 벗어난 가구가 있습니다.");
+                return false;
+            }
+        }
         return true;
     }
 
-    private boolean checkOpeningClearance(List<Opening> openings, List<Furniture> furniture,
+    private boolean checkOpeningClearance(Room room, List<Furniture> furniture,
                                            String openingType, List<String> warnings) {
-        // TODO: 문/창문 앞 일정 반경 내 가구 존재 여부 검사 구현
+        for (Opening opening : room.getOpenings()) {
+            if (!openingType.equals(opening.getType())) {
+                continue;
+            }
+
+            Rect clearance = clearanceRect(room, opening, openingType);
+            for (Furniture item : furniture) {
+                if ("window".equals(openingType) && item.getHeight() < windowSillHeight(opening)) {
+                    continue;
+                }
+                if (clearance.contains(item.getPosition().getX(), item.getPosition().getZ())) {
+                    warnings.add("door".equals(openingType) ? "문 앞 공간이 부족합니다." : "창문 앞 공간이 부족합니다.");
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
     private boolean checkPathSecured(Room room, List<Furniture> furniture, List<String> warnings) {
-        // TODO: 최소 동선(MIN_PATH_WIDTH) 확보 여부 검사 구현
+        double centerX = room.getWidth() / 2.0;
+        Rect path = new Rect(centerX - MIN_PATH_WIDTH / 2.0, centerX + MIN_PATH_WIDTH / 2.0,
+                0, room.getDepth());
+
+        for (Furniture item : furniture) {
+            Rect rect = Rect.from(item);
+            boolean blocksFullPathWidth = rect.minX() <= path.minX() && rect.maxX() >= path.maxX();
+            boolean meaningfulDepth = rect.depth() >= room.getDepth() * 0.4;
+            if (blocksFullPathWidth && meaningfulDepth) {
+                warnings.add("이동 동선 폭이 부족합니다.");
+                return false;
+            }
+        }
         return true;
+    }
+
+    private Rect clearanceRect(Room room, Opening opening, String openingType) {
+        double depth = "door".equals(openingType) ? DOOR_CLEARANCE_DEPTH : WINDOW_CLEARANCE_DEPTH;
+        double margin = "door".equals(openingType) ? DOOR_SIDE_MARGIN : WINDOW_SIDE_MARGIN;
+
+        return switch (opening.getWall()) {
+            case "north" -> new Rect(opening.getOffset() - margin,
+                    opening.getOffset() + opening.getWidth() + margin,
+                    room.getDepth() - depth, room.getDepth());
+            case "south" -> new Rect(opening.getOffset() - margin,
+                    opening.getOffset() + opening.getWidth() + margin,
+                    0, depth);
+            case "east" -> new Rect(room.getWidth() - depth, room.getWidth(),
+                    opening.getOffset() - margin, opening.getOffset() + opening.getWidth() + margin);
+            case "west" -> new Rect(0, depth,
+                    opening.getOffset() - margin, opening.getOffset() + opening.getWidth() + margin);
+            default -> new Rect(0, 0, 0, 0);
+        };
+    }
+
+    private double windowSillHeight(Opening opening) {
+        return opening.getSillHeight() == null ? 0 : opening.getSillHeight();
+    }
+
+    private record Rect(double minX, double maxX, double minZ, double maxZ) {
+
+        private static Rect from(Furniture furniture) {
+            double halfWidth = furniture.getWidth() / 2.0;
+            double halfDepth = furniture.getDepth() / 2.0;
+            return new Rect(
+                    furniture.getPosition().getX() - halfWidth,
+                    furniture.getPosition().getX() + halfWidth,
+                    furniture.getPosition().getZ() - halfDepth,
+                    furniture.getPosition().getZ() + halfDepth
+            );
+        }
+
+        private boolean overlaps(Rect other) {
+            return minX < other.maxX && maxX > other.minX
+                    && minZ < other.maxZ && maxZ > other.minZ;
+        }
+
+        private boolean contains(double x, double z) {
+            return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
+        }
+
+        private double depth() {
+            return maxZ - minZ;
+        }
     }
 }
