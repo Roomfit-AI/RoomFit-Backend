@@ -22,6 +22,8 @@ info:
     - DELETED 가구는 렌더링/검증에서 제외하는 것이 자연스럽습니다.
     - POST /api/layouts/validate는 저장하지 않습니다.
     - PUT /api/layouts/{layoutId}는 저장 + 재검증 + 점수 재계산을 수행합니다.
+    - POST /api/layouts/validate와 PUT /api/layouts/{layoutId}의 furniture 배열은 full furniture object가 아니라 id/position/rotation/status 중심의 compact update item 배열입니다.
+    - 이미 확정된 layout은 수정하거나 다시 확정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
     - 현재 MVP는 in-memory repository를 사용하므로 서버 재시작 시 업로드 room/context/layout 데이터가 초기화됩니다.
 servers:
   - url: http://localhost:8080
@@ -137,7 +139,7 @@ paths:
     put:
       tags: [Rooms]
       summary: 기존 가구 상태/위치 수정
-      description: 기존 가구를 삭제하거나 위치/회전/상태를 수정합니다. 예를 들어 기존 책상을 DELETED로 변경한 뒤 새 책상을 추천받을 수 있습니다.
+      description: 기존 가구를 삭제하거나 상태를 수정합니다. id와 status는 필수이며, status만 변경할 때 position/rotation은 생략할 수 있습니다. position/rotation을 생략하면 기존 위치와 회전값을 유지합니다. 가구 위치를 실제로 변경할 때는 position과 rotation을 함께 전달해야 합니다. 예를 들어 기존 책상을 DELETED로 변경한 뒤 새 책상을 추천받을 수 있습니다.
       parameters:
         - $ref: "#/components/parameters/RoomId"
       requestBody:
@@ -253,7 +255,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 현재 배치 검증
-      description: 사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 가구 목록을 전달해야 합니다. 일부 가구만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
+      description: 사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
       requestBody:
         required: true
         content:
@@ -290,7 +292,7 @@ paths:
     put:
       tags: [Layouts]
       summary: 수정 배치 저장
-      description: 사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다.
+      description: 사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
       parameters:
         - $ref: "#/components/parameters/LayoutId"
       requestBody:
@@ -365,7 +367,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 최종 배치 확정
-      description: 사용자가 추천 또는 수정한 배치를 최종 확정합니다.
+      description: 사용자가 추천 또는 수정한 배치를 최종 확정합니다. 이미 확정된 layout은 다시 확정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
       parameters:
         - $ref: "#/components/parameters/LayoutId"
       responses:
@@ -439,7 +441,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorCommonResponse"
     AlreadyConfirmed:
-      description: Already confirmed
+      description: Already confirmed. 이미 확정된 layout은 수정하거나 다시 확정할 수 없습니다.
       content:
         application/json:
           schema:
@@ -674,17 +676,33 @@ components:
           example: 1.0
     FurnitureUpdateRequest:
       type: object
+      required: [furnitureUpdates]
+      description: 기존 방 가구의 상태 변경 요청. 각 항목의 id와 status는 필수입니다. status-only 요청이 가능하며 position/rotation을 생략하면 기존 위치와 회전값을 유지합니다. 위치를 실제로 변경하는 요청에서는 position과 rotation을 함께 전달해야 합니다.
       properties:
         furnitureUpdates:
+          description: 상태를 변경할 기존 가구 목록. status만 바꾸는 경우 id/status만 전달합니다.
           type: array
           items:
             type: object
+            required: [id, status]
+            description: 기존 가구 상태 변경 항목. id/status는 필수이며 position/rotation은 선택값입니다.
             properties:
               id:
                 type: string
+                description: 기존 가구 ID. 필수입니다.
+                example: desk-1
               status:
                 type: string
+                description: 변경할 상태. 필수입니다.
                 enum: [EXISTING, DELETED, RECOMMENDED, USER_MODIFIED]
+                example: DELETED
+              position:
+                description: 선택값. 생략하면 기존 위치를 유지합니다. 위치를 변경할 때는 rotation과 함께 전달합니다.
+                $ref: "#/components/schemas/Position"
+              rotation:
+                type: number
+                description: 선택값. 생략하면 기존 회전값을 유지합니다. 위치를 변경할 때는 position과 함께 전달합니다.
+                example: 90
     StyleImageListResponse:
       allOf:
         - $ref: "#/components/schemas/CommonResponse"
@@ -949,36 +967,40 @@ components:
           type: string
     FurniturePositionDto:
       type: object
-      description: 검증/수정 저장 시 사용하는 가구 위치 DTO
+      description: 검증/수정 저장 시 사용하는 compact update item. full furniture object가 아니며 type/label/width/depth/height/productId/styleTags는 요청에서 다시 전달하지 않습니다.
       properties:
         id:
           type: string
           description: 가구 ID. 기존 recommendedFurniture의 id와 일치해야 합니다.
         position:
+          description: x-z 평면에서의 가구 중심 좌표
           $ref: "#/components/schemas/Position"
         rotation:
           type: number
+          description: degree 단위 회전 각도
         status:
           type: string
+          description: 가구 상태. update 요청에서 사용하며 validate 요청에서는 null 가능
           nullable: true
           enum: [EXISTING, DELETED, RECOMMENDED, USER_MODIFIED]
     ValidateRequest:
       type: object
-      description: 현재 화면 배치 검증 요청. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 가구 목록을 전달해야 합니다. 일부 가구만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
+      description: 현재 화면 배치 검증 요청. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
       properties:
         layoutId:
           type: integer
           format: int64
         furniture:
-          description: 프론트 화면의 현재 가구 배치 전체 배열. 현재 layoutId에 포함된 전체 가구 목록을 전달해야 하며, 일부 가구만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
+          description: 프론트 화면의 현재 가구 배치 전체 배열. 전체 가구 배열은 모든 furniture id를 포함한다는 뜻이며, type/label/width/depth/height/productId/styleTags 같은 추천 결과 메타데이터를 다시 보내는 뜻은 아닙니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
           type: array
           items:
             $ref: "#/components/schemas/FurniturePositionDto"
     LayoutUpdateRequest:
       type: object
-      description: 수정 배치 저장 요청. 저장 후 validationResult와 scoreSummary를 다시 계산합니다.
+      description: 수정 배치 저장 요청. 저장 후 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다.
       properties:
         furniture:
+          description: 저장할 최종 가구 배치 전체 배열. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 update item입니다. width/depth/height/productId/styleTags 등은 백엔드 추천 결과 메타데이터이며 요청에서 다시 전달하지 않습니다.
           type: array
           items:
             $ref: "#/components/schemas/FurniturePositionDto"

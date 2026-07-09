@@ -21,6 +21,25 @@ http://localhost:8080
     "message": "존재하지 않는 방입니다."
   }
 }
+
+에러 처리 원칙
+
+프론트는 error.message 문자열보다 error.code를 기준으로 분기하는 것을 권장합니다.
+실제 에러 코드는 Swagger 또는 응답 body의 error.code를 기준으로 처리합니다.
+대표 에러 코드 예시는 아래와 같습니다.
+
+- INVALID_REQUEST_BODY
+- INVALID_LIFESTYLE_GOAL
+- INVALID_DESIGN_STYLE
+- INVALID_FURNITURE_TYPE
+- INVALID_ROTATION
+- INVALID_FURNITURE_POSITION
+- FURNITURE_ARRAY_MISMATCH
+- PRODUCT_NOT_FOUND
+- ROOM_NOT_FOUND
+- LAYOUT_NOT_FOUND
+- ALREADY_CONFIRMED
+
 1. 샘플 방 목록 조회
 GET /api/rooms/samples
 용도
@@ -168,27 +187,17 @@ PUT /api/rooms/{roomId}/furniture
 
 기존 가구 삭제, 유지, 위치 변경 상태를 저장합니다.
 예를 들어 기존 책상을 삭제하고 새 책상을 추천받고 싶을 때 사용합니다.
+각 furniture update item에서 id와 status는 필수입니다.
+position과 rotation은 선택값이며, 생략하면 기존 위치와 회전값을 유지합니다.
+삭제/상태 변경만 할 때는 position, rotation을 강제하지 않습니다.
+가구 위치를 실제로 변경할 때는 position과 rotation을 함께 전달해야 합니다.
 
 Request
 {
   "furnitureUpdates": [
     {
-      "id": "bed-1",
-      "status": "EXISTING",
-      "position": {
-        "x": 0.8,
-        "z": 1.4
-      },
-      "rotation": 0
-    },
-    {
       "id": "desk-1",
-      "status": "DELETED",
-      "position": {
-        "x": 2.7,
-        "z": 0.4
-      },
-      "rotation": 90
+      "status": "DELETED"
     }
   ]
 }
@@ -370,26 +379,42 @@ POST /api/layouts/validate
 
 드래그 중 실시간 검증에 사용합니다.
 저장은 하지 않고 검증 결과만 반환합니다.
+POST /api/layouts/validate는 현재 layout의 전체 furniture id 목록을 포함한 배열을 받아 검증합니다.
+여기서 전체 가구 배열이란 모든 furniture id를 포함해야 한다는 뜻이지, 각 가구의 모든 메타데이터 필드를 보내야 한다는 뜻이 아닙니다.
+각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다.
+width, depth, height, productId, styleTags 등은 백엔드 추천 결과가 가진 메타데이터이며 요청에서 다시 전달하지 않습니다.
+일부 furniture id만 보내는 partial furniture array는 FURNITURE_ARRAY_MISMATCH를 발생시킬 수 있습니다.
 
 Request
 {
   "layoutId": 1,
   "furniture": [
     {
+      "id": "bed-1",
+      "position": {
+        "x": 0.8,
+        "z": 1.4
+      },
+      "rotation": 0,
+      "status": "EXISTING"
+    },
+    {
       "id": "desk-rec-1",
-      "type": "desk",
-      "label": "화이트 미니멀 책상",
-      "width": 1.2,
-      "depth": 0.6,
-      "height": 0.72,
       "position": {
         "x": 2.3,
         "z": 1.0
       },
       "rotation": 0,
-      "status": "USER_MODIFIED",
-      "productId": "desk-01",
-      "styleTags": ["minimal", "white_tone", "study"]
+      "status": "USER_MODIFIED"
+    },
+    {
+      "id": "chair-rec-1",
+      "position": {
+        "x": 2.3,
+        "z": 1.8
+      },
+      "rotation": 0,
+      "status": "USER_MODIFIED"
     }
   ]
 }
@@ -438,25 +463,40 @@ PUT /api/layouts/{layoutId}
 용도
 
 사용자가 드래그로 수정한 최종 배치를 저장하고, 점수와 검증 결과를 다시 계산합니다.
+PUT /api/layouts/{layoutId}도 현재 layout의 전체 furniture id 목록을 포함한 compact update item 배열을 받습니다.
+각 item은 id, position, rotation, status 중심이며 type, label, width, depth, height, productId, styleTags는 요청 필드가 아닙니다.
+일부 furniture id만 보내는 partial furniture array는 FURNITURE_ARRAY_MISMATCH를 발생시킬 수 있습니다.
+이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
 
 Request
 {
   "furniture": [
     {
+      "id": "bed-1",
+      "position": {
+        "x": 0.8,
+        "z": 1.4
+      },
+      "rotation": 0,
+      "status": "EXISTING"
+    },
+    {
       "id": "desk-rec-1",
-      "type": "desk",
-      "label": "화이트 미니멀 책상",
-      "width": 1.2,
-      "depth": 0.6,
-      "height": 0.72,
       "position": {
         "x": 2.3,
         "z": 1.0
       },
       "rotation": 0,
-      "status": "USER_MODIFIED",
-      "productId": "desk-01",
-      "styleTags": ["minimal", "white_tone", "study"]
+      "status": "USER_MODIFIED"
+    },
+    {
+      "id": "chair-rec-1",
+      "position": {
+        "x": 2.3,
+        "z": 1.8
+      },
+      "rotation": 0,
+      "status": "USER_MODIFIED"
     }
   ]
 }
@@ -488,11 +528,18 @@ Response
   },
   "error": null
 }
+
+주요 에러
+
+- 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
+- 409 ALREADY_CONFIRMED: 이미 확정된 layout은 수정할 수 없습니다.
+
 11. 최종 배치 확정
 POST /api/layouts/{layoutId}/confirm
 용도
 
 사용자가 최종 추천 배치를 확정할 때 사용합니다.
+이미 확정된 layout은 다시 확정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
 
 Request
 
@@ -510,6 +557,11 @@ Response
 }
 
 이 API는 실제 응답을 한 번 더 확인한 뒤 프론트에 넘기는 게 좋아.
+
+주요 에러
+
+- 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
+- 409 ALREADY_CONFIRMED: 이미 확정된 layout은 다시 확정할 수 없습니다.
 
 12. Enum 명세
 FurnitureStatus
@@ -552,3 +604,5 @@ ROOMPLAN
 7. POST /api/layouts/validate는 저장하지 않습니다.
 8. PUT /api/layouts/{layoutId}는 저장 + 검증 + scoreSummary 재계산입니다.
 9. RoomPlan 업로드 방도 GET /api/rooms/{roomId} 응답 구조로 동일하게 렌더링하면 됩니다.
+10. validate/update 요청의 furniture item은 compact update item입니다. 추천 결과의 width/depth/height/productId/styleTags 메타데이터를 다시 보내지 않습니다.
+11. 에러 분기는 error.message보다 error.code를 기준으로 처리하는 것을 권장합니다.
