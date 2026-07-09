@@ -25,8 +25,21 @@ class SwaggerUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(jsonPath("$.info.title").value("RoomFit-Backend"))
+                .andExpect(jsonPath("$.info.description", containsString("RoomFit MVP Demo Flow")))
                 .andExpect(jsonPath("$.paths['/api/rooms/upload']").exists())
                 .andExpect(jsonPath("$.paths['/api/products/mock']").exists());
+    }
+
+    @Test
+    void apiDocs_containsFrontendFriendlyDescriptionsAndExamples() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tags[?(@.name == 'Rooms')].description").exists())
+                .andExpect(jsonPath("$.paths['/api/layouts/recommend'].post.summary").value("배치 추천 생성"))
+                .andExpect(jsonPath("$.paths['/api/layouts/validate'].post.description", containsString("저장은 수행하지 않습니다")))
+                .andExpect(jsonPath("$.paths['/api/agent/context'].post.requestBody.content['application/json'].examples['Study focused context'].value.selectedProductIds[0]").value("desk-01"))
+                .andExpect(jsonPath("$.components.schemas.Furniture.description", containsString("x-z 평면 중심 좌표")))
+                .andExpect(jsonPath("$.components.schemas.ValidationResult.properties.validationItems.description", containsString("체크리스트")));
     }
 
     @Test

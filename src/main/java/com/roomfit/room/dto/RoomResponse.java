@@ -4,18 +4,27 @@ import com.roomfit.room.Furniture;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
 import com.roomfit.room.RoomSource;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Schema(description = "방 조회/업로드 응답. 프론트는 room/openings/furniture를 기준으로 Three.js 방을 렌더링합니다.")
 public class RoomResponse {
 
+    @Schema(description = "방 ID", example = "1")
     private final Long roomId;
+    @Schema(description = "방 이름", example = "RoomPlan Scan Room")
     private final String name;
+    @Schema(description = "방 크기 정보. 모든 단위는 meter입니다.")
     private final RoomDimension room;
+    @Schema(description = "문/창문 목록")
     private final List<Opening> openings;
+    @Schema(description = "기존/추천/수정 가구 목록")
     private final List<Furniture> furniture;
+    @Schema(description = "방 데이터 출처", example = "SAMPLE")
     private final RoomSource source;
+    @Schema(description = "방 생성 시각", example = "2026-07-09T02:13:15.411289")
     private final LocalDateTime createdAt;
 
     private RoomResponse(Long roomId, String name, RoomDimension room, List<Opening> openings,
@@ -63,10 +72,15 @@ public class RoomResponse {
         return createdAt;
     }
 
+    @Schema(description = "방 크기. width/depth/height는 meter 단위입니다.")
     public static class RoomDimension {
+        @Schema(description = "방 가로 길이(meter)", example = "3.2")
         private final double width;
+        @Schema(description = "방 깊이(meter)", example = "4.5")
         private final double depth;
+        @Schema(description = "방 높이(meter)", example = "2.4")
         private final double height;
+        @Schema(description = "단위. MVP에서는 meter를 사용합니다.", example = "meter")
         private final String unit;
 
         public RoomDimension(double width, double depth, double height, String unit) {

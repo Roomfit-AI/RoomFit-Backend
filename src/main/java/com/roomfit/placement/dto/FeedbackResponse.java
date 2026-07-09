@@ -5,17 +5,25 @@ import com.roomfit.placement.RecommendationStatus;
 import com.roomfit.placement.ScoreSummary;
 import com.roomfit.placement.ValidationResult;
 import com.roomfit.room.Furniture;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 import java.util.Map;
 
+@Schema(description = "사용자 피드백 기반 재추천 응답")
 public class FeedbackResponse {
 
+    @Schema(description = "새로 생성된 배치 ID", example = "2")
     private final Long layoutId;
+    @Schema(description = "재추천 상태", example = "SUCCESS")
     private final RecommendationStatus status;
+    @Schema(description = "피드백을 반영한 추천 가구 배열")
     private final List<Furniture> recommendedFurniture;
+    @Schema(description = "재추천 점수 요약")
     private final ScoreSummary scoreSummary;
+    @Schema(description = "재추천 배치 검증 결과")
     private final ValidationResult validationResult;
+    @Schema(description = "피드백 문장을 해석한 내부 의도. 프론트 디버깅/표시에 사용할 수 있습니다.")
     private final Map<String, Object> interpretedIntent;
 
     private FeedbackResponse(Long layoutId, RecommendationStatus status, List<Furniture> recommendedFurniture,
