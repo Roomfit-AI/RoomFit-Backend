@@ -42,14 +42,14 @@ public class LayoutController {
     }
 
     @PostMapping("/validate")
-    @Operation(summary = "현재 배치 검증", description = "사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 가구 목록을 전달해야 합니다. 일부 가구만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.")
+    @Operation(summary = "현재 배치 검증", description = "사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "배치 검증 성공"),
             @ApiResponse(responseCode = "400", description = "요청 furniture 배열이 기존 배치와 일치하지 않음"),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "검증할 현재 가구 배치 전체 배열",
+            description = "검증할 현재 가구 배치 전체 배열. 전체 furniture id를 포함하되 full furniture object는 보내지 않습니다.",
             required = true,
             content = @Content(examples = @ExampleObject(name = "Validate current layout", value = """
                     {
@@ -66,15 +66,15 @@ public class LayoutController {
     }
 
     @PutMapping("/{layoutId}")
-    @Operation(summary = "수정 배치 저장", description = "사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다.")
+    @Operation(summary = "수정 배치 저장", description = "사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "수정 배치 저장 성공"),
             @ApiResponse(responseCode = "400", description = "잘못된 가구 배열, 위치, 회전 또는 status"),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId"),
-            @ApiResponse(responseCode = "409", description = "이미 확정된 배치")
+            @ApiResponse(responseCode = "409", description = "이미 확정된 배치(ALREADY_CONFIRMED)")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "저장할 최종 가구 배치 전체 배열",
+            description = "저장할 최종 가구 배치 전체 배열. 전체 furniture id를 포함하되 full furniture object는 보내지 않습니다.",
             required = true,
             content = @Content(examples = @ExampleObject(name = "Save modified layout", value = """
                     {
@@ -91,11 +91,11 @@ public class LayoutController {
     }
 
     @PostMapping("/{layoutId}/confirm")
-    @Operation(summary = "최종 배치 확정", description = "사용자가 추천 또는 수정한 배치를 최종 확정합니다.")
+    @Operation(summary = "최종 배치 확정", description = "사용자가 추천 또는 수정한 배치를 최종 확정합니다. 이미 확정된 layout은 다시 확정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "최종 배치 확정 성공"),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId"),
-            @ApiResponse(responseCode = "409", description = "이미 확정된 배치")
+            @ApiResponse(responseCode = "409", description = "이미 확정된 배치(ALREADY_CONFIRMED)")
     })
     public CommonResponse<ConfirmResponse> confirmLayout(@PathVariable Long layoutId) {
         return CommonResponse.ok(layoutService.confirmLayout(layoutId));

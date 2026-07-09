@@ -91,14 +91,14 @@ public class RoomController {
     }
 
     @PutMapping("/{roomId}/furniture")
-    @Operation(summary = "기존 가구 상태/위치 수정", description = "기존 가구를 삭제하거나 위치/회전/상태를 수정합니다. 예를 들어 기존 책상을 DELETED로 변경한 뒤 새 책상을 추천받을 수 있습니다.")
+    @Operation(summary = "기존 가구 상태/위치 수정", description = "기존 가구를 삭제하거나 상태를 수정합니다. id와 status는 필수이며, status만 변경할 때 position/rotation은 생략할 수 있습니다. position/rotation을 생략하면 기존 위치와 회전값을 유지합니다. 가구 위치를 실제로 변경할 때는 position과 rotation을 함께 전달해야 합니다. 예를 들어 기존 책상을 DELETED로 변경한 뒤 새 책상을 추천받을 수 있습니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "기존 가구 상태 수정 성공"),
             @ApiResponse(responseCode = "400", description = "잘못된 가구 status"),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 roomId 또는 furniture id")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "기존 가구 상태 변경 요청",
+            description = "기존 가구 상태 변경 요청. status-only 요청은 id/status만 전달합니다.",
             required = true,
             content = @Content(examples = @ExampleObject(name = "Delete existing desk", value = """
                     {
