@@ -45,7 +45,7 @@ public class LayoutController {
     @Operation(summary = "현재 배치 검증", description = "사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "배치 검증 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 furniture 배열이 기존 배치와 일치하지 않음"),
+            @ApiResponse(responseCode = "400", description = "FURNITURE_ARRAY_MISMATCH, FURNITURE_NOT_FOUND, INVALID_ROTATION, INVALID_FURNITURE_POSITION, INVALID_FURNITURE_STATUS"),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -69,7 +69,7 @@ public class LayoutController {
     @Operation(summary = "수정 배치 저장", description = "사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "수정 배치 저장 성공"),
-            @ApiResponse(responseCode = "400", description = "잘못된 가구 배열, 위치, 회전 또는 status"),
+            @ApiResponse(responseCode = "400", description = "FURNITURE_ARRAY_MISMATCH, FURNITURE_NOT_FOUND, INVALID_ROTATION, INVALID_FURNITURE_POSITION, INVALID_FURNITURE_STATUS"),
             @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId"),
             @ApiResponse(responseCode = "409", description = "이미 확정된 배치(ALREADY_CONFIRMED)")
     })
@@ -106,8 +106,8 @@ public class LayoutController {
     @Operation(summary = "사용자 피드백 기반 재추천", description = "사용자의 자연어 피드백을 바탕으로 기존 배치를 조정하거나 재추천합니다. MVP에서는 제한적인 규칙 기반 피드백을 지원합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "피드백 기반 재추천 성공"),
-            @ApiResponse(responseCode = "400", description = "지원하지 않는 피드백"),
-            @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId")
+            @ApiResponse(responseCode = "400", description = "UNSUPPORTED_FEEDBACK_INTENT"),
+            @ApiResponse(responseCode = "404", description = "LAYOUT_NOT_FOUND, CONTEXT_NOT_FOUND, ROOM_NOT_FOUND")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "지원 피드백: 책상 더 크게, 수납 늘려줘, 방이 넓어 보이게",

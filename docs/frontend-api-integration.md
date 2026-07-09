@@ -29,9 +29,17 @@ http://localhost:8080
 대표 에러 코드 예시는 아래와 같습니다.
 
 - INVALID_REQUEST_BODY
+- CONTEXT_NOT_FOUND
+- FURNITURE_NOT_FOUND
+- STYLE_IMAGE_NOT_FOUND
+- INVALID_FURNITURE_STATUS
 - INVALID_LIFESTYLE_GOAL
 - INVALID_DESIGN_STYLE
 - INVALID_FURNITURE_TYPE
+- INVALID_ROOM_DIMENSION
+- INVALID_OPENING_DATA
+- REQUIRED_ITEM_EMPTY
+- STYLE_IMAGE_EMPTY
 - INVALID_ROTATION
 - INVALID_FURNITURE_POSITION
 - FURNITURE_ARRAY_MISMATCH
@@ -39,6 +47,8 @@ http://localhost:8080
 - ROOM_NOT_FOUND
 - LAYOUT_NOT_FOUND
 - ALREADY_CONFIRMED
+- UNSUPPORTED_FEEDBACK_INTENT
+- RECOMMENDATION_FAILED
 
 1. 샘플 방 목록 조회
 GET /api/rooms/samples
@@ -167,7 +177,7 @@ Response
   "success": true,
   "data": {
     "roomId": 3,
-    "name": "RoomPlan Scan Room #3",
+    "name": "RoomPlan Scan Room",
     "room": {
       "width": 3.2,
       "depth": 4.5,
@@ -181,16 +191,15 @@ Response
   },
   "error": null
 }
-4. 기존 가구 상태 수정
+4. 기존 가구 상태 변경
 PUT /api/rooms/{roomId}/furniture
 용도
 
-기존 가구 삭제, 유지, 위치 변경 상태를 저장합니다.
+기존 방 가구를 DELETED 등으로 상태 변경합니다.
 예를 들어 기존 책상을 삭제하고 새 책상을 추천받고 싶을 때 사용합니다.
 각 furniture update item에서 id와 status는 필수입니다.
-position과 rotation은 선택값이며, 생략하면 기존 위치와 회전값을 유지합니다.
-삭제/상태 변경만 할 때는 position, rotation을 강제하지 않습니다.
-가구 위치를 실제로 변경할 때는 position과 rotation을 함께 전달해야 합니다.
+요청 필드명은 layout validate/update의 furniture가 아니라 furnitureUpdates입니다.
+이 API는 기존 가구 상태 변경 전용이며, 가구 위치 변경은 layout validate/update 흐름에서 처리합니다.
 
 Request
 {
@@ -312,6 +321,18 @@ Response
   },
   "error": null
 }
+
+주요 에러
+
+- 400 INVALID_LIFESTYLE_GOAL: lifestyleGoal 값이 올바르지 않습니다.
+- 400 INVALID_DESIGN_STYLE: designStyle 값이 올바르지 않습니다.
+- 400 INVALID_FURNITURE_TYPE: requiredItems 또는 optionalItems의 가구 타입 값이 올바르지 않습니다.
+- 400 REQUIRED_ITEM_EMPTY: requiredItems가 비어 있습니다.
+- 400 STYLE_IMAGE_EMPTY: selectedImageIds가 비어 있습니다.
+- 400 PRODUCT_NOT_FOUND: selectedProductIds에 존재하지 않는 Mock Product ID가 포함되어 있습니다.
+- 404 ROOM_NOT_FOUND: roomId가 존재하지 않습니다.
+- 404 STYLE_IMAGE_NOT_FOUND: selectedImageIds에 존재하지 않는 스타일 이미지 ID가 포함되어 있습니다.
+
 8. 배치 추천 생성
 POST /api/layouts/recommend
 용도
@@ -458,6 +479,16 @@ Response
   },
   "error": null
 }
+
+주요 에러
+
+- 400 FURNITURE_ARRAY_MISMATCH: 현재 layout의 전체 furniture id 목록과 요청 furniture 배열이 일치하지 않습니다.
+- 400 FURNITURE_NOT_FOUND: 요청 furniture 배열에 현재 layout에 없는 id가 포함되어 있습니다.
+- 400 INVALID_ROTATION: rotation 값이 올바르지 않습니다.
+- 400 INVALID_FURNITURE_POSITION: position 값이 방 범위를 벗어났거나 누락되었습니다.
+- 400 INVALID_FURNITURE_STATUS: status 값이 올바르지 않습니다.
+- 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
+
 10. 배치 수정 저장
 PUT /api/layouts/{layoutId}
 용도
@@ -506,7 +537,24 @@ Response
   "data": {
     "layoutId": 1,
     "status": "SUCCESS",
-    "recommendedFurniture": [],
+    "recommendedFurniture": [
+      {
+        "id": "desk-rec-1",
+        "type": "desk",
+        "label": "화이트 미니멀 책상",
+        "width": 1.2,
+        "depth": 0.6,
+        "height": 0.72,
+        "position": {
+          "x": 2.3,
+          "z": 1.0
+        },
+        "rotation": 0,
+        "status": "USER_MODIFIED",
+        "productId": "desk-01",
+        "styleTags": ["minimal", "white_tone", "study"]
+      }
+    ],
     "scoreSummary": {
       "collisionScore": 100,
       "boundaryScore": 100,
@@ -531,10 +579,83 @@ Response
 
 주요 에러
 
+- 400 FURNITURE_ARRAY_MISMATCH: 현재 layout의 전체 furniture id 목록과 요청 furniture 배열이 일치하지 않습니다.
+- 400 FURNITURE_NOT_FOUND: 요청 furniture 배열에 현재 layout에 없는 id가 포함되어 있습니다.
+- 400 INVALID_ROTATION: rotation 값이 올바르지 않습니다.
+- 400 INVALID_FURNITURE_POSITION: position 값이 방 범위를 벗어났거나 누락되었습니다.
+- 400 INVALID_FURNITURE_STATUS: status 값이 올바르지 않습니다.
 - 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
 - 409 ALREADY_CONFIRMED: 이미 확정된 layout은 수정할 수 없습니다.
 
-11. 최종 배치 확정
+11. 사용자 피드백 기반 재추천
+POST /api/layouts/feedback
+용도
+
+사용자의 자연어 피드백을 바탕으로 기존 배치를 조정하거나 재추천합니다.
+현재 MVP에서는 "책상 더 크게", "수납 늘려줘", "방이 넓어 보이게" 문장을 지원합니다.
+
+Request
+{
+  "layoutId": 1,
+  "feedback": "책상 더 크게"
+}
+Response
+{
+  "success": true,
+  "data": {
+    "layoutId": 2,
+    "status": "SUCCESS",
+    "recommendedFurniture": [
+      {
+        "id": "desk-rec-1",
+        "type": "desk",
+        "label": "화이트 미니멀 책상",
+        "width": 1.4,
+        "depth": 0.6,
+        "height": 0.72,
+        "position": {
+          "x": 2.3,
+          "z": 1.0
+        },
+        "rotation": 0,
+        "status": "RECOMMENDED",
+        "productId": "desk-01",
+        "styleTags": ["minimal", "white_tone", "study"]
+      }
+    ],
+    "scoreSummary": {
+      "collisionScore": 100,
+      "boundaryScore": 100,
+      "doorWindowScore": 100,
+      "pathScore": 100,
+      "goalScore": 95,
+      "styleScore": 95,
+      "totalScore": 590
+    },
+    "validationResult": {
+      "collisionFree": true,
+      "boundaryValid": true,
+      "doorClearance": true,
+      "windowClearance": true,
+      "pathSecured": true,
+      "validationItems": [],
+      "warnings": []
+    },
+    "interpretedIntent": {
+      "deskMinWidth": 1.4
+    }
+  },
+  "error": null
+}
+
+주요 에러
+
+- 400 UNSUPPORTED_FEEDBACK_INTENT: 지원하지 않는 피드백 문장입니다.
+- 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
+- 404 CONTEXT_NOT_FOUND: layout에 연결된 contextId가 존재하지 않습니다.
+- 404 ROOM_NOT_FOUND: layout에 연결된 roomId가 존재하지 않습니다.
+
+12. 최종 배치 확정
 POST /api/layouts/{layoutId}/confirm
 용도
 
@@ -551,7 +672,8 @@ Response
   "success": true,
   "data": {
     "layoutId": 1,
-    "confirmed": true
+    "confirmed": true,
+    "confirmedAt": "2026-07-09T02:55:10.123456"
   },
   "error": null
 }
@@ -563,7 +685,7 @@ Response
 - 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
 - 409 ALREADY_CONFIRMED: 이미 확정된 layout은 다시 확정할 수 없습니다.
 
-12. Enum 명세
+13. Enum 명세
 FurnitureStatus
 EXISTING
 DELETED
@@ -594,7 +716,7 @@ FALLBACK
 RoomSource
 SAMPLE
 ROOMPLAN
-13. 프론트 구현 핵심 주의사항
+14. 프론트 구현 핵심 주의사항
 1. 모든 길이 단위는 meter입니다.
 2. 좌표는 x-z 평면입니다.
 3. position은 가구의 중심 좌표입니다.
