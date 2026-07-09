@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -25,34 +27,61 @@ import java.util.stream.Collectors;
 @Service
 public class RuleBasedPlacementService implements PlacementService {
 
+    private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
+            FurnitureStatus.EXISTING,
+            FurnitureStatus.USER_MODIFIED
+    );
+
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
         List<Furniture> recommended = new ArrayList<>();
         recommended.addAll(room.getFurniture().stream()
-                .filter(furniture -> furniture.getStatus() == FurnitureStatus.EXISTING)
+                .filter(this::isActivePlacedFurniture)
                 .map(this::copyFurniture)
                 .toList());
 
         Map<String, MockProduct> selectedProductByType = context.getSelectedProducts().stream()
                 .collect(Collectors.toMap(MockProduct::getType, Function.identity(), (first, ignored) -> first));
 
-        List<String> placementItems = new ArrayList<>(context.getRequiredItems());
-        placementItems.addAll(context.getOptionalItems());
+        Set<String> placedTypes = recommended.stream()
+                .map(Furniture::getType)
+                .collect(Collectors.toSet());
 
-        for (int index = 0; index < placementItems.size(); index++) {
-            String itemType = placementItems.get(index);
-            recommended.add(createRecommendedFurniture(itemType, index, selectedProductByType.get(itemType)));
+        for (String itemType : context.getRequiredItems()) {
+            if (placedTypes.contains(itemType)) {
+                continue;
+            }
+            tryAddFurniture(room, recommended, itemType, selectedProductByType.get(itemType))
+                    .ifPresent(furniture -> placedTypes.add(furniture.getType()));
+        }
+
+        for (String itemType : context.getOptionalItems()) {
+            if (placedTypes.contains(itemType)) {
+                continue;
+            }
+            tryAddFurniture(room, recommended, itemType, selectedProductByType.get(itemType))
+                    .ifPresent(furniture -> placedTypes.add(furniture.getType()));
         }
 
         return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary());
     }
 
-    private Furniture createRecommendedFurniture(String itemType, int index, MockProduct product) {
+    private Optional<Furniture> tryAddFurniture(Room room, List<Furniture> placed,
+                                                String itemType, MockProduct product) {
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
-        Position position = recommendedPosition(index);
+        for (Position position : candidatePositions(itemType, spec, room, placed)) {
+            Furniture candidate = createRecommendedFurniture(itemType, spec, position);
+            if (fitsInRoom(room, candidate) && doesNotCollide(placed, candidate)) {
+                placed.add(candidate);
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
 
+    private Furniture createRecommendedFurniture(String itemType, FurnitureSpec spec, Position position) {
         return new Furniture(
-                itemType + "-rec-" + (index + 1),
+                itemType + "-rec-1",
                 itemType,
                 spec.label(),
                 spec.width(),
@@ -66,14 +95,103 @@ public class RuleBasedPlacementService implements PlacementService {
         );
     }
 
-    private Position recommendedPosition(int index) {
-        List<Position> positions = List.of(
-                new Position(2.2, 2.0),
-                new Position(1.6, 3.1),
-                new Position(1.1, 3.6),
-                new Position(0.8, 3.3)
-        );
-        return positions.get(index % positions.size());
+    private List<Position> candidatePositions(String itemType, FurnitureSpec spec,
+                                               Room room, List<Furniture> placed) {
+        return switch (itemType) {
+            case "desk" -> List.of(
+                    new Position(2.3, 1.0),
+                    new Position(2.4, 1.4),
+                    new Position(2.3, 2.0),
+                    new Position(room.getWidth() - spec.width() / 2.0, 1.0)
+            );
+            case "chair" -> chairCandidatePositions(spec, placed);
+            case "lamp" -> lampCandidatePositions(placed);
+            case "storage" -> List.of(
+                    new Position(2.7, 3.9),
+                    new Position(0.6, 3.7),
+                    new Position(2.6, 2.8)
+            );
+            case "rug" -> List.of(
+                    new Position(1.1, 3.3),
+                    new Position(1.8, 2.9),
+                    new Position(1.6, 3.4)
+            );
+            case "bed" -> List.of(
+                    new Position(0.8, 1.4),
+                    new Position(0.8, 3.1),
+                    new Position(1.1, 2.8)
+            );
+            default -> List.of(
+                    new Position(2.2, 2.0),
+                    new Position(1.6, 3.1),
+                    new Position(0.8, 3.3)
+            );
+        };
+    }
+
+    private List<Position> chairCandidatePositions(FurnitureSpec spec, List<Furniture> placed) {
+        return findPlacedByType(placed, "desk")
+                .map(desk -> {
+                    double frontZ = desk.getPosition().getZ() + desk.getDepth() / 2.0 + spec.depth() / 2.0 + 0.25;
+                    double sideX = desk.getPosition().getX() - desk.getWidth() / 2.0 - spec.width() / 2.0 - 0.25;
+                    return List.of(
+                            new Position(desk.getPosition().getX(), frontZ),
+                            new Position(sideX, desk.getPosition().getZ()),
+                            new Position(desk.getPosition().getX(), desk.getPosition().getZ() + 1.0),
+                            new Position(2.3, 1.8)
+                    );
+                })
+                .orElse(List.of(
+                        new Position(2.3, 1.8),
+                        new Position(1.8, 2.7),
+                        new Position(2.5, 2.2)
+                ));
+    }
+
+    private List<Position> lampCandidatePositions(List<Furniture> placed) {
+        return findPlacedByType(placed, "desk")
+                .map(desk -> List.of(
+                        new Position(desk.getPosition().getX() + desk.getWidth() / 2.0 + 0.15,
+                                desk.getPosition().getZ()),
+                        new Position(desk.getPosition().getX() - desk.getWidth() / 2.0 - 0.15,
+                                desk.getPosition().getZ()),
+                        new Position(desk.getPosition().getX(), desk.getPosition().getZ() + 0.65)
+                ))
+                .orElse(List.of(
+                        new Position(2.0, 0.4),
+                        new Position(2.9, 1.0),
+                        new Position(1.7, 2.7)
+                ));
+    }
+
+    private Optional<Furniture> findPlacedByType(List<Furniture> placed, String type) {
+        return placed.stream()
+                .filter(furniture -> type.equals(furniture.getType()))
+                .findFirst();
+    }
+
+    private boolean isActivePlacedFurniture(Furniture furniture) {
+        return ACTIVE_STATUSES.contains(furniture.getStatus());
+    }
+
+    private boolean fitsInRoom(Room room, Furniture candidate) {
+        Rect rect = Rect.from(candidate);
+        return rect.minX() >= 0
+                && rect.maxX() <= room.getWidth()
+                && rect.minZ() >= 0
+                && rect.maxZ() <= room.getDepth();
+    }
+
+    private boolean doesNotCollide(List<Furniture> placed, Furniture candidate) {
+        Rect candidateRect = Rect.from(candidate);
+        return placed.stream()
+                .filter(this::isCollisionTarget)
+                .map(Rect::from)
+                .noneMatch(candidateRect::overlaps);
+    }
+
+    private boolean isCollisionTarget(Furniture furniture) {
+        return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 
     private Furniture copyFurniture(Furniture furniture) {
@@ -110,6 +228,25 @@ public class RuleBasedPlacementService implements PlacementService {
                 case "lamp" -> new FurnitureSpec("lamp", 0.25, 0.25, 1.4, null, List.of());
                 default -> new FurnitureSpec(itemType, 1.0, 0.6, 0.7, null, List.of());
             };
+        }
+    }
+
+    private record Rect(double minX, double maxX, double minZ, double maxZ) {
+
+        private static Rect from(Furniture furniture) {
+            double halfWidth = furniture.getWidth() / 2.0;
+            double halfDepth = furniture.getDepth() / 2.0;
+            return new Rect(
+                    furniture.getPosition().getX() - halfWidth,
+                    furniture.getPosition().getX() + halfWidth,
+                    furniture.getPosition().getZ() - halfDepth,
+                    furniture.getPosition().getZ() + halfDepth
+            );
+        }
+
+        private boolean overlaps(Rect other) {
+            return minX < other.maxX && maxX > other.minX
+                    && minZ < other.maxZ && maxZ > other.minZ;
         }
     }
 }

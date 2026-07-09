@@ -162,7 +162,7 @@ class AgentContextControllerTest {
                                   "selectedProductIds": ["missing-product"]
                                 }
                                 """))
-                .andExpect(status().isNotFound())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
     }
 

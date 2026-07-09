@@ -23,6 +23,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RoomListResponse"
+  /api/rooms/upload:
+    post:
+      tags: [Rooms]
+      summary: Upload RoomPlan RoomFit JSON
+      description: Stores uploaded RoomFit JSON as the backend source of truth and issues a roomId.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoomUploadRequest"
+            example:
+              name: RoomPlan Scan Room
+              room:
+                width: 3.2
+                depth: 4.5
+                height: 2.4
+                unit: meter
+              openings:
+                - id: door-1
+                  type: door
+                  wall: south
+                  offset: 0.7
+                  width: 0.8
+                  height: 2.1
+                - id: window-1
+                  type: window
+                  wall: north
+                  offset: 1.5
+                  width: 1.2
+                  height: 1.0
+                  sillHeight: 0.9
+              furniture:
+                - id: bed-1
+                  type: bed
+                  label: 침대
+                  width: 1.1
+                  depth: 2.0
+                  height: 0.45
+                  position:
+                    x: 0.8
+                    z: 1.4
+                  rotation: 0
+                  status: EXISTING
+      responses:
+        "201":
+          description: Uploaded room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCommonResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRoomUpload"
   /api/rooms/{roomId}:
     get:
       tags: [Rooms]
@@ -113,7 +166,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentContextCommonResponse"
         "400":
-          $ref: "#/components/responses/InvalidRequestBody"
+          description: Invalid request body or selected product id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
         "404":
           $ref: "#/components/responses/RoomNotFound"
   /api/layouts/recommend:
@@ -299,6 +356,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorCommonResponse"
+    InvalidRoomUpload:
+      description: Invalid uploaded room data
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
   schemas:
     CommonResponse:
       type: object
@@ -328,6 +391,8 @@ components:
             - INVALID_LIFESTYLE_GOAL
             - INVALID_DESIGN_STYLE
             - INVALID_FURNITURE_TYPE
+            - INVALID_ROOM_DIMENSION
+            - INVALID_OPENING_DATA
             - REQUIRED_ITEM_EMPTY
             - STYLE_IMAGE_EMPTY
             - INVALID_FURNITURE_POSITION
@@ -374,6 +439,8 @@ components:
         roomId:
           type: integer
           format: int64
+        name:
+          type: string
         room:
           $ref: "#/components/schemas/RoomDimension"
         openings:
@@ -382,6 +449,31 @@ components:
             $ref: "#/components/schemas/Opening"
         furniture:
           type: array
+          items:
+            $ref: "#/components/schemas/Furniture"
+        source:
+          type: string
+          enum: [SAMPLE, ROOMPLAN]
+        createdAt:
+          type: string
+          format: date-time
+    RoomUploadRequest:
+      type: object
+      required: [room]
+      properties:
+        name:
+          type: string
+          default: Uploaded Room
+        room:
+          $ref: "#/components/schemas/RoomDimension"
+        openings:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/Opening"
+        furniture:
+          type: array
+          default: []
           items:
             $ref: "#/components/schemas/Furniture"
     RoomDimension:
@@ -654,6 +746,7 @@ components:
           $ref: "#/components/schemas/ValidationResult"
     ScoreSummary:
       type: object
+      description: MVP rule-based score summary calculated from validation result, lifestyle goal, and style tag overlap.
       properties:
         totalScore:
           type: integer

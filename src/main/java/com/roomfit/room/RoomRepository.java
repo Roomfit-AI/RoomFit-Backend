@@ -36,4 +36,11 @@ public class RoomRepository {
                 .sorted((first, second) -> Long.compare(first.getId(), second.getId()))
                 .toList();
     }
+
+    public List<Room> findBySource(RoomSource source) {
+        return store.values().stream()
+                .filter(room -> room.getSource() == source)
+                .sorted((first, second) -> Long.compare(first.getId(), second.getId()))
+                .toList();
+    }
 }

@@ -25,17 +25,23 @@ public class LayoutService {
     private final RoomRepository roomRepository;
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
+    private final FeedbackParserService feedbackParserService;
+    private final ScoreService scoreService;
 
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
                           RoomRepository roomRepository,
                           PlacementService placementService,
-                          ValidationService validationService) {
+                          ValidationService validationService,
+                          FeedbackParserService feedbackParserService,
+                          ScoreService scoreService) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
         this.placementService = placementService;
         this.validationService = validationService;
+        this.feedbackParserService = feedbackParserService;
+        this.scoreService = scoreService;
     }
 
     public LayoutResponse recommend(RecommendRequest request) {
@@ -57,8 +63,11 @@ public class LayoutService {
         layoutRepository.save(layout);
 
         ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
+        ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
+        PlacementResult scoredPlacementResult = new PlacementResult(placementResult.getStatus(),
+                placementResult.getRecommendedFurniture(), scoreSummary);
 
-        return LayoutResponse.ofRecommendation(layout, placementResult, validationResult);
+        return LayoutResponse.ofRecommendation(layout, scoredPlacementResult, validationResult);
     }
 
     public ValidationResult validateOnly(ValidateRequest request) {
@@ -77,13 +86,16 @@ public class LayoutService {
         }
         Room room = roomRepository.findById(layout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        AgentContext context = agentContextRepository.findById(layout.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
 
         List<Furniture> updated = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         layout.setFurniture(updated);
         layoutRepository.save(layout);
 
         ValidationResult validationResult = validationService.validate(room, updated);
-        return LayoutResponse.ofUpdate(layout, validationResult);
+        ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
+        return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
     }
 
     public ConfirmResponse confirmLayout(Long layoutId) {
@@ -98,18 +110,21 @@ public class LayoutService {
 
     public FeedbackResponse feedback(FeedbackRequest request) {
         Layout baseLayout = findLayoutOrThrow(request.getLayoutId());
+        AgentContext context = agentContextRepository.findById(baseLayout.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
         Room room = roomRepository.findById(baseLayout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
-        FeedbackIntent intent = interpretFeedback(request.getFeedback());
+        FeedbackParserService.FeedbackIntent intent = feedbackParserService.parse(request.getFeedback());
         List<Furniture> recommended = applyFeedbackIntent(baseLayout.getFurniture(), intent);
 
         Layout newLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), recommended);
         layoutRepository.save(newLayout);
 
         ValidationResult validationResult = validationService.validate(room, recommended);
+        ScoreSummary scoreSummary = scoreService.calculate(context, recommended, validationResult);
         return FeedbackResponse.of(newLayout, RecommendationStatus.SUCCESS,
-                ScoreSummary.defaultSummary(), validationResult, intent.interpretedIntent());
+                scoreSummary, validationResult, intent.interpretedIntent());
     }
 
     private Layout findLayoutOrThrow(Long layoutId) {
@@ -201,19 +216,7 @@ public class LayoutService {
         }
     }
 
-    private FeedbackIntent interpretFeedback(String feedback) {
-        return switch (feedback) {
-            case "책상 더 크게" -> new FeedbackIntent(FeedbackIntentType.LARGER_DESK,
-                    Map.of("deskMinWidth", 1.4));
-            case "수납 늘려줘" -> new FeedbackIntent(FeedbackIntentType.STORAGE_PRIORITY,
-                    Map.of("storagePriority", "HIGH"));
-            case "방이 넓어 보이게" -> new FeedbackIntent(FeedbackIntentType.OPEN_SPACE_PRIORITY,
-                    Map.of("openSpacePriority", "HIGH"));
-            default -> throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
-        };
-    }
-
-    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackIntent intent) {
+    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackParserService.FeedbackIntent intent) {
         return switch (intent.type()) {
             case LARGER_DESK -> furniture.stream()
                     .map(this::copyWithLargerDesk)
@@ -284,12 +287,4 @@ public class LayoutService {
         );
     }
 
-    private enum FeedbackIntentType {
-        LARGER_DESK,
-        STORAGE_PRIORITY,
-        OPEN_SPACE_PRIORITY
-    }
-
-    private record FeedbackIntent(FeedbackIntentType type, Map<String, Object> interpretedIntent) {
-    }
 }

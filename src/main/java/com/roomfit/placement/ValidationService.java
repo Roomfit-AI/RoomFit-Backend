@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
 import org.springframework.stereotype.Service;
@@ -26,12 +27,15 @@ public class ValidationService {
 
     public ValidationResult validate(Room room, List<Furniture> furniture) {
         List<String> warnings = new ArrayList<>();
+        List<Furniture> activeFurniture = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .toList();
 
-        boolean collisionFree = checkCollisionFree(furniture, warnings);
-        boolean boundaryValid = checkBoundaryValid(room, furniture, warnings);
-        boolean doorClearance = checkOpeningClearance(room, furniture, "door", warnings);
-        boolean windowClearance = checkOpeningClearance(room, furniture, "window", warnings);
-        boolean pathSecured = checkPathSecured(room, furniture, warnings);
+        boolean collisionFree = checkCollisionFree(activeFurniture, warnings);
+        boolean boundaryValid = checkBoundaryValid(room, activeFurniture, warnings);
+        boolean doorClearance = checkOpeningClearance(room, activeFurniture, "door", warnings);
+        boolean windowClearance = checkOpeningClearance(room, activeFurniture, "window", warnings);
+        boolean pathSecured = checkPathSecured(room, activeFurniture, warnings);
 
         List<ValidationItem> validationItems = List.of(
                 new ValidationItem("collision", collisionFree, collisionFree ? "가구 충돌 없음" : "가구 충돌 발생"),
