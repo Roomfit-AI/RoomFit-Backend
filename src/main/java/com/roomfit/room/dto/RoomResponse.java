@@ -14,7 +14,7 @@ public class RoomResponse {
 
     @Schema(description = "방 ID", example = "1")
     private final Long roomId;
-    @Schema(description = "방 이름", example = "RoomPlan Scan Room")
+    @Schema(description = "백엔드가 부여하는 방 표시 이름. 프론트는 name을 고정 문자열로 가정하지 말고 응답값을 그대로 표시해야 합니다.", example = "RoomPlan Scan Room")
     private final String name;
     @Schema(description = "방 크기 정보. 모든 단위는 meter입니다.")
     private final RoomDimension room;

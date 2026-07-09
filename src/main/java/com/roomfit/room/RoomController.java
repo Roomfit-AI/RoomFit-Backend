@@ -45,9 +45,29 @@ public class RoomController {
 
     @PostMapping("/upload")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "RoomPlan JSON 업로드", description = "iOS RoomPlan App 또는 Mock/Manual 입력에서 생성한 RoomFit JSON을 백엔드에 저장하고 roomId를 발급합니다. 업로드된 방은 GET /api/rooms/{roomId}로 조회할 수 있습니다.")
+    @Operation(summary = "RoomPlan JSON 업로드", description = "iOS RoomPlan App 또는 Mock/Manual 입력에서 생성한 RoomFit JSON을 백엔드에 저장하고 roomId를 발급합니다. 업로드된 방은 GET /api/rooms/{roomId}로 조회할 수 있습니다. 응답의 name은 백엔드가 부여하는 방 표시 이름이며, 프론트는 name을 고정 문자열로 가정하지 말고 응답값을 그대로 표시해야 합니다.")
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "RoomFit JSON 업로드 성공"),
+            @ApiResponse(responseCode = "201", description = "RoomFit JSON 업로드 성공",
+                    content = @Content(examples = @ExampleObject(name = "Uploaded room response", value = """
+                            {
+                              "success": true,
+                              "data": {
+                                "roomId": 3,
+                                "name": "RoomPlan Scan Room #3",
+                                "room": {
+                                  "width": 3.2,
+                                  "depth": 4.5,
+                                  "height": 2.4,
+                                  "unit": "meter"
+                                },
+                                "openings": [],
+                                "furniture": [],
+                                "source": "ROOMPLAN",
+                                "createdAt": "2026-07-09T02:13:15.411289"
+                              },
+                              "error": null
+                            }
+                            """))),
             @ApiResponse(responseCode = "400", description = "잘못된 방 크기, 문/창문 데이터, 가구 위치 또는 요청 본문")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(

@@ -53,7 +53,7 @@ paths:
     post:
       tags: [Rooms]
       summary: RoomPlan JSON 업로드
-      description: iOS RoomPlan App 또는 Mock/Manual 입력에서 생성한 RoomFit JSON을 백엔드에 저장하고 roomId를 발급합니다. 업로드된 방은 GET /api/rooms/{roomId}로 조회할 수 있습니다.
+      description: iOS RoomPlan App 또는 Mock/Manual 입력에서 생성한 RoomFit JSON을 백엔드에 저장하고 roomId를 발급합니다. 업로드된 방은 GET /api/rooms/{roomId}로 조회할 수 있습니다. 응답의 name은 백엔드가 부여하는 방 표시 이름입니다. 프론트는 name을 고정 문자열로 가정하지 말고 응답값을 그대로 표시해야 합니다.
       requestBody:
         required: true
         content:
@@ -100,6 +100,21 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RoomCommonResponse"
+              example:
+                success: true
+                data:
+                  roomId: 3
+                  name: RoomPlan Scan Room #3
+                  room:
+                    width: 3.2
+                    depth: 4.5
+                    height: 2.4
+                    unit: meter
+                  openings: []
+                  furniture: []
+                  source: ROOMPLAN
+                  createdAt: "2026-07-09T02:13:15.411289"
+                error: null
         "400":
           $ref: "#/components/responses/InvalidRoomUpload"
   /api/rooms/{roomId}:
@@ -150,7 +165,7 @@ paths:
     get:
       tags: [Styles]
       summary: 스타일 이미지 목록 조회
-      description: 사용자가 선호 스타일을 선택할 수 있도록 스타일 이미지 목록을 반환합니다.
+      description: 사용자가 선호 스타일을 선택할 수 있도록 스타일 이미지 목록을 반환합니다. 스타일 이미지 응답은 Product API의 styleTags가 아니라 tags 필드를 사용합니다.
       responses:
         "200":
           description: Style images
@@ -158,6 +173,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StyleImageListResponse"
+              example:
+                success: true
+                data:
+                  - imageId: 1
+                    title: 화이트톤 미니멀 원룸
+                    imageUrl: /images/styles/minimal-white-1.jpg
+                    tags: [minimal, white_tone, open_space]
+                error: null
   /api/products/mock:
     get:
       tags: [Products]
@@ -515,7 +538,7 @@ components:
           example: 1
         name:
           type: string
-          description: 방 이름
+          description: 백엔드가 부여하는 방 표시 이름. 프론트는 name을 고정 문자열로 가정하지 말고 응답값을 그대로 표시해야 합니다.
           example: RoomPlan Scan Room
         room:
           description: 방 크기 정보. 모든 단위는 meter입니다.
@@ -541,7 +564,8 @@ components:
       properties:
         name:
           type: string
-          default: Uploaded Room
+          description: 업로드 요청에서 전달할 수 있는 방 이름. 생략하면 백엔드가 방 표시 이름을 부여합니다.
+          example: RoomPlan Scan Room
         room:
           $ref: "#/components/schemas/RoomDimension"
         openings:
@@ -672,16 +696,25 @@ components:
                 $ref: "#/components/schemas/StyleImage"
     StyleImage:
       type: object
+      description: 스타일 이미지 응답. Product API의 styleTags와 달리 스타일 이미지는 tags 필드를 사용합니다.
       properties:
         imageId:
           type: integer
           format: int64
+          description: 스타일 이미지 ID
+          example: 1
         title:
           type: string
+          description: 스타일 이미지 제목
+          example: 화이트톤 미니멀 원룸
         imageUrl:
           type: string
+          description: 스타일 이미지 URL
+          example: /images/styles/minimal-white-1.jpg
         tags:
           type: array
+          description: 스타일 이미지 태그 목록. 필드명은 styleTags가 아니라 tags입니다.
+          example: [minimal, white_tone, open_space]
           items:
             type: string
     MockProductListResponse:
