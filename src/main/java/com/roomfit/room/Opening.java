@@ -1,17 +1,27 @@
 package com.roomfit.room;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * 문/창문 도메인 모델.
  * wall: north/south/east/west, offset: 해당 벽 시작점 기준 떨어진 거리(meter)
  */
+@Schema(description = "방의 문/창문 정보")
 public class Opening {
 
+    @Schema(description = "문/창문 ID", example = "door-1")
     private String id;
+    @Schema(description = "문/창문 타입", example = "door", allowableValues = {"door", "window"})
     private String type;   // door, window
+    @Schema(description = "위치한 벽", example = "south", allowableValues = {"north", "south", "east", "west"})
     private String wall;   // north, south, east, west
+    @Schema(description = "해당 벽 시작점 기준 offset(meter)", example = "0.7")
     private double offset;
+    @Schema(description = "폭(meter)", example = "0.8")
     private double width;
+    @Schema(description = "높이(meter)", example = "2.1")
     private double height;
+    @Schema(description = "창문 하단 높이(meter). door는 null", example = "0.9", nullable = true)
     private Double sillHeight; // window 전용, door는 null
 
     protected Opening() {
