@@ -1,0 +1,793 @@
+openapi: 3.0.3
+info:
+  title: RoomFit AI Backend API
+  version: 1.0.0
+  description: RoomFit AI MVP backend API specification.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Rooms
+  - name: Styles
+  - name: Products
+  - name: Agent
+  - name: Layouts
+paths:
+  /api/rooms/samples:
+    get:
+      tags: [Rooms]
+      summary: Get sample room list
+      responses:
+        "200":
+          description: Sample room list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomListResponse"
+  /api/rooms/{roomId}:
+    get:
+      tags: [Rooms]
+      summary: Get room by id
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: Room detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCommonResponse"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+  /api/rooms/{roomId}/furniture:
+    put:
+      tags: [Rooms]
+      summary: Update existing room furniture status
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FurnitureUpdateRequest"
+            example:
+              furnitureUpdates:
+                - id: desk-1
+                  status: DELETED
+      responses:
+        "200":
+          description: Updated room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCommonResponse"
+        "400":
+          $ref: "#/components/responses/InvalidFurnitureStatus"
+        "404":
+          $ref: "#/components/responses/FurnitureNotFound"
+  /api/styles/images:
+    get:
+      tags: [Styles]
+      summary: Get style image list
+      responses:
+        "200":
+          description: Style images
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StyleImageListResponse"
+  /api/products/mock:
+    get:
+      tags: [Products]
+      summary: Get mock product list
+      responses:
+        "200":
+          description: Mock products
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MockProductListResponse"
+  /api/agent/context:
+    post:
+      tags: [Agent]
+      summary: Create agent context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentContextRequest"
+            example:
+              roomId: 1
+              lifestyleGoal: STUDY_FOCUSED
+              designStyle: [MINIMAL, WHITE_TONE]
+              requiredItems: [desk, chair]
+              optionalItems: [lamp]
+              selectedImageIds: [1]
+              selectedProductIds: [desk-01]
+      responses:
+        "201":
+          description: Created context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentContextCommonResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequestBody"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+  /api/layouts/recommend:
+    post:
+      tags: [Layouts]
+      summary: Recommend layout from agent context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendRequest"
+            example:
+              contextId: 1
+      responses:
+        "201":
+          description: Recommended layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayoutCommonResponse"
+        "404":
+          $ref: "#/components/responses/ContextNotFound"
+  /api/layouts/validate:
+    post:
+      tags: [Layouts]
+      summary: Validate current full furniture array
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateRequest"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationCommonResponse"
+        "400":
+          $ref: "#/components/responses/FurnitureArrayMismatch"
+        "404":
+          $ref: "#/components/responses/LayoutNotFound"
+  /api/layouts/{layoutId}:
+    put:
+      tags: [Layouts]
+      summary: Save modified full furniture array
+      parameters:
+        - $ref: "#/components/parameters/LayoutId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LayoutUpdateRequest"
+      responses:
+        "200":
+          description: Updated layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayoutCommonResponse"
+        "409":
+          $ref: "#/components/responses/AlreadyConfirmed"
+  /api/layouts/feedback:
+    post:
+      tags: [Layouts]
+      summary: Re-recommend layout from supported natural language feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+            examples:
+              largerDesk:
+                value:
+                  layoutId: 1
+                  feedback: 책상 더 크게
+              moreStorage:
+                value:
+                  layoutId: 1
+                  feedback: 수납 늘려줘
+              openSpace:
+                value:
+                  layoutId: 1
+                  feedback: 방이 넓어 보이게
+      responses:
+        "201":
+          description: Feedback recommendation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackCommonResponse"
+        "400":
+          $ref: "#/components/responses/UnsupportedFeedbackIntent"
+  /api/layouts/{layoutId}/confirm:
+    post:
+      tags: [Layouts]
+      summary: Confirm final layout
+      parameters:
+        - $ref: "#/components/parameters/LayoutId"
+      responses:
+        "200":
+          description: Confirmed layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmCommonResponse"
+        "404":
+          $ref: "#/components/responses/LayoutNotFound"
+        "409":
+          $ref: "#/components/responses/AlreadyConfirmed"
+components:
+  parameters:
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    LayoutId:
+      name: layoutId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+  responses:
+    RoomNotFound:
+      description: Room not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    ContextNotFound:
+      description: Context not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    LayoutNotFound:
+      description: Layout not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    FurnitureNotFound:
+      description: Furniture not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    InvalidFurnitureStatus:
+      description: Invalid furniture status
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    FurnitureArrayMismatch:
+      description: Furniture array mismatch
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    UnsupportedFeedbackIntent:
+      description: Unsupported feedback intent
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    AlreadyConfirmed:
+      description: Already confirmed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+    InvalidRequestBody:
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorCommonResponse"
+  schemas:
+    CommonResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success:
+          type: boolean
+        data:
+          nullable: true
+        error:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ErrorPayload"
+    ErrorPayload:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - ROOM_NOT_FOUND
+            - CONTEXT_NOT_FOUND
+            - LAYOUT_NOT_FOUND
+            - FURNITURE_NOT_FOUND
+            - STYLE_IMAGE_NOT_FOUND
+            - PRODUCT_NOT_FOUND
+            - INVALID_FURNITURE_STATUS
+            - INVALID_LIFESTYLE_GOAL
+            - INVALID_DESIGN_STYLE
+            - INVALID_FURNITURE_TYPE
+            - REQUIRED_ITEM_EMPTY
+            - STYLE_IMAGE_EMPTY
+            - INVALID_FURNITURE_POSITION
+            - INVALID_ROTATION
+            - FURNITURE_ARRAY_MISMATCH
+            - UNSUPPORTED_FEEDBACK_INTENT
+            - INVALID_REQUEST_BODY
+            - ALREADY_CONFIRMED
+            - RECOMMENDATION_FAILED
+          example: ROOM_NOT_FOUND
+        message:
+          type: string
+    ErrorCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            success:
+              example: false
+            data:
+              nullable: true
+              example: null
+            error:
+              $ref: "#/components/schemas/ErrorPayload"
+    RoomListResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/RoomResponse"
+    RoomCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/RoomResponse"
+    RoomResponse:
+      type: object
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        room:
+          $ref: "#/components/schemas/RoomDimension"
+        openings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Opening"
+        furniture:
+          type: array
+          items:
+            $ref: "#/components/schemas/Furniture"
+    RoomDimension:
+      type: object
+      properties:
+        width:
+          type: number
+          format: double
+        depth:
+          type: number
+          format: double
+        height:
+          type: number
+          format: double
+        unit:
+          type: string
+          example: meter
+    Opening:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [door, window]
+        wall:
+          type: string
+          enum: [north, south, east, west]
+        offset:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
+        sillHeight:
+          type: number
+          nullable: true
+    Furniture:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [bed, desk, chair, storage, rug, lamp]
+        label:
+          type: string
+        width:
+          type: number
+        depth:
+          type: number
+        height:
+          type: number
+        position:
+          $ref: "#/components/schemas/Position"
+        rotation:
+          type: number
+        status:
+          type: string
+          enum: [EXISTING, DELETED, RECOMMENDED, USER_MODIFIED]
+        productId:
+          type: string
+          nullable: true
+        styleTags:
+          type: array
+          items:
+            type: string
+    Position:
+      type: object
+      properties:
+        x:
+          type: number
+        z:
+          type: number
+    FurnitureUpdateRequest:
+      type: object
+      properties:
+        furnitureUpdates:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              status:
+                type: string
+                enum: [EXISTING, DELETED, RECOMMENDED, USER_MODIFIED]
+    StyleImageListResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/StyleImage"
+    StyleImage:
+      type: object
+      properties:
+        imageId:
+          type: integer
+          format: int64
+        title:
+          type: string
+        imageUrl:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    MockProductListResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/MockProduct"
+    MockProduct:
+      type: object
+      properties:
+        productId:
+          type: string
+        type:
+          type: string
+          enum: [bed, desk, chair, storage, rug, lamp]
+        name:
+          type: string
+        brand:
+          type: string
+        width:
+          type: number
+        depth:
+          type: number
+        height:
+          type: number
+        price:
+          type: integer
+        styleTags:
+          type: array
+          items:
+            type: string
+        imageUrl:
+          type: string
+        requiredClearance:
+          $ref: "#/components/schemas/RequiredClearance"
+    RequiredClearance:
+      type: object
+      properties:
+        front:
+          type: number
+        side:
+          type: number
+    AgentContextRequest:
+      type: object
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        lifestyleGoal:
+          type: string
+          enum: [STUDY_FOCUSED, RELAX_FOCUSED, STORAGE_FOCUSED, WFH_FOCUSED]
+        designStyle:
+          type: array
+          items:
+            type: string
+            enum: [MINIMAL, NATURAL, WHITE_TONE, WOOD_TONE, COZY, MODERN]
+        requiredItems:
+          type: array
+          items:
+            type: string
+            enum: [bed, desk, chair, storage, rug, lamp]
+        optionalItems:
+          type: array
+          items:
+            type: string
+            enum: [bed, desk, chair, storage, rug, lamp]
+        selectedImageIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+        selectedProductIds:
+          type: array
+          items:
+            type: string
+    AgentContextCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/AgentContextResponse"
+    AgentContextResponse:
+      type: object
+      properties:
+        contextId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+        lifestyleGoal:
+          type: string
+        designStyle:
+          type: array
+          items:
+            type: string
+        requiredItems:
+          type: array
+          items:
+            type: string
+        optionalItems:
+          type: array
+          items:
+            type: string
+        selectedImageIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+        selectedProductIds:
+          type: array
+          items:
+            type: string
+        styleTags:
+          type: array
+          items:
+            type: string
+        selectedProducts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MockProduct"
+        createdAt:
+          type: string
+          format: date-time
+    RecommendRequest:
+      type: object
+      properties:
+        contextId:
+          type: integer
+          format: int64
+    LayoutCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/LayoutResponse"
+    LayoutResponse:
+      type: object
+      properties:
+        layoutId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          nullable: true
+          enum: [SUCCESS, FALLBACK]
+        recommendedFurniture:
+          type: array
+          items:
+            $ref: "#/components/schemas/Furniture"
+        scoreSummary:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ScoreSummary"
+        validationResult:
+          $ref: "#/components/schemas/ValidationResult"
+    ScoreSummary:
+      type: object
+      properties:
+        totalScore:
+          type: integer
+        collisionScore:
+          type: integer
+        boundaryScore:
+          type: integer
+        doorWindowScore:
+          type: integer
+        pathScore:
+          type: integer
+        goalScore:
+          type: integer
+        styleScore:
+          type: integer
+    ValidationResult:
+      type: object
+      properties:
+        collisionFree:
+          type: boolean
+        boundaryValid:
+          type: boolean
+        doorClearance:
+          type: boolean
+        windowClearance:
+          type: boolean
+        pathSecured:
+          type: boolean
+        validationItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationItem"
+        warnings:
+          type: array
+          items:
+            type: string
+    ValidationItem:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [collision, boundary, door_clearance, window_clearance, path]
+        passed:
+          type: boolean
+        message:
+          type: string
+    FurniturePositionDto:
+      type: object
+      properties:
+        id:
+          type: string
+        position:
+          $ref: "#/components/schemas/Position"
+        rotation:
+          type: number
+        status:
+          type: string
+          nullable: true
+          enum: [EXISTING, DELETED, RECOMMENDED, USER_MODIFIED]
+    ValidateRequest:
+      type: object
+      properties:
+        layoutId:
+          type: integer
+          format: int64
+        furniture:
+          type: array
+          items:
+            $ref: "#/components/schemas/FurniturePositionDto"
+    LayoutUpdateRequest:
+      type: object
+      properties:
+        furniture:
+          type: array
+          items:
+            $ref: "#/components/schemas/FurniturePositionDto"
+    ValidationCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ValidationResult"
+    FeedbackRequest:
+      type: object
+      properties:
+        layoutId:
+          type: integer
+          format: int64
+        feedback:
+          type: string
+          enum: [책상 더 크게, 수납 늘려줘, 방이 넓어 보이게]
+    FeedbackCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/FeedbackResponse"
+    FeedbackResponse:
+      type: object
+      properties:
+        layoutId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [SUCCESS, FALLBACK]
+        recommendedFurniture:
+          type: array
+          items:
+            $ref: "#/components/schemas/Furniture"
+        scoreSummary:
+          $ref: "#/components/schemas/ScoreSummary"
+        validationResult:
+          $ref: "#/components/schemas/ValidationResult"
+        interpretedIntent:
+          type: object
+          additionalProperties: true
+    ConfirmCommonResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommonResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ConfirmResponse"
+    ConfirmResponse:
+      type: object
+      properties:
+        layoutId:
+          type: integer
+          format: int64
+        confirmed:
+          type: boolean
+        confirmedAt:
+          type: string
+          format: date-time

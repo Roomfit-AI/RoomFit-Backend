@@ -1,4 +1,6 @@
-package com.roomfit.agent;
+package com.roomfit.agent.repository;
+
+import com.roomfit.agent.domain.AgentContext;
 
 import org.springframework.stereotype.Repository;
 

@@ -5,6 +5,8 @@ import com.roomfit.room.dto.FurnitureUpdateRequest;
 import com.roomfit.room.dto.RoomResponse;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/rooms")
 public class RoomController {
@@ -13,6 +15,11 @@ public class RoomController {
 
     public RoomController(RoomService roomService) {
         this.roomService = roomService;
+    }
+
+    @GetMapping("/samples")
+    public CommonResponse<List<RoomResponse>> getSampleRooms() {
+        return CommonResponse.ok(roomService.getSampleRooms());
     }
 
     @GetMapping("/{roomId}")
@@ -25,6 +32,4 @@ public class RoomController {
                                                           @RequestBody FurnitureUpdateRequest request) {
         return CommonResponse.ok(roomService.updateFurnitureStatus(roomId, request));
     }
-
-    // TODO: GET /api/rooms/samples (선택 구현) - 샘플 방 목록 요약 조회
 }

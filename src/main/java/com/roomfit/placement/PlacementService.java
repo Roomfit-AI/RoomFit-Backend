@@ -1,6 +1,6 @@
 package com.roomfit.placement;
 
-import com.roomfit.agent.AgentContext;
+import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.room.Room;
 
 /**

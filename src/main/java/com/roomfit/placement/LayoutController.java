@@ -37,5 +37,9 @@ public class LayoutController {
         return CommonResponse.ok(layoutService.confirmLayout(layoutId));
     }
 
-    // TODO: POST /api/layouts/feedback (선택 구현) - 자연어 피드백 기반 재추천
+    @PostMapping("/feedback")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommonResponse<FeedbackResponse> feedback(@RequestBody FeedbackRequest request) {
+        return CommonResponse.ok(layoutService.feedback(request));
+    }
 }
