@@ -162,6 +162,15 @@ public class RoomService {
     }
 
     private void validateFurnitureIds(Room room, FurnitureUpdateRequest request) {
+        if (request == null || request.getFurnitureUpdates() == null || request.getFurnitureUpdates().isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        boolean hasInvalidItem = request.getFurnitureUpdates().stream()
+                .anyMatch(item -> item == null || isBlank(item.getId()) || isBlank(item.getStatus()));
+        if (hasInvalidItem) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+
         Set<String> roomFurnitureIds = room.getFurniture().stream()
                 .map(Furniture::getId)
                 .collect(Collectors.toSet());

@@ -115,6 +115,41 @@ class LayoutValidateControllerTest {
     }
 
     @Test
+    void validate_withMissingFurnitureArray_returnsInvalidRequestBody() throws Exception {
+        Long layoutId = createLayout();
+
+        mockMvc.perform(post("/api/layouts/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
+    void validate_withEmptyFurnitureArray_returnsInvalidRequestBody() throws Exception {
+        Long layoutId = createLayout();
+
+        mockMvc.perform(post("/api/layouts/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "furniture": []
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
     void validate_withOutOfBoundaryPosition_returnsInvalidFurniturePosition() throws Exception {
         Long layoutId = createLayout();
 

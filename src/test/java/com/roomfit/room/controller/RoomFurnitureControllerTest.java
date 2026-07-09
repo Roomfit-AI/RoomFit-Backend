@@ -75,6 +75,55 @@ class RoomFurnitureControllerTest {
     }
 
     @Test
+    void updateFurnitureStatus_withMissingFurnitureUpdates_returnsInvalidRequestBody() throws Exception {
+        mockMvc.perform(put("/api/rooms/{roomId}/furniture", 1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furniture": [
+                                    { "id": "desk-1", "status": "DELETED" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
+    void updateFurnitureStatus_withEmptyFurnitureUpdates_returnsInvalidRequestBody() throws Exception {
+        mockMvc.perform(put("/api/rooms/{roomId}/furniture", 1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furnitureUpdates": []
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
+    void updateFurnitureStatus_withBlankItemField_returnsInvalidRequestBody() throws Exception {
+        mockMvc.perform(put("/api/rooms/{roomId}/furniture", 1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furnitureUpdates": [
+                                    { "id": " ", "status": "DELETED" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
     void updateFurnitureStatus_withLowercaseStatus_returnsInvalidFurnitureStatus() throws Exception {
         mockMvc.perform(put("/api/rooms/{roomId}/furniture", 1)
                         .contentType(MediaType.APPLICATION_JSON)
