@@ -106,7 +106,7 @@ paths:
                 success: true
                 data:
                   roomId: 3
-                  name: RoomPlan Scan Room #3
+                  name: RoomPlan Scan Room
                   room:
                     width: 3.2
                     depth: 4.5
@@ -138,8 +138,8 @@ paths:
   /api/rooms/{roomId}/furniture:
     put:
       tags: [Rooms]
-      summary: 기존 가구 상태/위치 수정
-      description: 기존 가구를 삭제하거나 상태를 수정합니다. id와 status는 필수이며, status만 변경할 때 position/rotation은 생략할 수 있습니다. position/rotation을 생략하면 기존 위치와 회전값을 유지합니다. 가구 위치를 실제로 변경할 때는 position과 rotation을 함께 전달해야 합니다. 예를 들어 기존 책상을 DELETED로 변경한 뒤 새 책상을 추천받을 수 있습니다.
+      summary: 기존 가구 상태 변경
+      description: 기존 방 가구를 DELETED 등으로 상태 변경합니다. 요청 필드명은 layout validate/update의 furniture가 아니라 furnitureUpdates입니다. 각 항목의 id와 status는 필수이며, 가구 위치 변경은 이 API가 아니라 layout validate/update 흐름에서 처리합니다. 예를 들어 기존 책상을 DELETED로 변경한 뒤 새 책상을 추천받을 수 있습니다.
       parameters:
         - $ref: "#/components/parameters/RoomId"
       requestBody:
@@ -222,13 +222,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/AgentContextCommonResponse"
         "400":
-          description: Invalid request body or selected product id
+          description: INVALID_LIFESTYLE_GOAL, INVALID_DESIGN_STYLE, INVALID_FURNITURE_TYPE, REQUIRED_ITEM_EMPTY, STYLE_IMAGE_EMPTY, PRODUCT_NOT_FOUND, INVALID_REQUEST_BODY
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorCommonResponse"
         "404":
-          $ref: "#/components/responses/RoomNotFound"
+          description: ROOM_NOT_FOUND or STYLE_IMAGE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
   /api/layouts/recommend:
     post:
       tags: [Layouts]
@@ -285,7 +289,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ValidationCommonResponse"
         "400":
-          $ref: "#/components/responses/FurnitureArrayMismatch"
+          description: FURNITURE_ARRAY_MISMATCH, FURNITURE_NOT_FOUND, INVALID_ROTATION, INVALID_FURNITURE_POSITION, INVALID_FURNITURE_STATUS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
         "404":
           $ref: "#/components/responses/LayoutNotFound"
   /api/layouts/{layoutId}:
@@ -323,7 +331,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/LayoutCommonResponse"
         "400":
-          $ref: "#/components/responses/FurnitureArrayMismatch"
+          description: FURNITURE_ARRAY_MISMATCH, FURNITURE_NOT_FOUND, INVALID_ROTATION, INVALID_FURNITURE_POSITION, INVALID_FURNITURE_STATUS
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
         "404":
           $ref: "#/components/responses/LayoutNotFound"
         "409":
@@ -362,7 +374,11 @@ paths:
         "400":
           $ref: "#/components/responses/UnsupportedFeedbackIntent"
         "404":
-          $ref: "#/components/responses/LayoutNotFound"
+          description: LAYOUT_NOT_FOUND, CONTEXT_NOT_FOUND, ROOM_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
   /api/layouts/{layoutId}/confirm:
     post:
       tags: [Layouts]
@@ -476,6 +492,7 @@ components:
       properties:
         code:
           type: string
+          description: 프론트는 error.message 문자열보다 error.code 기준으로 분기하는 것을 권장합니다. 실제 코드는 응답 body의 error.code와 Swagger의 ErrorPayload enum을 기준으로 처리합니다.
           enum:
             - ROOM_NOT_FOUND
             - CONTEXT_NOT_FOUND
@@ -677,15 +694,15 @@ components:
     FurnitureUpdateRequest:
       type: object
       required: [furnitureUpdates]
-      description: 기존 방 가구의 상태 변경 요청. 각 항목의 id와 status는 필수입니다. status-only 요청이 가능하며 position/rotation을 생략하면 기존 위치와 회전값을 유지합니다. 위치를 실제로 변경하는 요청에서는 position과 rotation을 함께 전달해야 합니다.
+      description: 기존 방 가구의 상태 변경 요청. 요청 필드명은 furnitureUpdates입니다. 각 항목의 id와 status는 필수입니다. 이 API는 위치 변경을 처리하지 않으며, 가구 위치 변경은 layout validate/update 흐름에서 처리합니다.
       properties:
         furnitureUpdates:
-          description: 상태를 변경할 기존 가구 목록. status만 바꾸는 경우 id/status만 전달합니다.
+          description: 상태를 변경할 기존 가구 목록. layout validate/update의 furniture 필드와 다르게 rooms furniture update는 furnitureUpdates 필드를 사용합니다.
           type: array
           items:
             type: object
             required: [id, status]
-            description: 기존 가구 상태 변경 항목. id/status는 필수이며 position/rotation은 선택값입니다.
+            description: 기존 가구 상태 변경 항목. id/status는 필수입니다.
             properties:
               id:
                 type: string
@@ -696,13 +713,6 @@ components:
                 description: 변경할 상태. 필수입니다.
                 enum: [EXISTING, DELETED, RECOMMENDED, USER_MODIFIED]
                 example: DELETED
-              position:
-                description: 선택값. 생략하면 기존 위치를 유지합니다. 위치를 변경할 때는 rotation과 함께 전달합니다.
-                $ref: "#/components/schemas/Position"
-              rotation:
-                type: number
-                description: 선택값. 생략하면 기존 회전값을 유지합니다. 위치를 변경할 때는 position과 함께 전달합니다.
-                example: 90
     StyleImageListResponse:
       allOf:
         - $ref: "#/components/schemas/CommonResponse"

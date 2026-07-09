@@ -33,8 +33,8 @@ public class AgentContextController {
     @Operation(summary = "Agent Context 생성", description = "방 ID, 생활 목표, 디자인 스타일, 필수/선택 가구, 선택 제품 정보를 바탕으로 추천에 사용할 Context를 생성합니다. 이후 POST /api/layouts/recommend에 contextId를 전달합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Context 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "잘못된 lifestyleGoal/designStyle/productId 또는 요청 본문"),
-            @ApiResponse(responseCode = "404", description = "존재하지 않는 roomId 또는 styleImageId")
+            @ApiResponse(responseCode = "400", description = "INVALID_LIFESTYLE_GOAL, INVALID_DESIGN_STYLE, INVALID_FURNITURE_TYPE, REQUIRED_ITEM_EMPTY, STYLE_IMAGE_EMPTY, PRODUCT_NOT_FOUND, INVALID_REQUEST_BODY"),
+            @ApiResponse(responseCode = "404", description = "ROOM_NOT_FOUND 또는 STYLE_IMAGE_NOT_FOUND")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "추천 조건 Context 생성 요청",
