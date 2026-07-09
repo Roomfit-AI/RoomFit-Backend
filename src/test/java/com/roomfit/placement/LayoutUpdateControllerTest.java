@@ -85,6 +85,39 @@ class LayoutUpdateControllerTest {
     }
 
     @Test
+    void updateLayout_withMissingFurnitureArray_returnsInvalidRequestBody() throws Exception {
+        Long layoutId = createLayout();
+
+        mockMvc.perform(put("/api/layouts/{layoutId}", layoutId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
+    void updateLayout_withEmptyFurnitureArray_returnsInvalidRequestBody() throws Exception {
+        Long layoutId = createLayout();
+
+        mockMvc.perform(put("/api/layouts/{layoutId}", layoutId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furniture": []
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+    }
+
+    @Test
     void updateLayout_withInvalidFurnitureStatus_returnsInvalidFurnitureStatus() throws Exception {
         Long layoutId = createLayout();
 

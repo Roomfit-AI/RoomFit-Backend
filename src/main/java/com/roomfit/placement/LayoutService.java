@@ -150,6 +150,15 @@ public class LayoutService {
     }
 
     private void validateFurnitureArray(List<Furniture> base, List<FurniturePositionDto> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        boolean hasInvalidItem = overrides.stream()
+                .anyMatch(override -> override == null || isBlank(override.getId()));
+        if (hasInvalidItem) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+
         Set<String> baseIds = base.stream()
                 .map(Furniture::getId)
                 .collect(Collectors.toSet());
@@ -214,6 +223,10 @@ public class LayoutService {
         } catch (IllegalArgumentException e) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_STATUS);
         }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackParserService.FeedbackIntent intent) {
