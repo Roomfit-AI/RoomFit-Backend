@@ -7,7 +7,7 @@ import java.util.List;
 @Schema(description = "RoomPlan iOS App 또는 Mock/Manual 입력에서 생성한 RoomFit JSON 업로드 요청")
 public class RoomUploadRequest {
 
-    @Schema(description = "업로드 방 이름. 없으면 Uploaded Room으로 저장됩니다.", example = "RoomPlan Scan Room")
+    @Schema(description = "업로드 요청에서 전달할 수 있는 방 이름. 생략하면 백엔드가 방 표시 이름을 부여합니다.", example = "RoomPlan Scan Room")
     private String name;
     @Schema(description = "필수 방 크기 정보")
     private RoomData room;

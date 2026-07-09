@@ -103,6 +103,8 @@ POST /api/rooms/upload
 용도
 
 RoomPlan iOS App에서 생성한 방 JSON을 백엔드에 저장하고 roomId를 발급받습니다.
+응답의 name은 백엔드가 부여하는 방 표시 이름입니다.
+프론트는 name을 고정 문자열로 가정하지 말고 응답값을 그대로 표시해야 합니다.
 
 Request
 {
@@ -146,7 +148,7 @@ Response
   "success": true,
   "data": {
     "roomId": 3,
-    "name": "RoomPlan Scan Room",
+    "name": "RoomPlan Scan Room #3",
     "room": {
       "width": 3.2,
       "depth": 4.5,
@@ -204,7 +206,27 @@ Response
   },
   "error": null
 }
-5. 제품 목록 조회
+5. 스타일 이미지 목록 조회
+GET /api/styles/images
+용도
+
+프론트에서 선호 스타일 이미지 선택 UI를 렌더링합니다.
+스타일 이미지 응답은 Product API의 styleTags가 아니라 tags 필드를 사용합니다.
+
+Response
+{
+  "success": true,
+  "data": [
+    {
+      "imageId": 1,
+      "title": "화이트톤 미니멀 원룸",
+      "imageUrl": "/images/styles/minimal-white-1.jpg",
+      "tags": ["minimal", "white_tone", "open_space"]
+    }
+  ],
+  "error": null
+}
+6. 제품 목록 조회
 GET /api/products/mock
 용도
 
@@ -233,7 +255,7 @@ Response
   ],
   "error": null
 }
-6. Agent Context 생성
+7. Agent Context 생성
 POST /api/agent/context
 용도
 
@@ -281,7 +303,7 @@ Response
   },
   "error": null
 }
-7. 배치 추천 생성
+8. 배치 추천 생성
 POST /api/layouts/recommend
 용도
 
@@ -342,7 +364,7 @@ Response
   },
   "error": null
 }
-8. 배치 검증
+9. 배치 검증
 POST /api/layouts/validate
 용도
 
@@ -411,7 +433,7 @@ Response
   },
   "error": null
 }
-9. 배치 수정 저장
+10. 배치 수정 저장
 PUT /api/layouts/{layoutId}
 용도
 
@@ -466,7 +488,7 @@ Response
   },
   "error": null
 }
-10. 최종 배치 확정
+11. 최종 배치 확정
 POST /api/layouts/{layoutId}/confirm
 용도
 
@@ -489,7 +511,7 @@ Response
 
 이 API는 실제 응답을 한 번 더 확인한 뒤 프론트에 넘기는 게 좋아.
 
-11. Enum 명세
+12. Enum 명세
 FurnitureStatus
 EXISTING
 DELETED
@@ -520,7 +542,7 @@ FALLBACK
 RoomSource
 SAMPLE
 ROOMPLAN
-12. 프론트 구현 핵심 주의사항
+13. 프론트 구현 핵심 주의사항
 1. 모든 길이 단위는 meter입니다.
 2. 좌표는 x-z 평면입니다.
 3. position은 가구의 중심 좌표입니다.
