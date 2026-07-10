@@ -2,11 +2,9 @@ package com.roomfit.placement;
 
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
-import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
-@Service
 public class RuleBasedFeedbackIntentParser implements FeedbackIntentParser {
 
     @Override
