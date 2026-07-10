@@ -7,8 +7,9 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 @Service
-public class FeedbackParserService {
+public class RuleBasedFeedbackIntentParser implements FeedbackIntentParser {
 
+    @Override
     public FeedbackIntent parse(String feedback) {
         if (feedback == null || feedback.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
@@ -23,14 +24,5 @@ public class FeedbackParserService {
                     Map.of("openSpacePriority", "HIGH"));
             default -> throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         };
-    }
-
-    public enum FeedbackIntentType {
-        LARGER_DESK,
-        STORAGE_PRIORITY,
-        OPEN_SPACE_PRIORITY
-    }
-
-    public record FeedbackIntent(FeedbackIntentType type, Map<String, Object> interpretedIntent) {
     }
 }
