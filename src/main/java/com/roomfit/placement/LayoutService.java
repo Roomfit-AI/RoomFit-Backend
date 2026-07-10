@@ -25,7 +25,7 @@ public class LayoutService {
     private final RoomRepository roomRepository;
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
-    private final FeedbackParserService feedbackParserService;
+    private final FeedbackIntentParser feedbackIntentParser;
     private final ScoreService scoreService;
 
     public LayoutService(LayoutRepository layoutRepository,
@@ -33,14 +33,14 @@ public class LayoutService {
                           RoomRepository roomRepository,
                           PlacementService placementService,
                           ValidationService validationService,
-                          FeedbackParserService feedbackParserService,
+                          FeedbackIntentParser feedbackIntentParser,
                           ScoreService scoreService) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
         this.placementService = placementService;
         this.validationService = validationService;
-        this.feedbackParserService = feedbackParserService;
+        this.feedbackIntentParser = feedbackIntentParser;
         this.scoreService = scoreService;
     }
 
@@ -115,7 +115,7 @@ public class LayoutService {
         Room room = roomRepository.findById(baseLayout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
-        FeedbackParserService.FeedbackIntent intent = feedbackParserService.parse(request.getFeedback());
+        FeedbackIntent intent = feedbackIntentParser.parse(request.getFeedback());
         List<Furniture> recommended = applyFeedbackIntent(baseLayout.getFurniture(), intent);
 
         Layout newLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), recommended);
@@ -229,7 +229,7 @@ public class LayoutService {
         return value == null || value.isBlank();
     }
 
-    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackParserService.FeedbackIntent intent) {
+    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackIntent intent) {
         return switch (intent.type()) {
             case LARGER_DESK -> furniture.stream()
                     .map(this::copyWithLargerDesk)
