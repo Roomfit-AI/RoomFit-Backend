@@ -33,6 +33,13 @@ public class RoomService {
                 .toList();
     }
 
+    public List<RoomResponse> getRecentUploadedRooms(int limit) {
+        int normalizedLimit = Math.max(0, Math.min(limit, 100));
+        return roomRepository.findRecentBySource(RoomSource.ROOMPLAN, normalizedLimit).stream()
+                .map(RoomResponse::from)
+                .toList();
+    }
+
     public RoomResponse uploadRoom(RoomUploadRequest request) {
         validateUploadRequest(request);
 

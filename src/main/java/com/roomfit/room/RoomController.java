@@ -33,6 +33,14 @@ public class RoomController {
         return CommonResponse.ok(roomService.getSampleRooms());
     }
 
+    @GetMapping("/uploads/recent")
+    @Operation(summary = "최근 업로드 방 목록 조회", description = "iOS App에서 업로드한 ROOMPLAN 방을 최신 생성순으로 조회합니다. 업로드 방이 없으면 빈 배열을 반환합니다.")
+    @ApiResponse(responseCode = "200", description = "최근 업로드 방 목록 조회 성공")
+    public CommonResponse<List<RoomResponse>> getRecentUploadedRooms(
+            @RequestParam(defaultValue = "10") int limit) {
+        return CommonResponse.ok(roomService.getRecentUploadedRooms(limit));
+    }
+
     @GetMapping("/{roomId}")
     @Operation(summary = "특정 방 조회", description = "roomId 기준으로 방 크기, 문/창문, 기존 가구 목록을 조회합니다. 프론트는 이 응답을 기준으로 방을 렌더링합니다.")
     @ApiResponses({

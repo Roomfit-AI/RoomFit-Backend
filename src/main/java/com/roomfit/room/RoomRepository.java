@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Map;
 import java.util.Optional;
 import java.util.List;
+import java.util.Comparator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -41,6 +42,15 @@ public class RoomRepository {
         return store.values().stream()
                 .filter(room -> room.getSource() == source)
                 .sorted((first, second) -> Long.compare(first.getId(), second.getId()))
+                .toList();
+    }
+
+    public List<Room> findRecentBySource(RoomSource source, int limit) {
+        return store.values().stream()
+                .filter(room -> room.getSource() == source)
+                .sorted(Comparator.comparing(Room::getCreatedAt).reversed()
+                        .thenComparing(Room::getId, Comparator.reverseOrder()))
+                .limit(limit)
                 .toList();
     }
 }
