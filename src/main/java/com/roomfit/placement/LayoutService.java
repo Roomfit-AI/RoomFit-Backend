@@ -116,7 +116,7 @@ public class LayoutService {
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
         FeedbackIntent intent = feedbackIntentParser.parse(request.getFeedback());
-        List<Furniture> recommended = applyFeedbackIntent(baseLayout.getFurniture(), intent);
+        List<Furniture> recommended = applyFeedbackIntent(room, baseLayout.getFurniture(), intent);
 
         Layout newLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), recommended);
         layoutRepository.save(newLayout);
@@ -229,20 +229,46 @@ public class LayoutService {
         return value == null || value.isBlank();
     }
 
-    private List<Furniture> applyFeedbackIntent(List<Furniture> furniture, FeedbackIntent intent) {
+    private List<Furniture> applyFeedbackIntent(Room room, List<Furniture> furniture, FeedbackIntent intent) {
         return switch (intent.type()) {
             case LARGER_DESK -> furniture.stream()
-                    .map(this::copyWithLargerDesk)
+                    .map(item -> copyWithLargerDesk(room, item))
                     .collect(Collectors.toList());
             case STORAGE_PRIORITY -> applyStoragePriority(furniture);
             case OPEN_SPACE_PRIORITY -> applyOpenSpacePriority(furniture);
         };
     }
 
-    private Furniture copyWithLargerDesk(Furniture furniture) {
-        double width = "desk".equals(furniture.getType()) ? Math.max(furniture.getWidth(), 1.4) : furniture.getWidth();
-        return copyFurniture(furniture, furniture.getPosition(), furniture.getRotation(), width,
+    private Furniture copyWithLargerDesk(Room room, Furniture furniture) {
+        if (!"desk".equals(furniture.getType())) {
+            return copyFurniture(furniture, furniture.getPosition(), furniture.getRotation(),
+                    furniture.getWidth(), furniture.getDepth(), furniture.getHeight(), furniture.getStatus());
+        }
+
+        double width = Math.max(furniture.getWidth(), 1.4);
+        Position position = clampPositionInsideRoom(room, furniture.getPosition(), width, furniture.getDepth());
+
+        return copyFurniture(furniture, position, furniture.getRotation(), width,
                 furniture.getDepth(), furniture.getHeight(), furniture.getStatus());
+    }
+
+    private Position clampPositionInsideRoom(Room room, Position position, double width, double depth) {
+        double minX = width / 2.0;
+        double maxX = room.getWidth() - width / 2.0;
+        double minZ = depth / 2.0;
+        double maxZ = room.getDepth() - depth / 2.0;
+
+        return new Position(
+                clamp(position.getX(), minX, maxX),
+                clamp(position.getZ(), minZ, maxZ)
+        );
+    }
+
+    private double clamp(double value, double min, double max) {
+        if (max < min) {
+            return (min + max) / 2.0;
+        }
+        return Math.max(min, Math.min(max, value));
     }
 
     private List<Furniture> applyStoragePriority(List<Furniture> furniture) {
