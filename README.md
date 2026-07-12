@@ -242,6 +242,32 @@ Current MVP limitations:
 
 ---
 
+## Smoke Test
+
+After deployment, run the smoke test script to verify the main backend flow.
+
+```bash
+./scripts/smoke-test.sh
+```
+
+The script checks:
+
+- health check
+- product mock API
+- style image API
+- sample room API
+- agent context creation
+- layout recommendation
+- LLM feedback parsing
+
+Expected final output:
+
+```text
+🎉 Smoke test passed
+```
+
+---
+
 ## Portfolio Highlights
 
 This backend demonstrates:
@@ -265,7 +291,6 @@ This backend demonstrates:
 - Improve automatic collision resolution after feedback
 - Add real product catalog integration
 - Add user/session management
-- Add automated smoke test script
 - Improve Swagger examples and schema descriptions
 
 ---
