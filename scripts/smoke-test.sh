@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${1:-${BASE:-https://roomfit-backend.onrender.com}}"
+BASE_URL="${1:-${BASE_URL:-${BASE:-https://roomfit-backend.onrender.com}}}"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -67,13 +67,19 @@ PY
 
 validate_feedback_response() {
   local file="$1"
+  local room_width="$2"
+  local room_depth="$3"
 
-  python3 - "$file" <<'PY'
+  python3 - "$file" "$room_width" "$room_depth" <<'PY'
 import json
+import math
 import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     response = json.load(f)
+
+room_width = float(sys.argv[2])
+room_depth = float(sys.argv[3])
 
 def fail(message):
     print(f"❌ {message}", file=sys.stderr)
@@ -95,13 +101,39 @@ if not isinstance(desk, dict):
     fail("desk-1 is missing from recommendedFurniture")
 
 width = desk.get("width")
+depth = desk.get("depth")
+rotation = desk.get("rotation")
 position = desk.get("position")
 if not isinstance(width, (int, float)) or width < 1.4:
     fail("desk-1 width must be at least 1.4")
-if not isinstance(position, dict) or not isinstance(position.get("x"), (int, float)):
-    fail("desk-1 position.x is missing")
-if position["x"] > 2.500001:
-    fail("desk-1 position.x must be clamped to 2.5 or less")
+if not isinstance(depth, (int, float)) or not isinstance(rotation, (int, float)):
+    fail("desk-1 depth or rotation is missing")
+if not isinstance(position, dict) or not all(
+        isinstance(position.get(axis), (int, float)) for axis in ("x", "z")):
+    fail("desk-1 position is missing")
+
+normalized_rotation = rotation % 360.0
+nearest_right_angle = round(normalized_rotation / 90.0) * 90.0
+if abs(normalized_rotation - nearest_right_angle) <= 1.0e-4:
+    right_angle = round(nearest_right_angle) % 360
+    if right_angle in (90, 270):
+        effective_width, effective_depth = depth, width
+    else:
+        effective_width, effective_depth = width, depth
+else:
+    radians = math.radians(normalized_rotation)
+    absolute_cosine = abs(math.cos(radians))
+    absolute_sine = abs(math.sin(radians))
+    effective_width = width * absolute_cosine + depth * absolute_sine
+    effective_depth = width * absolute_sine + depth * absolute_cosine
+
+epsilon = 1.0e-6
+if (position["x"] < effective_width / 2.0 - epsilon
+        or position["x"] > room_width - effective_width / 2.0 + epsilon):
+    fail("desk-1 position.x is outside the rotation-aware room boundary")
+if (position["z"] < effective_depth / 2.0 - epsilon
+        or position["z"] > room_depth - effective_depth / 2.0 + epsilon):
+    fail("desk-1 position.z is outside the rotation-aware room boundary")
 
 validation = data.get("validationResult")
 if not isinstance(validation, dict) or validation.get("boundaryValid") is not True:
@@ -109,6 +141,8 @@ if not isinstance(validation, dict) or validation.get("boundaryValid") is not Tr
 
 print(f"   desk-1.width={width}")
 print(f"   desk-1.position.x={position['x']}")
+print(f"   desk-1.position.z={position['z']}")
+print(f"   desk-1.rotation={rotation}")
 print("   validationResult.boundaryValid=true")
 PY
 }
@@ -170,6 +204,9 @@ expect_status 200 "GET /api/styles/images"
 call_api GET "/api/rooms/1"
 expect_status 200 "GET /api/rooms/1"
 
+ROOM_WIDTH="$(json_get "$LAST_BODY" "data.room.width")"
+ROOM_DEPTH="$(json_get "$LAST_BODY" "data.room.depth")"
+
 CONTEXT_REQUEST='{
   "roomId": 1,
   "lifestyleGoal": "STUDY_FOCUSED",
@@ -205,7 +242,7 @@ FEEDBACK_REQUEST="{
 call_api POST "/api/layouts/feedback" "$FEEDBACK_REQUEST"
 expect_status 201 "POST /api/layouts/feedback"
 
-if ! validate_feedback_response "$LAST_BODY"; then
+if ! validate_feedback_response "$LAST_BODY" "$ROOM_WIDTH" "$ROOM_DEPTH"; then
   echo "Response:"
   cat "$LAST_BODY"
   echo

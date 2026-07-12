@@ -139,8 +139,9 @@ public class ValidationService {
     private record Rect(double minX, double maxX, double minZ, double maxZ) {
 
         private static Rect from(Furniture furniture) {
-            double halfWidth = furniture.getWidth() / 2.0;
-            double halfDepth = furniture.getDepth() / 2.0;
+            FurnitureFootprint footprint = FurnitureFootprint.from(furniture);
+            double halfWidth = footprint.effectiveWidth() / 2.0;
+            double halfDepth = footprint.effectiveDepth() / 2.0;
             return new Rect(
                     furniture.getPosition().getX() - halfWidth,
                     furniture.getPosition().getX() + halfWidth,

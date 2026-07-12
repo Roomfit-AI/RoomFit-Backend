@@ -236,7 +236,7 @@ class LayoutValidateControllerTest {
                   "layoutId": %d,
                   "furniture": [
                     { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0 },
-                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.4 }, "rotation": 90 },
+                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.5 }, "rotation": 90 },
                     { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0 },
                     { "id": "chair-rec-1", "position": { "x": 1.6, "z": 3.1 }, "rotation": 0 }
                   ]
