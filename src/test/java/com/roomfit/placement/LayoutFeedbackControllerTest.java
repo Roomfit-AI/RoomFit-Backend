@@ -48,7 +48,11 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.data.scoreSummary.totalScore", notNullValue()))
                 .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true))
                 .andExpect(jsonPath("$.data.validationResult.validationItems.length()").value(5))
-                .andExpect(jsonPath("$.data.interpretedIntent.deskMinWidth").value(1.4));
+                .andExpect(jsonPath("$.data.interpretedIntent.source").value("RULE_BASED"))
+                .andExpect(jsonPath("$.data.interpretedIntent.rawIntent").value("LARGER_DESK"))
+                .andExpect(jsonPath("$.data.interpretedIntent.targetFurniture").value("desk"))
+                .andExpect(jsonPath("$.data.interpretedIntent.deskMinWidth").value(1.4))
+                .andExpect(jsonPath("$.data.interpretedIntent.fallbackUsed").value(true));
     }
 
     @Test

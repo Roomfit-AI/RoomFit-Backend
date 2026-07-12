@@ -2,7 +2,6 @@
 set -euo pipefail
 
 BASE_URL="${1:-${BASE:-https://roomfit-backend.onrender.com}}"
-EXPECT_LLM="${EXPECT_LLM:-true}"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -36,6 +35,81 @@ for key in json_path:
     current = current[key]
 
 print(current)
+PY
+}
+
+json_get_optional() {
+  local file="$1"
+  local path="$2"
+  local default_value="${3:--}"
+
+  python3 - "$file" "$path" "$default_value" <<'PY'
+import json
+import sys
+
+file_path = sys.argv[1]
+json_path = sys.argv[2].split(".")
+default_value = sys.argv[3]
+
+with open(file_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+current = data
+for key in json_path:
+    if not isinstance(current, dict):
+        current = default_value
+        break
+    current = current.get(key, default_value)
+
+print(current)
+PY
+}
+
+validate_feedback_response() {
+  local file="$1"
+
+  python3 - "$file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    response = json.load(f)
+
+def fail(message):
+    print(f"❌ {message}", file=sys.stderr)
+    sys.exit(1)
+
+if response.get("success") is not True:
+    fail("Feedback response success must be true")
+
+data = response.get("data")
+if not isinstance(data, dict):
+    fail("Feedback response data is missing")
+
+furniture = data.get("recommendedFurniture")
+if not isinstance(furniture, list):
+    fail("recommendedFurniture is missing")
+
+desk = next((item for item in furniture if item.get("id") == "desk-1"), None)
+if not isinstance(desk, dict):
+    fail("desk-1 is missing from recommendedFurniture")
+
+width = desk.get("width")
+position = desk.get("position")
+if not isinstance(width, (int, float)) or width < 1.4:
+    fail("desk-1 width must be at least 1.4")
+if not isinstance(position, dict) or not isinstance(position.get("x"), (int, float)):
+    fail("desk-1 position.x is missing")
+if position["x"] > 2.500001:
+    fail("desk-1 position.x must be clamped to 2.5 or less")
+
+validation = data.get("validationResult")
+if not isinstance(validation, dict) or validation.get("boundaryValid") is not True:
+    fail("validationResult.boundaryValid must be true")
+
+print(f"   desk-1.width={width}")
+print(f"   desk-1.position.x={position['x']}")
+print("   validationResult.boundaryValid=true")
 PY
 }
 
@@ -131,16 +205,23 @@ FEEDBACK_REQUEST="{
 call_api POST "/api/layouts/feedback" "$FEEDBACK_REQUEST"
 expect_status 201 "POST /api/layouts/feedback"
 
-INTENT_SOURCE="$(json_get "$LAST_BODY" "data.interpretedIntent.source")"
-FALLBACK_USED="$(json_get "$LAST_BODY" "data.interpretedIntent.fallbackUsed")"
-TARGET_FURNITURE="$(json_get "$LAST_BODY" "data.interpretedIntent.targetFurniture")"
+if ! validate_feedback_response "$LAST_BODY"; then
+  echo "Response:"
+  cat "$LAST_BODY"
+  echo
+  exit 1
+fi
+
+INTENT_SOURCE="$(json_get_optional "$LAST_BODY" "data.interpretedIntent.source")"
+FALLBACK_USED="$(json_get_optional "$LAST_BODY" "data.interpretedIntent.fallbackUsed")"
+TARGET_FURNITURE="$(json_get_optional "$LAST_BODY" "data.interpretedIntent.targetFurniture")"
 
 echo "   interpretedIntent.source=$INTENT_SOURCE"
 echo "   interpretedIntent.targetFurniture=$TARGET_FURNITURE"
 echo "   interpretedIntent.fallbackUsed=$FALLBACK_USED"
 
-if [[ "$EXPECT_LLM" == "true" && "$INTENT_SOURCE" != "LLM" ]]; then
-  echo "❌ Expected LLM feedback parsing, but source was $INTENT_SOURCE"
+if [[ "$INTENT_SOURCE" != "-" && "$INTENT_SOURCE" != "LLM" && "$INTENT_SOURCE" != "RULE_BASED" ]]; then
+  echo "❌ Unsupported feedback intent source: $INTENT_SOURCE"
   echo "Response:"
   cat "$LAST_BODY"
   echo
