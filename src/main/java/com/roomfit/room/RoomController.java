@@ -41,6 +41,18 @@ public class RoomController {
         return CommonResponse.ok(roomService.getRecentUploadedRooms(limit));
     }
 
+    @DeleteMapping("/uploads/{roomId}")
+    @Operation(summary = "업로드 방 삭제", description = "iOS App에서 업로드한 ROOMPLAN 방만 삭제합니다. 샘플 방은 삭제할 수 없습니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "업로드 방 삭제 성공"),
+            @ApiResponse(responseCode = "403", description = "ROOMPLAN 업로드 방이 아닌 경우"),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 roomId")
+    })
+    public CommonResponse<Void> deleteUploadedRoom(@PathVariable Long roomId) {
+        roomService.deleteUploadedRoom(roomId);
+        return CommonResponse.ok(null);
+    }
+
     @GetMapping("/{roomId}")
     @Operation(summary = "특정 방 조회", description = "roomId 기준으로 방 크기, 문/창문, 기존 가구 목록을 조회합니다. 프론트는 이 응답을 기준으로 방을 렌더링합니다.")
     @ApiResponses({
