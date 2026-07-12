@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -33,7 +34,7 @@ class LayoutFeedbackControllerTest {
                         .content("""
                                 {
                                   "layoutId": %d,
-                                  "feedback": "책상 더 크게"
+                                  "feedback": "책상을 조금 더 넓게 쓰고 싶어"
                                 }
                                 """.formatted(layoutId)))
                 .andExpect(status().isCreated())
@@ -43,7 +44,9 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.data.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.recommendedFurniture", notNullValue()))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')].width").value(everyItem(greaterThanOrEqualTo(1.4))))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'desk-1')].position.x").value(everyItem(is(2.5))))
                 .andExpect(jsonPath("$.data.scoreSummary.totalScore", notNullValue()))
+                .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true))
                 .andExpect(jsonPath("$.data.validationResult.validationItems.length()").value(5))
                 .andExpect(jsonPath("$.data.interpretedIntent.deskMinWidth").value(1.4));
     }
