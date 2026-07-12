@@ -12,11 +12,22 @@ class RuleBasedFeedbackIntentParserTest {
     private final RuleBasedFeedbackIntentParser parser = new RuleBasedFeedbackIntentParser();
 
     @Test
-    void parse_withLargerDesk_returnsLargerDeskIntent() {
-        FeedbackIntent intent = parser.parse("책상 더 크게");
+    void parse_withLargerDeskExpressions_returnsLargerDeskIntent() {
+        String[] expressions = {
+                "책상 더 크게",
+                "책상을 조금 더 넓게 쓰고 싶어",
+                "책상을 넓게",
+                "책상 크게",
+                "책상 키워줘",
+                "책상이 더 컸으면 좋겠어"
+        };
 
-        assertThat(intent.type()).isEqualTo(FeedbackIntentType.LARGER_DESK);
-        assertThat(intent.interpretedIntent()).containsEntry("deskMinWidth", 1.4);
+        for (String expression : expressions) {
+            FeedbackIntent intent = parser.parse(expression);
+
+            assertThat(intent.type()).isEqualTo(FeedbackIntentType.LARGER_DESK);
+            assertThat(intent.interpretedIntent()).containsEntry("deskMinWidth", 1.4);
+        }
     }
 
     @Test
