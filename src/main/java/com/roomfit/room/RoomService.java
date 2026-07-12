@@ -40,6 +40,14 @@ public class RoomService {
                 .toList();
     }
 
+    public void deleteUploadedRoom(Long roomId) {
+        Room room = findRoomOrThrow(roomId);
+        if (room.getSource() != RoomSource.ROOMPLAN) {
+            throw new CustomException(ErrorCode.ROOM_DELETE_NOT_ALLOWED);
+        }
+        roomRepository.deleteById(roomId);
+    }
+
     public RoomResponse uploadRoom(RoomUploadRequest request) {
         validateUploadRequest(request);
 

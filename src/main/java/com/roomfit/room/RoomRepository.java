@@ -32,6 +32,10 @@ public class RoomRepository {
         return Optional.ofNullable(store.get(id));
     }
 
+    public void deleteById(Long id) {
+        store.remove(id);
+    }
+
     public List<Room> findAll() {
         return store.values().stream()
                 .sorted((first, second) -> Long.compare(first.getId(), second.getId()))
