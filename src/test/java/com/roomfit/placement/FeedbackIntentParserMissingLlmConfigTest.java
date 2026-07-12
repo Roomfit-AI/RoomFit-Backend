@@ -33,6 +33,9 @@ class FeedbackIntentParserMissingLlmConfigTest {
         assertThat(intent.type()).isEqualTo(FeedbackIntentType.LARGER_DESK);
         assertThat(intent.interpretedIntent())
                 .containsEntry("deskMinWidth", 1.4)
-                .doesNotContainKeys("source", "fallbackUsed");
+                .containsEntry("source", "RULE_BASED")
+                .containsEntry("rawIntent", "LARGER_DESK")
+                .containsEntry("targetFurniture", "desk")
+                .containsEntry("fallbackUsed", true);
     }
 }
