@@ -246,17 +246,20 @@ public class LayoutService {
         }
 
         double width = Math.max(furniture.getWidth(), 1.4);
-        Position position = clampPositionInsideRoom(room, furniture.getPosition(), width, furniture.getDepth());
+        Position position = clampPositionInsideRoom(room, furniture.getPosition(), width,
+                furniture.getDepth(), furniture.getRotation());
 
         return copyFurniture(furniture, position, furniture.getRotation(), width,
                 furniture.getDepth(), furniture.getHeight(), furniture.getStatus());
     }
 
-    private Position clampPositionInsideRoom(Room room, Position position, double width, double depth) {
-        double minX = width / 2.0;
-        double maxX = room.getWidth() - width / 2.0;
-        double minZ = depth / 2.0;
-        double maxZ = room.getDepth() - depth / 2.0;
+    private Position clampPositionInsideRoom(Room room, Position position, double width,
+                                             double depth, double rotation) {
+        FurnitureFootprint footprint = FurnitureFootprint.from(width, depth, rotation);
+        double minX = footprint.effectiveWidth() / 2.0;
+        double maxX = room.getWidth() - footprint.effectiveWidth() / 2.0;
+        double minZ = footprint.effectiveDepth() / 2.0;
+        double maxZ = room.getDepth() - footprint.effectiveDepth() / 2.0;
 
         return new Position(
                 clamp(position.getX(), minX, maxX),
