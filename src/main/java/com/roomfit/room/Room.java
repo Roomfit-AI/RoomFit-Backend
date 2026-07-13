@@ -11,6 +11,7 @@ public class Room {
     private double depth;
     private double height;
     private String unit; // meter 고정
+    private List<Wall> walls;
     private List<Opening> openings;
     private List<Furniture> furniture;
     private RoomSource source;
@@ -22,12 +23,12 @@ public class Room {
 
     public Room(Long id, double width, double depth, double height, String unit,
                 List<Opening> openings, List<Furniture> furniture) {
-        this(id, "Sample Room", width, depth, height, unit, openings, furniture,
+        this(id, "Sample Room", width, depth, height, unit, List.of(), openings, furniture,
                 RoomSource.SAMPLE, LocalDateTime.now());
     }
 
     public Room(Long id, String name, double width, double depth, double height, String unit,
-                List<Opening> openings, List<Furniture> furniture, RoomSource source,
+                List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
                 LocalDateTime createdAt) {
         this.id = id;
         this.name = name;
@@ -35,6 +36,7 @@ public class Room {
         this.depth = depth;
         this.height = height;
         this.unit = unit;
+        this.walls = walls == null ? List.of() : List.copyOf(walls);
         this.openings = openings == null ? List.of() : List.copyOf(openings);
         this.furniture = furniture == null ? List.of() : List.copyOf(furniture);
         this.source = source == null ? RoomSource.SAMPLE : source;
@@ -67,6 +69,10 @@ public class Room {
 
     public String getUnit() {
         return unit;
+    }
+
+    public List<Wall> getWalls() {
+        return walls;
     }
 
     public List<Opening> getOpenings() {

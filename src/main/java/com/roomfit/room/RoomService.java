@@ -54,6 +54,9 @@ public class RoomService {
         RoomUploadRequest.RoomData roomData = request.getRoom();
         String name = defaultIfBlank(request.getName(), "Uploaded Room");
         String unit = defaultIfBlank(roomData.getUnit(), "meter");
+        List<Wall> walls = nullToEmpty(request.getWalls()).stream()
+                .map(this::toWall)
+                .toList();
         List<Opening> openings = nullToEmpty(request.getOpenings()).stream()
                 .map(this::toOpening)
                 .toList();
@@ -62,7 +65,7 @@ public class RoomService {
                 .toList();
 
         Room room = new Room(null, name, roomData.getWidth(), roomData.getDepth(), roomData.getHeight(),
-                unit, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now());
+                unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now());
         validateFurnitureWithinRoom(room);
 
         return RoomResponse.from(roomRepository.save(room));
@@ -101,6 +104,22 @@ public class RoomService {
         if (!positive(room.getWidth()) || !positive(room.getDepth()) || !positive(room.getHeight())) {
             throw new CustomException(ErrorCode.INVALID_ROOM_DIMENSION);
         }
+    }
+
+    private Wall toWall(RoomUploadRequest.WallData wall) {
+        if (wall == null || isBlank(wall.getId()) || wall.getStart() == null || wall.getEnd() == null
+                || wall.getStart().getX() == null || wall.getStart().getZ() == null
+                || wall.getEnd().getX() == null || wall.getEnd().getZ() == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+
+        double height = wall.getHeight() == null ? 0 : wall.getHeight();
+        double thickness = wall.getThickness() == null ? 0 : wall.getThickness();
+
+        return new Wall(wall.getId(),
+                new Position(wall.getStart().getX(), wall.getStart().getZ()),
+                new Position(wall.getEnd().getX(), wall.getEnd().getZ()),
+                height, thickness);
     }
 
     private Opening toOpening(RoomUploadRequest.OpeningData opening) {
