@@ -4,12 +4,13 @@ import com.roomfit.room.Furniture;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
 import com.roomfit.room.RoomSource;
+import com.roomfit.room.Wall;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
-@Schema(description = "방 조회/업로드 응답. 프론트는 room/openings/furniture를 기준으로 Three.js 방을 렌더링합니다.")
+@Schema(description = "방 조회/업로드 응답. 프론트는 room/walls/openings/furniture를 기준으로 Three.js 방을 렌더링합니다.")
 public class RoomResponse {
 
     @Schema(description = "방 ID", example = "1")
@@ -18,6 +19,8 @@ public class RoomResponse {
     private final String name;
     @Schema(description = "방 크기 정보. 모든 단위는 meter입니다.")
     private final RoomDimension room;
+    @Schema(description = "실제로 스캔된 벽 세그먼트 목록. 비어 있으면 프론트는 width/depth 사각형으로 대체해야 합니다.")
+    private final List<Wall> walls;
     @Schema(description = "문/창문 목록")
     private final List<Opening> openings;
     @Schema(description = "기존/추천/수정 가구 목록")
@@ -27,11 +30,12 @@ public class RoomResponse {
     @Schema(description = "방 생성 시각", example = "2026-07-09T02:13:15.411289")
     private final LocalDateTime createdAt;
 
-    private RoomResponse(Long roomId, String name, RoomDimension room, List<Opening> openings,
+    private RoomResponse(Long roomId, String name, RoomDimension room, List<Wall> walls, List<Opening> openings,
                           List<Furniture> furniture, RoomSource source, LocalDateTime createdAt) {
         this.roomId = roomId;
         this.name = name;
         this.room = room;
+        this.walls = walls;
         this.openings = openings;
         this.furniture = furniture;
         this.source = source;
@@ -40,7 +44,7 @@ public class RoomResponse {
 
     public static RoomResponse from(Room room) {
         RoomDimension dimension = new RoomDimension(room.getWidth(), room.getDepth(), room.getHeight(), room.getUnit());
-        return new RoomResponse(room.getId(), room.getName(), dimension, room.getOpenings(),
+        return new RoomResponse(room.getId(), room.getName(), dimension, room.getWalls(), room.getOpenings(),
                 room.getFurniture(), room.getSource(), room.getCreatedAt());
     }
 
@@ -54,6 +58,10 @@ public class RoomResponse {
 
     public RoomDimension getRoom() {
         return room;
+    }
+
+    public List<Wall> getWalls() {
+        return walls;
     }
 
     public List<Opening> getOpenings() {

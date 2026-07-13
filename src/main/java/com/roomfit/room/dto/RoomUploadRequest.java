@@ -11,6 +11,8 @@ public class RoomUploadRequest {
     private String name;
     @Schema(description = "필수 방 크기 정보")
     private RoomData room;
+    @Schema(description = "실제로 스캔된 벽 세그먼트 목록. 빈 배열/생략 허용 (없으면 width/depth 사각형으로 대체됨)")
+    private List<WallData> walls;
     @Schema(description = "문/창문 목록. 빈 배열 허용")
     private List<OpeningData> openings;
     @Schema(description = "기존 가구 목록. 빈 배열 허용")
@@ -26,6 +28,10 @@ public class RoomUploadRequest {
 
     public RoomData getRoom() {
         return room;
+    }
+
+    public List<WallData> getWalls() {
+        return walls;
     }
 
     public List<OpeningData> getOpenings() {
@@ -177,6 +183,44 @@ public class RoomUploadRequest {
 
         public String getStatus() {
             return status;
+        }
+    }
+
+    @Schema(description = "실제로 스캔된 벽 세그먼트 데이터. start/end는 방 코너 원점(0..width, 0..depth) 기준")
+    public static class WallData {
+        @Schema(description = "벽 ID", example = "wall-1")
+        private String id;
+        @Schema(description = "벽 시작점(방 코너 원점 기준)")
+        private PositionData start;
+        @Schema(description = "벽 끝점(방 코너 원점 기준)")
+        private PositionData end;
+        @Schema(description = "벽 높이(meter)", example = "2.4")
+        private Double height;
+        @Schema(description = "벽 두께(meter)", example = "0.12")
+        private Double thickness;
+
+        protected WallData() {
+            // JSON 역직렬화용
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public PositionData getStart() {
+            return start;
+        }
+
+        public PositionData getEnd() {
+            return end;
+        }
+
+        public Double getHeight() {
+            return height;
+        }
+
+        public Double getThickness() {
+            return thickness;
         }
     }
 
