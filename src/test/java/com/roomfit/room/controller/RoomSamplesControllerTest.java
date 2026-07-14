@@ -34,6 +34,7 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.data[0].room.height").value(2.4))
                 .andExpect(jsonPath("$.data[0].room.unit").value("meter"))
                 .andExpect(jsonPath("$.data[0].openings[*].type").value(hasItems("door", "window")))
+                .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].rotation").value(hasItems(180.0)))
                 .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")));
     }
 }
