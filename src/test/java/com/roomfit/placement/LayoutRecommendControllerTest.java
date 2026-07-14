@@ -112,14 +112,14 @@ class LayoutRecommendControllerTest {
     }
 
     @Test
-    void recommend_forCollectorSample_returnsMidcenturyRecommendationOnly() throws Exception {
+    void recommend_forCollectorStudio_returnsStudioRecommendationOnly() throws Exception {
         String contextResponse = mockMvc.perform(post("/api/agent/context")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "roomId": 2,
-                                  "lifestyleGoal": "STUDY_FOCUSED",
-                                  "designStyle": ["MINIMAL", "WHITE_TONE"],
+                                  "lifestyleGoal": "RELAX_FOCUSED",
+                                  "designStyle": ["MODERN"],
                                   "requiredItems": ["bed", "desk", "chair"],
                                   "optionalItems": ["lamp"],
                                   "selectedImageIds": [1, 3],
@@ -142,8 +142,14 @@ class LayoutRecommendControllerTest {
                                 """.formatted(contextId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.recommendedFurniture.length()").value(13))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'collector-bed')].status").value(hasItems("RECOMMENDED")))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'collector-console')].status").value(hasItems("RECOMMENDED")))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'bed-2')]").isEmpty());
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-bed')].status").value(hasItems("RECOMMENDED")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-console')].status").value(hasItems("RECOMMENDED")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-desk')].position.x").value(hasItems(2.8)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-glass-shelf')].position.x").value(hasItems(4.45)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-blue-cabinet')].position.x").value(hasItems(5.55)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-rug')].position.x").value(hasItems(4.35)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].position.z").value(hasItems(5.25)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].rotation").value(hasItems(225.0)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'bed-3')]").isEmpty());
     }
 }

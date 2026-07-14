@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 public class RuleBasedPlacementService implements PlacementService {
 
     private static final String COLLECTOR_ROOM_NAME = "미드센추리 컬렉터 룸";
+    private static final String COLLECTOR_STUDIO_ROOM_NAME = "미드센추리 컬렉터 스튜디오";
 
     private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
             FurnitureStatus.EXISTING,
@@ -38,6 +39,9 @@ public class RuleBasedPlacementService implements PlacementService {
     public PlacementResult recommend(AgentContext context, Room room) {
         if (COLLECTOR_ROOM_NAME.equals(room.getName())) {
             return new PlacementResult(RecommendationStatus.SUCCESS, midCenturyCollectorRecommendation());
+        }
+        if (COLLECTOR_STUDIO_ROOM_NAME.equals(room.getName())) {
+            return new PlacementResult(RecommendationStatus.SUCCESS, midCenturyStudioRecommendation());
         }
 
         List<Furniture> recommended = new ArrayList<>();
@@ -100,6 +104,37 @@ public class RuleBasedPlacementService implements PlacementService {
                         new Position(3.9, 4.08), 0, FurnitureStatus.RECOMMENDED),
                 new Furniture("collector-coffee-table", "table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
                         new Position(3.9, 4.08), 0, FurnitureStatus.RECOMMENDED)
+        );
+    }
+
+    private List<Furniture> midCenturyStudioRecommendation() {
+        return List.of(
+                new Furniture("studio-bed", "bed", "코랄 프레임 침대", 1.35, 2.0, 0.5,
+                        new Position(1.35, 1.8), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-bedside", "storage", "레드 미드센추리 협탁", 0.48, 0.42, 0.52,
+                        new Position(0.55, 1.7), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-floor-plant", "storage", "윈도우 플로어 식물", 0.48, 0.48, 0.92,
+                        new Position(0.58, 4.5), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-desk", "desk", "컬렉터 데스크", 1.35, 0.62, 0.74,
+                        new Position(2.8, 1.05), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-desk-chair", "chair", "월넛 데스크 체어", 0.58, 0.58, 0.82,
+                        new Position(2.8, 1.9), 180, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-blue-cabinet", "storage", "코발트 모듈 수납장", 0.78, 0.42, 1.08,
+                        new Position(5.55, 1.0), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-glass-shelf", "storage", "크롬 글라스 전시 선반", 1.28, 0.36, 1.48,
+                        new Position(4.45, 0.95), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-console", "storage", "크림 LP 콘솔", 1.76, 0.44, 0.78,
+                        new Position(5.08, 2.7), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-red-shelf", "shelf", "레트로 레드 벽 선반", 0.92, 0.18, 0.22,
+                        new Position(5.9, 2.3), 90, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-lounge-chair", "sofa", "코랄 라운지 체어", 0.92, 0.86, 0.84,
+                        new Position(5.45, 4.75), 135, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-cane-chair", "chair", "케인 크롬 체어", 0.68, 0.7, 0.82,
+                        new Position(3.4, 5.25), 225, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-rug", "rug", "크림 라운드 러그", 2.2, 2.2, 0.035,
+                        new Position(4.35, 4.3), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("studio-coffee-table", "table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
+                        new Position(4.35, 4.3), 0, FurnitureStatus.RECOMMENDED)
         );
     }
 
