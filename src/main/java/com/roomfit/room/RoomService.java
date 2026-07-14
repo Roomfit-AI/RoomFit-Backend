@@ -65,7 +65,8 @@ public class RoomService {
                 .toList();
 
         Room room = new Room(null, name, roomData.getWidth(), roomData.getDepth(), roomData.getHeight(),
-                unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now());
+                unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now(),
+                request.getThumbnailBase64());
         validateFurnitureWithinRoom(room);
 
         return RoomResponse.from(roomRepository.save(room));

@@ -17,6 +17,8 @@ public class RoomUploadRequest {
     private List<OpeningData> openings;
     @Schema(description = "기존 가구 목록. 빈 배열 허용")
     private List<FurnitureData> furniture;
+    @Schema(description = "iOS 앱이 스캔 완료 시점에 찍은 방 미리보기 스냅샷을 Base64로 인코딩한 문자열(JPEG). 생략 허용 — 없으면 목록에 썸네일 없이 표시됩니다.")
+    private String thumbnailBase64;
 
     protected RoomUploadRequest() {
         // JSON 역직렬화용
@@ -40,6 +42,10 @@ public class RoomUploadRequest {
 
     public List<FurnitureData> getFurniture() {
         return furniture;
+    }
+
+    public String getThumbnailBase64() {
+        return thumbnailBase64;
     }
 
     @Schema(description = "업로드 방 크기. width/depth/height는 필수이며 meter 단위입니다.")

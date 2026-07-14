@@ -29,9 +29,11 @@ public class RoomResponse {
     private final RoomSource source;
     @Schema(description = "방 생성 시각", example = "2026-07-09T02:13:15.411289")
     private final LocalDateTime createdAt;
+    @Schema(description = "iOS 앱이 스캔 완료 시점에 찍은 방 미리보기 스냅샷(Base64 인코딩 JPEG). 샘플 방이거나 이 필드가 추가되기 전에 업로드된 방은 null입니다.")
+    private final String thumbnailBase64;
 
     private RoomResponse(Long roomId, String name, RoomDimension room, List<Wall> walls, List<Opening> openings,
-                          List<Furniture> furniture, RoomSource source, LocalDateTime createdAt) {
+                          List<Furniture> furniture, RoomSource source, LocalDateTime createdAt, String thumbnailBase64) {
         this.roomId = roomId;
         this.name = name;
         this.room = room;
@@ -40,12 +42,13 @@ public class RoomResponse {
         this.furniture = furniture;
         this.source = source;
         this.createdAt = createdAt;
+        this.thumbnailBase64 = thumbnailBase64;
     }
 
     public static RoomResponse from(Room room) {
         RoomDimension dimension = new RoomDimension(room.getWidth(), room.getDepth(), room.getHeight(), room.getUnit());
         return new RoomResponse(room.getId(), room.getName(), dimension, room.getWalls(), room.getOpenings(),
-                room.getFurniture(), room.getSource(), room.getCreatedAt());
+                room.getFurniture(), room.getSource(), room.getCreatedAt(), room.getThumbnailBase64());
     }
 
     public Long getRoomId() {
@@ -78,6 +81,10 @@ public class RoomResponse {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public String getThumbnailBase64() {
+        return thumbnailBase64;
     }
 
     @Schema(description = "방 크기. width/depth/height는 meter 단위입니다.")
