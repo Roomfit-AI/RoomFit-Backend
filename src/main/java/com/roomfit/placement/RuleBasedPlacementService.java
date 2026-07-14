@@ -27,6 +27,8 @@ import java.util.stream.Collectors;
 @Service
 public class RuleBasedPlacementService implements PlacementService {
 
+    private static final String COLLECTOR_ROOM_NAME = "미드센추리 컬렉터 룸";
+
     private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
             FurnitureStatus.EXISTING,
             FurnitureStatus.USER_MODIFIED
@@ -34,6 +36,10 @@ public class RuleBasedPlacementService implements PlacementService {
 
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
+        if (COLLECTOR_ROOM_NAME.equals(room.getName())) {
+            return new PlacementResult(RecommendationStatus.SUCCESS, midCenturyCollectorRecommendation());
+        }
+
         List<Furniture> recommended = new ArrayList<>();
         recommended.addAll(room.getFurniture().stream()
                 .filter(this::isActivePlacedFurniture)
@@ -64,6 +70,37 @@ public class RuleBasedPlacementService implements PlacementService {
         }
 
         return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary());
+    }
+
+    private List<Furniture> midCenturyCollectorRecommendation() {
+        return List.of(
+                new Furniture("collector-bed", "bed", "미드센추리 싱글 침대", 1.35, 2.0, 0.5,
+                        new Position(1.35, 1.8), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-bedside", "storage", "코랄 협탁", 0.48, 0.42, 0.52,
+                        new Position(0.55, 1.7), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-floor-plant", "storage", "플로어 식물", 0.48, 0.48, 0.92,
+                        new Position(0.58, 4.5), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-desk", "desk", "미드센추리 컬렉터 데스크", 1.35, 0.62, 0.74,
+                        new Position(2.9, 1.0), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-desk-chair", "chair", "월넛 데스크 체어", 0.58, 0.58, 0.82,
+                        new Position(2.9, 1.95), 180, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-blue-cabinet", "storage", "코발트 모듈 수납장", 0.78, 0.42, 1.08,
+                        new Position(1.35, 3.15), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-glass-shelf", "storage", "크롬 글라스 전시 선반", 1.28, 0.36, 1.48,
+                        new Position(3.95, 0.98), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-console", "storage", "크림 LP 콘솔", 1.76, 0.44, 0.78,
+                        new Position(5.08, 2.7), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-red-shelf", "shelf", "레트로 레드 벽 선반", 0.92, 0.18, 0.22,
+                        new Position(5.9, 2.3), 90, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-lounge-chair", "sofa", "코랄 라운지 체어", 0.92, 0.86, 0.84,
+                        new Position(5.1, 4.55), 135, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-cane-chair", "chair", "케인 크롬 체어", 0.68, 0.7, 0.82,
+                        new Position(3.75, 4.6), 320, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-rug", "rug", "크림 라운드 러그", 2.2, 2.2, 0.035,
+                        new Position(3.9, 4.08), 0, FurnitureStatus.RECOMMENDED),
+                new Furniture("collector-coffee-table", "table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
+                        new Position(3.9, 4.08), 0, FurnitureStatus.RECOMMENDED)
+        );
     }
 
     private Optional<Furniture> tryAddFurniture(Room room, List<Furniture> placed,

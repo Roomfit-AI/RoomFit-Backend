@@ -3,6 +3,7 @@ package com.roomfit.room;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -35,5 +36,25 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
                 List.of(door, window), List.of(bed, desk, chair, wardrobe));
 
         roomRepository.save(sampleRoom); // roomId = 1 로 발급됨
+
+        Opening collectorDoor = new Opening("collector-door", "door", "south", 5.7, 0.8, 2.1, null);
+        Opening collectorWindow = new Opening("collector-window", "window", "north", 1.7, 2.4, 1.45, 0.72);
+
+        List<Furniture> collectorFurniture = List.of(
+                new Furniture("bed-2", "bed", "우드 침대", 1.45, 2.1, 0.48,
+                        new Position(1.35, 1.55), 0, FurnitureStatus.EXISTING),
+                new Furniture("desk-2", "desk", "우드 책상", 1.35, 0.6, 0.72,
+                        new Position(3.0, 1.05), 0, FurnitureStatus.EXISTING),
+                new Furniture("chair-2", "chair", "우드 의자", 0.55, 0.55, 0.82,
+                        new Position(3.0, 1.85), 180, FurnitureStatus.EXISTING),
+                new Furniture("wardrobe-2", "storage", "우드 옷장", 1.2, 0.65, 2.1,
+                        new Position(5.3, 3.85), 180, FurnitureStatus.EXISTING)
+        );
+
+        Room collectorRoom = new Room(null, "미드센추리 컬렉터 룸", 6.4, 5.8, 2.8, "meter",
+                List.of(), List.of(collectorDoor, collectorWindow), collectorFurniture,
+                RoomSource.SAMPLE, LocalDateTime.now());
+
+        roomRepository.save(collectorRoom); // roomId = 2 로 발급됨
     }
 }

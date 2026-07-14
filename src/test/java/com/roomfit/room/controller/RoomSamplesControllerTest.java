@@ -27,14 +27,22 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data", notNullValue()))
-                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data.length()").value(2))
                 .andExpect(jsonPath("$.data[0].roomId").value(1))
-                .andExpect(jsonPath("$.data[0].room.width").value(3.2))
-                .andExpect(jsonPath("$.data[0].room.depth").value(4.5))
-                .andExpect(jsonPath("$.data[0].room.height").value(2.4))
+                .andExpect(jsonPath("$.data[0].room.width").value(5.8))
+                .andExpect(jsonPath("$.data[0].room.depth").value(5.4))
+                .andExpect(jsonPath("$.data[0].room.height").value(2.7))
                 .andExpect(jsonPath("$.data[0].room.unit").value("meter"))
                 .andExpect(jsonPath("$.data[0].openings[*].type").value(hasItems("door", "window")))
                 .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].rotation").value(hasItems(180.0)))
-                .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")));
+                .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")))
+                .andExpect(jsonPath("$.data[1].roomId").value(2))
+                .andExpect(jsonPath("$.data[1].name").value("미드센추리 컬렉터 룸"))
+                .andExpect(jsonPath("$.data[1].room.width").value(6.4))
+                .andExpect(jsonPath("$.data[1].room.depth").value(5.8))
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'bed-2')]").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'desk-2')]").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'wardrobe-2')]").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'collector-bed')]").isEmpty());
     }
 }

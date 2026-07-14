@@ -110,4 +110,40 @@ class LayoutRecommendControllerTest {
                 .andExpect(jsonPath("$.data").value(nullValue()))
                 .andExpect(jsonPath("$.error.code").value("CONTEXT_NOT_FOUND"));
     }
+
+    @Test
+    void recommend_forCollectorSample_returnsMidcenturyRecommendationOnly() throws Exception {
+        String contextResponse = mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 2,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL", "WHITE_TONE"],
+                                  "requiredItems": ["bed", "desk", "chair"],
+                                  "optionalItems": ["lamp"],
+                                  "selectedImageIds": [1, 3],
+                                  "selectedProductIds": ["desk-01", "chair-01", "lamp-01"]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String contextId = com.jayway.jsonpath.JsonPath.read(contextResponse, "$.data.contextId").toString();
+
+        mockMvc.perform(post("/api/layouts/recommend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "contextId": %s
+                                }
+                                """.formatted(contextId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.recommendedFurniture.length()").value(13))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'collector-bed')].status").value(hasItems("RECOMMENDED")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'collector-console')].status").value(hasItems("RECOMMENDED")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'bed-2')]").isEmpty());
+    }
 }
