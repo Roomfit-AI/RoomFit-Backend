@@ -40,7 +40,9 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.data[1].name").value("미드센추리 컬렉터 룸"))
                 .andExpect(jsonPath("$.data[1].room.width").value(6.4))
                 .andExpect(jsonPath("$.data[1].room.depth").value(5.8))
-                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'collector-bed')]").isNotEmpty())
-                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'collector-console')]").isNotEmpty());
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'bed-2')]").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'desk-2')]").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'wardrobe-2')]").isNotEmpty())
+                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'collector-bed')]").isEmpty());
     }
 }
