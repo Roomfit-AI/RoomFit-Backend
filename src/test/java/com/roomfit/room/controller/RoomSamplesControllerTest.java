@@ -37,7 +37,7 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].rotation").value(hasItems(180.0)))
                 .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")))
                 .andExpect(jsonPath("$.data[1].roomId").value(2))
-                .andExpect(jsonPath("$.data[1].name").value("미드센추리 컬렉터 스튜디오"))
+                .andExpect(jsonPath("$.data[1].name").value("샘플룸2"))
                 .andExpect(jsonPath("$.data[1].room.width").value(6.4))
                 .andExpect(jsonPath("$.data[1].room.depth").value(5.8))
                 .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'bed-3')]").isNotEmpty())

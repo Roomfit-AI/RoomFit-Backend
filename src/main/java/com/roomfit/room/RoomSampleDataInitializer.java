@@ -51,7 +51,7 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
                         new Position(5.3, 3.85), 180, FurnitureStatus.EXISTING)
         );
 
-        Room studioRoom = new Room(null, "미드센추리 컬렉터 스튜디오", 6.4, 5.8, 2.8, "meter",
+        Room studioRoom = new Room(null, "샘플룸2", 6.4, 5.8, 2.8, "meter",
                 List.of(), List.of(studioDoor, studioWindow), studioFurniture,
                 RoomSource.SAMPLE, LocalDateTime.now(), null);
 

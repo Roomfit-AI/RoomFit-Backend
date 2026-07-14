@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 public class RuleBasedPlacementService implements PlacementService {
 
     private static final String COLLECTOR_ROOM_NAME = "미드센추리 컬렉터 룸";
-    private static final String COLLECTOR_STUDIO_ROOM_NAME = "미드센추리 컬렉터 스튜디오";
+    private static final String COLLECTOR_STUDIO_ROOM_NAME = "샘플룸2";
 
     private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
             FurnitureStatus.EXISTING,
