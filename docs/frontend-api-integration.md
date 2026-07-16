@@ -265,6 +265,7 @@ Response
       "price": 89000,
       "styleTags": ["minimal", "white_tone", "study"],
       "imageUrl": "/images/products/desk-white.png",
+      "purchaseUrl": "https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/",
       "requiredClearance": {
         "front": 0.6,
         "side": 0.2
@@ -273,6 +274,8 @@ Response
   ],
   "error": null
 }
+
+`purchaseUrl`은 유사한 구매 가능 제품의 fallback 링크이며, 연결된 제품이 없으면 `null`입니다.
 7. Agent Context 생성
 POST /api/agent/context
 용도

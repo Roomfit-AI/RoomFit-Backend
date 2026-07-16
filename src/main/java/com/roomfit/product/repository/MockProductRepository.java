@@ -35,6 +35,7 @@ public class MockProductRepository {
                     89000,
                     List.of("minimal", "white_tone", "study"),
                     "/images/products/desk-white.png",
+                    "https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/",
                     new RequiredClearance(0.6, 0.2)
             ),
             new MockProduct(
@@ -48,6 +49,7 @@ public class MockProductRepository {
                     39000,
                     List.of("minimal", "white_tone", "study"),
                     "/images/products/chair-white.png",
+                    "https://www.ikea.com/kr/ko/p/hauga-chair-white-50579215/",
                     new RequiredClearance(0.4, 0.1)
             ),
             new MockProduct(

@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasItems;
@@ -18,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Transactional
 class LayoutUpdateControllerTest {
 
     @Autowired
@@ -32,10 +34,10 @@ class LayoutUpdateControllerTest {
                         .content("""
                                 {
                                   "furniture": [
-                                    { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0, "status": "EXISTING" },
-                                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.4 }, "rotation": 90, "status": "EXISTING" },
-                                    { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0, "status": "EXISTING" },
-                                    { "id": "chair-rec-1", "position": { "x": 1.8, "z": 3.1 }, "rotation": 15, "status": "USER_MODIFIED" }
+                                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "chair-1", "position": { "x": 1.8, "z": 3.1 }, "rotation": 15, "status": "USER_MODIFIED" },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180, "status": "EXISTING" }
                                   ]
                                 }
                                 """))
@@ -46,9 +48,9 @@ class LayoutUpdateControllerTest {
                 .andExpect(jsonPath("$.data.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.scoreSummary", notNullValue()))
                 .andExpect(jsonPath("$.data.scoreSummary.collisionScore").value(100))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-rec-1')].position.x").value(hasItems(1.8)))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-rec-1')].rotation").value(hasItems(15.0)))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-rec-1')].status").value(hasItems("USER_MODIFIED")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-1')].position.x").value(hasItems(1.8)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-1')].rotation").value(hasItems(15.0)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'chair-1')].status").value(hasItems("USER_MODIFIED")))
                 .andExpect(jsonPath("$.data.validationResult.collisionFree").value(true))
                 .andExpect(jsonPath("$.data.validationResult.validationItems.length()").value(5));
     }
@@ -126,10 +128,10 @@ class LayoutUpdateControllerTest {
                         .content("""
                                 {
                                   "furniture": [
-                                    { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0, "status": "EXISTING" },
-                                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.4 }, "rotation": 90, "status": "EXISTING" },
-                                    { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0, "status": "EXISTING" },
-                                    { "id": "chair-rec-1", "position": { "x": 1.8, "z": 3.1 }, "rotation": 15, "status": "MOVED" }
+                                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "chair-1", "position": { "x": 3.0, "z": 1.85 }, "rotation": 180, "status": "MOVED" },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180, "status": "EXISTING" }
                                   ]
                                 }
                                 """))

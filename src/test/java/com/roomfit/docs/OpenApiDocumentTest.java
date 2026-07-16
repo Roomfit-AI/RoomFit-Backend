@@ -34,6 +34,7 @@ class OpenApiDocumentTest {
                 .contains("RoomFit MVP Demo Flow")
                 .contains("배치 추천 생성")
                 .contains("selectedProductIds: [desk-01, chair-01, lamp-01]")
+                .contains("purchaseUrl:")
                 .contains("프론트 체크리스트 UI용 검증 항목")
                 .contains("CommonResponse")
                 .contains("recommendedFurniture")

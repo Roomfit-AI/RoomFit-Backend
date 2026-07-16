@@ -1,5 +1,7 @@
 package com.roomfit.product.domain;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 
 public class MockProduct {
@@ -14,11 +16,20 @@ public class MockProduct {
     private final int price;
     private final List<String> styleTags;
     private final String imageUrl;
+    private final String purchaseUrl;
     private final RequiredClearance requiredClearance;
 
     public MockProduct(String productId, String type, String name, String brand,
                        double width, double depth, double height, int price,
                        List<String> styleTags, String imageUrl,
+                       RequiredClearance requiredClearance) {
+        this(productId, type, name, brand, width, depth, height, price,
+                styleTags, imageUrl, null, requiredClearance);
+    }
+
+    public MockProduct(String productId, String type, String name, String brand,
+                       double width, double depth, double height, int price,
+                       List<String> styleTags, String imageUrl, String purchaseUrl,
                        RequiredClearance requiredClearance) {
         this.productId = productId;
         this.type = type;
@@ -30,7 +41,29 @@ public class MockProduct {
         this.price = price;
         this.styleTags = List.copyOf(styleTags);
         this.imageUrl = imageUrl;
+        this.purchaseUrl = validatePurchaseUrl(purchaseUrl);
         this.requiredClearance = requiredClearance;
+    }
+
+    private static String validatePurchaseUrl(String purchaseUrl) {
+        if (purchaseUrl == null) {
+            return null;
+        }
+        if (purchaseUrl.isBlank()) {
+            throw new IllegalArgumentException("purchaseUrl must be null or an absolute HTTP(S) URL");
+        }
+
+        try {
+            URI uri = new URI(purchaseUrl);
+            String scheme = uri.getScheme();
+            boolean supportedScheme = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+            if (!supportedScheme || uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new IllegalArgumentException("purchaseUrl must be null or an absolute HTTP(S) URL");
+            }
+            return purchaseUrl;
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("purchaseUrl must be null or an absolute HTTP(S) URL", e);
+        }
     }
 
     public String getProductId() {
@@ -71,6 +104,10 @@ public class MockProduct {
 
     public String getImageUrl() {
         return imageUrl;
+    }
+
+    public String getPurchaseUrl() {
+        return purchaseUrl;
     }
 
     public RequiredClearance getRequiredClearance() {

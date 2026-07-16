@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasItems;
@@ -17,6 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@Transactional
 class LayoutValidateControllerTest {
 
     @Autowired
@@ -54,10 +56,10 @@ class LayoutValidateControllerTest {
                                 {
                                   "layoutId": %d,
                                   "furniture": [
-                                    { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0 },
-                                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.4 }, "rotation": 90 },
-                                    { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0 },
-                                    { "id": "chair-rec-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0 }
+                                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0 },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0 },
+                                    { "id": "chair-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 180 },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180 }
                                   ]
                                 }
                                 """.formatted(layoutId)))
@@ -159,10 +161,10 @@ class LayoutValidateControllerTest {
                                 {
                                   "layoutId": %d,
                                   "furniture": [
-                                    { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0 },
-                                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.4 }, "rotation": 90 },
-                                    { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0 },
-                                    { "id": "chair-rec-1", "position": { "x": 5.0, "z": 3.1 }, "rotation": 0 }
+                                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0 },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0 },
+                                    { "id": "chair-1", "position": { "x": 6.5, "z": 1.85 }, "rotation": 180 },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180 }
                                   ]
                                 }
                                 """.formatted(layoutId)))
@@ -181,10 +183,10 @@ class LayoutValidateControllerTest {
                                 {
                                   "layoutId": %d,
                                   "furniture": [
-                                    { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0 },
-                                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.4 }, "rotation": 90 },
-                                    { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0 },
-                                    { "id": "chair-rec-1", "position": { "x": 1.6, "z": 3.1 }, "rotation": 360 }
+                                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0 },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0 },
+                                    { "id": "chair-1", "position": { "x": 3.0, "z": 1.85 }, "rotation": 360 },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180 }
                                   ]
                                 }
                                 """.formatted(layoutId)))
@@ -235,10 +237,10 @@ class LayoutValidateControllerTest {
                 {
                   "layoutId": %d,
                   "furniture": [
-                    { "id": "bed-1", "position": { "x": 0.8, "z": 1.4 }, "rotation": 0 },
-                    { "id": "desk-1", "position": { "x": 2.7, "z": 0.5 }, "rotation": 90 },
-                    { "id": "wardrobe-1", "position": { "x": 2.7, "z": 3.9 }, "rotation": 0 },
-                    { "id": "chair-rec-1", "position": { "x": 1.6, "z": 3.1 }, "rotation": 0 }
+                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0 },
+                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0 },
+                    { "id": "chair-1", "position": { "x": 3.0, "z": 1.85 }, "rotation": 180 },
+                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180 }
                   ]
                 }
                 """.formatted(layoutId);

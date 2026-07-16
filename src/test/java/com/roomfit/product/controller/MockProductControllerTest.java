@@ -44,6 +44,9 @@ class MockProductControllerTest {
                 .andExpect(jsonPath("$.data[*].price", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[*].styleTags", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[*].imageUrl", everyItem(notNullValue())))
+                .andExpect(jsonPath("$.data[0].purchaseUrl").value(nullValue()))
+                .andExpect(jsonPath("$.data[1].purchaseUrl").value(
+                        "https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/"))
                 .andExpect(jsonPath("$.data[*].requiredClearance.front", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[*].requiredClearance.side", everyItem(notNullValue())));
     }
