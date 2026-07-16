@@ -2,6 +2,9 @@ HELP.md
 .worktrees/
 .gradle
 build/
+
+# Local H2 database file (default datasource when SPRING_DATASOURCE_URL isn't set)
+data/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/

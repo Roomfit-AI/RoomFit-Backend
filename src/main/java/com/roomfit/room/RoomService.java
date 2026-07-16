@@ -5,6 +5,7 @@ import com.roomfit.common.ErrorCode;
 import com.roomfit.room.dto.FurnitureUpdateRequest;
 import com.roomfit.room.dto.RoomResponse;
 import com.roomfit.room.dto.RoomUploadRequest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -28,14 +29,17 @@ public class RoomService {
     }
 
     public List<RoomResponse> getSampleRooms() {
-        return roomRepository.findBySource(RoomSource.SAMPLE).stream()
+        return roomRepository.findBySourceOrderByIdAsc(RoomSource.SAMPLE).stream()
                 .map(RoomResponse::from)
                 .toList();
     }
 
     public List<RoomResponse> getRecentUploadedRooms(int limit) {
         int normalizedLimit = Math.max(0, Math.min(limit, 100));
-        return roomRepository.findRecentBySource(RoomSource.ROOMPLAN, normalizedLimit).stream()
+        if (normalizedLimit == 0) {
+            return List.of();
+        }
+        return roomRepository.findBySourceOrderByCreatedAtDescIdDesc(RoomSource.ROOMPLAN, PageRequest.of(0, normalizedLimit)).stream()
                 .map(RoomResponse::from)
                 .toList();
     }
@@ -70,6 +74,22 @@ public class RoomService {
         validateFurnitureWithinRoom(room);
 
         return RoomResponse.from(roomRepository.save(room));
+    }
+
+    // manage-furniture 단계(아직 Layout이 생성되기 전)의 가구 추가/이동/삭제/
+    // 회전을 통째로 반영한다. 기존 PUT /{roomId}/furniture는 상태 변경만
+    // 다루므로(그 문서에 명시된 경계를 지키기 위해) 별도 엔드포인트로 추가함 —
+    // uploadRoom과 동일한 검증(toFurniture, validateFurnitureWithinRoom)을 재사용.
+    public RoomResponse replaceFurniture(Long roomId, List<RoomUploadRequest.FurnitureData> furnitureData) {
+        Room room = findRoomOrThrow(roomId);
+        List<Furniture> furniture = nullToEmpty(furnitureData).stream()
+                .map(this::toFurniture)
+                .toList();
+
+        room.setFurniture(furniture);
+        validateFurnitureWithinRoom(room);
+        roomRepository.save(room);
+        return RoomResponse.from(room);
     }
 
     public RoomResponse updateFurnitureStatus(Long roomId, FurnitureUpdateRequest request) {
@@ -144,7 +164,7 @@ public class RoomService {
         }
 
         FurnitureStatus status = parseStatus(defaultIfBlank(furniture.getStatus(), FurnitureStatus.EXISTING.name()));
-        double rotation = snapRotation(furniture.getRotation() == null ? 0 : furniture.getRotation());
+        double rotation = RotationUtils.snapToRightAngle(furniture.getRotation() == null ? 0 : furniture.getRotation());
         String label = defaultIfBlank(furniture.getLabel(), furniture.getType());
 
         return new Furniture(furniture.getId(), furniture.getType(), label, furniture.getWidth(),
@@ -173,27 +193,6 @@ public class RoomService {
         } catch (IllegalArgumentException | NullPointerException e) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_STATUS);
         }
-    }
-
-    private double snapRotation(double rotation) {
-        double normalized = ((rotation % 360) + 360) % 360;
-        double nearest = 0;
-        double shortestDistance = circularDistance(normalized, nearest);
-
-        for (double allowed : List.of(90.0, 180.0, 270.0)) {
-            double distance = circularDistance(normalized, allowed);
-            if (distance < shortestDistance) {
-                nearest = allowed;
-                shortestDistance = distance;
-            }
-        }
-
-        return nearest;
-    }
-
-    private double circularDistance(double first, double second) {
-        double distance = Math.abs(first - second);
-        return Math.min(distance, 360 - distance);
     }
 
     private void validateFurnitureIds(Room room, FurnitureUpdateRequest request) {

@@ -75,12 +75,11 @@ public class AgentContextService {
                 optionalItems,
                 selectedImageIds,
                 selectedProductIds,
-                styleTags,
-                selectedProducts
+                styleTags
         );
 
         agentContextRepository.save(context);
-        return AgentContextResponse.from(context);
+        return AgentContextResponse.from(context, selectedProducts);
     }
 
     private LifestyleGoal parseLifestyleGoal(String rawLifestyleGoal) {

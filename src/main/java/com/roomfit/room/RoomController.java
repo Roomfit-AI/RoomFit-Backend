@@ -2,6 +2,7 @@ package com.roomfit.room;
 
 import com.roomfit.common.CommonResponse;
 import com.roomfit.room.dto.FurnitureUpdateRequest;
+import com.roomfit.room.dto.RoomFurnitureReplaceRequest;
 import com.roomfit.room.dto.RoomResponse;
 import com.roomfit.room.dto.RoomUploadRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -108,6 +109,18 @@ public class RoomController {
                     """)))
     public CommonResponse<RoomResponse> uploadRoom(@RequestBody RoomUploadRequest request) {
         return CommonResponse.ok(roomService.uploadRoom(request));
+    }
+
+    @PutMapping("/{roomId}/layout")
+    @Operation(summary = "가구 배치 전체 반영 (manage-furniture 단계)", description = "아직 AI 추천(Layout)을 생성하기 전 단계에서, 가구 추가/이동/삭제/회전을 전체 배열 교체 방식으로 Room에 반영합니다. 이 방의 최종 가구 목록 전체를 보내야 하며(RoomUploadRequest.furniture와 동일한 shape), 위치/회전 변경 및 신규 가구 추가를 모두 포함할 수 있습니다. 이미 AI 추천을 생성해 Layout이 있는 단계의 편집은 이 API가 아니라 PUT /api/layouts/{layoutId}를 사용해야 합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "가구 배치 반영 성공"),
+            @ApiResponse(responseCode = "400", description = "잘못된 가구 데이터 또는 방 범위를 벗어난 좌표"),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 roomId")
+    })
+    public CommonResponse<RoomResponse> replaceFurniture(@PathVariable Long roomId,
+                                                            @RequestBody RoomFurnitureReplaceRequest request) {
+        return CommonResponse.ok(roomService.replaceFurniture(roomId, request.getFurniture()));
     }
 
     @PutMapping("/{roomId}/furniture")
