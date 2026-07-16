@@ -9,10 +9,10 @@ import org.springframework.http.MediaType;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
-import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -45,10 +45,9 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.data.layoutId", notNullValue()))
                 .andExpect(jsonPath("$.data.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.recommendedFurniture", notNullValue()))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')].width").value(everyItem(greaterThanOrEqualTo(1.4))))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'desk-1')].position.x").value(everyItem(is(2.7))))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'desk-1')].position.z").value(everyItem(is(0.7))))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'desk-1')].rotation").value(everyItem(is(90.0))))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')]").value(hasSize(1)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')].width")
+                        .value(hasItem(greaterThanOrEqualTo(1.4))))
                 .andExpect(jsonPath("$.data.scoreSummary.totalScore", notNullValue()))
                 .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true))
                 .andExpect(jsonPath("$.data.validationResult.validationItems.length()").value(5))

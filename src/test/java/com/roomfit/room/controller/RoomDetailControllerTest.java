@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -26,12 +27,15 @@ class RoomDetailControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data.roomId").value(1))
-                .andExpect(jsonPath("$.data.room.width").value(3.2))
-                .andExpect(jsonPath("$.data.room.depth").value(4.5))
-                .andExpect(jsonPath("$.data.room.height").value(2.4))
+                .andExpect(jsonPath("$.data.room.width").value(5.8))
+                .andExpect(jsonPath("$.data.room.depth").value(5.4))
+                .andExpect(jsonPath("$.data.room.height").value(2.7))
                 .andExpect(jsonPath("$.data.room.unit").value("meter"))
                 .andExpect(jsonPath("$.data.openings[*].type").value(hasItems("door", "window")))
-                .andExpect(jsonPath("$.data.furniture[*].id").value(hasItems("bed-1", "desk-1", "wardrobe-1")))
+                .andExpect(jsonPath("$.data.furniture").value(hasSize(4)))
+                .andExpect(jsonPath("$.data.furniture[*].id").value(hasItems(
+                        "bed-1", "desk-1", "chair-1", "wardrobe-1"
+                )))
                 .andExpect(jsonPath("$.data.furniture[*].status").value(hasItems("EXISTING")));
     }
 
