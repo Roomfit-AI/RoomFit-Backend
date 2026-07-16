@@ -2,11 +2,11 @@ package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.product.domain.MockProduct;
+import com.roomfit.product.service.MockProductService;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
-import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,20 +17,28 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 규칙 기반 배치 추천 구현체.
+ * 규칙 기반 배치 추천 구현체 — LlmPlacementService의 폴백으로 쓰인다
+ * (PlacementServiceConfig 참고). Spring 빈으로 자동 등록하지 않고
+ * PlacementServiceConfig에서 직접 생성한다 — PlacementService 인터페이스의
+ * 유일한 빈은 FallbackPlacementService여야 컨트롤러/서비스 쪽 주입이 모호해지지
+ * 않는다 (FeedbackIntentParserConfig의 RuleBasedFeedbackIntentParser와 동일 패턴).
  *
  * TODO: 지금은 requiredItems를 단순 나열 배치하는 스켈레톤 수준.
  * 실제로는 lifestyleGoal/designStyle 별 배치 템플릿을 두고,
  * 방 크기 및 기존(existing) 가구와 겹치지 않는 템플릿을 선택하는 방식으로 구현 권장.
- * (본선에서 AI Agent 기반 구현체로 교체 시 PlacementService 인터페이스만 유지하면 됨)
  */
-@Service
 public class RuleBasedPlacementService implements PlacementService {
 
     private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
             FurnitureStatus.EXISTING,
             FurnitureStatus.USER_MODIFIED
     );
+
+    private final MockProductService mockProductService;
+
+    public RuleBasedPlacementService(MockProductService mockProductService) {
+        this.mockProductService = mockProductService;
+    }
 
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
@@ -40,7 +48,9 @@ public class RuleBasedPlacementService implements PlacementService {
                 .map(this::copyFurniture)
                 .toList());
 
-        Map<String, MockProduct> selectedProductByType = context.getSelectedProducts().stream()
+        // AgentContext는 selectedProductIds만 영속화한다 — 전체 MockProduct는
+        // 여기서 다시 조회한다(AgentContext.java 참고).
+        Map<String, MockProduct> selectedProductByType = mockProductService.findByProductIds(context.getSelectedProductIds()).stream()
                 .collect(Collectors.toMap(MockProduct::getType, Function.identity(), (first, ignored) -> first));
 
         Set<String> placedTypes = recommended.stream()

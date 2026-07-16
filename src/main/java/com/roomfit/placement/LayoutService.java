@@ -105,6 +105,16 @@ public class LayoutService {
         }
         layout.confirm();
         layoutRepository.save(layout);
+
+        // 확정된 배치를 Room에도 되반영한다 — 이게 없으면 GET /api/rooms/{roomId}
+        // (및 목록 재조회)가 여전히 확정 이전 가구 배치를 보여준다. Layout은
+        // Room과 독립된 값 복사 스냅샷이라(Layout.java 참고) 여기서 명시적으로
+        // 동기화해야 한다.
+        Room room = roomRepository.findById(layout.getRoomId())
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        room.setFurniture(layout.getFurniture());
+        roomRepository.save(room);
+
         return ConfirmResponse.from(layout);
     }
 

@@ -204,24 +204,31 @@ curl -i http://localhost:8080/health
 
 ## Environment Variables
 
-LLM feedback parsing is optional.
-Without these variables, the backend can still run with rule-based fallback.
+LLM feedback parsing and LLM-based layout placement are both optional.
+Without these variables, the backend still runs fully on rule-based logic.
 
 | Variable | Description |
 |---|---|
-| `ROOMFIT_LLM_FEEDBACK_ENABLED` | Enable LLM feedback parser |
-| `ROOMFIT_LLM_API_KEY` | LLM provider API key |
+| `ROOMFIT_LLM_FEEDBACK_ENABLED` | Enable LLM feedback intent parser |
+| `ROOMFIT_LLM_PLACEMENT_ENABLED` | Enable LLM-based layout placement (generates x/z/rotation directly; falls back to rule-based on any failure) |
+| `ROOMFIT_LLM_API_KEY` | LLM provider API key (shared by both features above) |
 | `ROOMFIT_LLM_BASE_URL` | OpenAI-compatible chat completion endpoint |
 | `ROOMFIT_LLM_MODEL` | Model ID |
 | `ROOMFIT_LLM_TIMEOUT_MS` | LLM timeout in milliseconds |
+| `SPRING_DATASOURCE_URL` | JDBC URL. Defaults to a local H2 file (`./data/roomfit`) if unset. Set to a real PostgreSQL URL (e.g. Render's managed Postgres) in production. |
+| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | Datasource credentials (only needed with a real DB) |
 
 Example:
 
 ```text
 ROOMFIT_LLM_FEEDBACK_ENABLED=true
+ROOMFIT_LLM_PLACEMENT_ENABLED=true
 ROOMFIT_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
 ROOMFIT_LLM_MODEL=gemini-3.5-flash
 ROOMFIT_LLM_TIMEOUT_MS=15000
+SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
+SPRING_DATASOURCE_USERNAME=<user>
+SPRING_DATASOURCE_PASSWORD=<password>
 ```
 
 > Never commit real API keys to GitHub.
@@ -234,10 +241,9 @@ The backend is deployed on Render using Docker.
 
 Current MVP limitations:
 
-- In-memory data resets when the server restarts.
+- Data persists via JPA/PostgreSQL when `SPRING_DATASOURCE_URL` points to a real database; without it, the backend falls back to a local H2 file (survives restarts on the same machine, but not across ephemeral container redeploys).
 - Product data is mock data.
-- Layout recommendation logic is rule-based.
-- LLM is used only for feedback intent parsing.
+- Layout recommendation logic is rule-based by default; LLM-based placement (`ROOMFIT_LLM_PLACEMENT_ENABLED`) generates coordinates directly and always falls back to rule-based on failure.
 - Render Free Tier can introduce cold-start latency.
 
 ---

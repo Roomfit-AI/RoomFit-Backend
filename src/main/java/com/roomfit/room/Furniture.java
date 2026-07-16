@@ -1,6 +1,12 @@
 package com.roomfit.room;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 
 import java.util.List;
 
@@ -9,6 +15,7 @@ import java.util.List;
  * width/depth/height: 전체 길이(full extent) 기준 — Three.js BoxGeometry 인자와 동일 기준.
  * rotation: y축 기준 회전, 단위 degree.
  */
+@Embeddable
 @Schema(description = "방 안의 가구. width/depth/height는 meter, position은 x-z 평면 중심 좌표입니다.")
 public class Furniture {
 
@@ -24,14 +31,18 @@ public class Furniture {
     private double depth;
     @Schema(description = "가구 높이(meter)", example = "0.72")
     private double height;
+    @Embedded
     @Schema(description = "x-z 평면에서의 가구 중심 좌표")
     private Position position;
     @Schema(description = "degree 단위 회전 각도", example = "0")
     private double rotation;  // degree
+    @Enumerated(EnumType.STRING)
     @Schema(description = "가구 상태. DELETED는 렌더링/검증에서 제외하는 것이 자연스럽습니다.", example = "RECOMMENDED")
     private FurnitureStatus status;
     @Schema(description = "선택 제품 기반 추천인 경우 제품 ID. 기존 가구는 null 허용", example = "desk-01", nullable = true)
     private String productId;
+    @Convert(converter = StringListConverter.class)
+    @Column(length = 1000)
     @Schema(description = "추천/스타일 계산에 사용되는 태그. 기존 가구는 빈 배열 허용")
     private List<String> styleTags = List.of();
 

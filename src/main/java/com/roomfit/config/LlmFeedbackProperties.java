@@ -10,6 +10,9 @@ public class LlmFeedbackProperties {
      * current rule-based parser remains the only active behavior.
      */
     private final Feedback feedback = new Feedback();
+    // 좌표(x/z/rotation)까지 LLM이 직접 생성하는 배치 추천 플래그. 기본값은
+    // false — 켜지기 전까지는 RuleBasedPlacementService만 동작한다.
+    private final Placement placement = new Placement();
     private String apiKey = "";
     private String baseUrl = "";
     private String model = "";
@@ -25,6 +28,10 @@ public class LlmFeedbackProperties {
 
     public Feedback getFeedback() {
         return feedback;
+    }
+
+    public Placement getPlacement() {
+        return placement;
     }
 
     public String getApiKey() {
@@ -68,6 +75,19 @@ public class LlmFeedbackProperties {
     }
 
     public static class Feedback {
+
+        private boolean enabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+    }
+
+    public static class Placement {
 
         private boolean enabled = false;
 

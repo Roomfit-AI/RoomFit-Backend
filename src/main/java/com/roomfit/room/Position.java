@@ -1,10 +1,12 @@
 package com.roomfit.room;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.persistence.Embeddable;
 
 /**
  * 가구의 중심 좌표. x: 가로, z: 세로/깊이 (단위: meter)
  */
+@Embeddable
 @Schema(description = "x-z 평면에서의 가구 중심 좌표")
 public class Position {
 

@@ -1,6 +1,7 @@
 package com.roomfit.agent.dto.response;
 
 import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.product.domain.MockProduct;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
@@ -50,7 +51,7 @@ public class AgentContextResponse {
         this.createdAt = createdAt;
     }
 
-    public static AgentContextResponse from(AgentContext context) {
+    public static AgentContextResponse from(AgentContext context, List<MockProduct> selectedProducts) {
         return new AgentContextResponse(
                 context.getId(),
                 context.getRoomId(),
@@ -61,7 +62,7 @@ public class AgentContextResponse {
                 context.getSelectedImageIds(),
                 context.getSelectedProductIds(),
                 context.getStyleTags(),
-                context.getSelectedProducts().stream()
+                selectedProducts.stream()
                         .map(SelectedProductResponse::from)
                         .toList(),
                 context.getCreatedAt()
