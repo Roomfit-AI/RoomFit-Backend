@@ -783,6 +783,12 @@ components:
             type: string
         imageUrl:
           type: string
+        purchaseUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: 유사한 구매 가능 제품의 fallback URL. 연결된 제품이 없으면 null입니다.
+          example: https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/
         requiredClearance:
           $ref: "#/components/schemas/RequiredClearance"
     RequiredClearance:

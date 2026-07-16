@@ -28,12 +28,16 @@ public class MockProductResponse {
     private final List<String> styleTags;
     @Schema(description = "제품 이미지 URL", example = "/images/products/desk-white.png")
     private final String imageUrl;
+    @Schema(description = "유사한 구매 가능 제품의 fallback URL. 연결된 제품이 없으면 null입니다.",
+            example = "https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/",
+            format = "uri", nullable = true)
+    private final String purchaseUrl;
     @Schema(description = "가구 앞/옆 권장 여유 공간")
     private final RequiredClearanceResponse requiredClearance;
 
     private MockProductResponse(String productId, String type, String name, String brand,
                                 double width, double depth, double height, int price,
-                                List<String> styleTags, String imageUrl,
+                                List<String> styleTags, String imageUrl, String purchaseUrl,
                                 RequiredClearanceResponse requiredClearance) {
         this.productId = productId;
         this.type = type;
@@ -45,6 +49,7 @@ public class MockProductResponse {
         this.price = price;
         this.styleTags = styleTags;
         this.imageUrl = imageUrl;
+        this.purchaseUrl = purchaseUrl;
         this.requiredClearance = requiredClearance;
     }
 
@@ -60,6 +65,7 @@ public class MockProductResponse {
                 product.getPrice(),
                 product.getStyleTags(),
                 product.getImageUrl(),
+                product.getPurchaseUrl(),
                 RequiredClearanceResponse.from(product.getRequiredClearance())
         );
     }
@@ -102,6 +108,10 @@ public class MockProductResponse {
 
     public String getImageUrl() {
         return imageUrl;
+    }
+
+    public String getPurchaseUrl() {
+        return purchaseUrl;
     }
 
     public RequiredClearanceResponse getRequiredClearance() {

@@ -6,6 +6,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -38,6 +39,9 @@ class SwaggerUiControllerTest {
                 .andExpect(jsonPath("$.paths['/api/layouts/recommend'].post.summary").value("배치 추천 생성"))
                 .andExpect(jsonPath("$.paths['/api/layouts/validate'].post.description", containsString("저장은 수행하지 않습니다")))
                 .andExpect(jsonPath("$.paths['/api/agent/context'].post.requestBody.content['application/json'].examples['Study focused context'].value.selectedProductIds[0]").value("desk-01"))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.format").value("uri"))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.type").value(
+                        containsInAnyOrder("string", "null")))
                 .andExpect(jsonPath("$.components.schemas.Furniture.description", containsString("x-z 평면 중심 좌표")))
                 .andExpect(jsonPath("$.components.schemas.ValidationResult.properties.validationItems.description", containsString("체크리스트")));
     }
