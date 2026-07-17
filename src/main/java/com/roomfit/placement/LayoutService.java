@@ -13,6 +13,7 @@ import com.roomfit.room.RoomRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -25,7 +26,8 @@ public class LayoutService {
     private final RoomRepository roomRepository;
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
-    private final FeedbackIntentParser feedbackIntentParser;
+    private final FeedbackPlanInterpreter feedbackPlanInterpreter;
+    private final DeterministicFeedbackExecutor feedbackExecutor;
     private final ScoreService scoreService;
 
     public LayoutService(LayoutRepository layoutRepository,
@@ -33,14 +35,16 @@ public class LayoutService {
                           RoomRepository roomRepository,
                           PlacementService placementService,
                           ValidationService validationService,
-                          FeedbackIntentParser feedbackIntentParser,
+                          FeedbackPlanInterpreter feedbackPlanInterpreter,
+                          DeterministicFeedbackExecutor feedbackExecutor,
                           ScoreService scoreService) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
         this.placementService = placementService;
         this.validationService = validationService;
-        this.feedbackIntentParser = feedbackIntentParser;
+        this.feedbackPlanInterpreter = feedbackPlanInterpreter;
+        this.feedbackExecutor = feedbackExecutor;
         this.scoreService = scoreService;
     }
 
@@ -129,16 +133,43 @@ public class LayoutService {
         Room room = roomRepository.findById(baseLayout.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
-        FeedbackIntent intent = feedbackIntentParser.parse(request.getFeedback());
-        List<Furniture> recommended = applyFeedbackIntent(room, baseLayout.getFurniture(), intent);
+        FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context);
+        FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture());
+        Layout responseLayout = baseLayout;
+        if (execution.result().applied()) {
+            responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), execution.furniture());
+            layoutRepository.save(responseLayout);
+        }
 
-        Layout newLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), recommended);
-        layoutRepository.save(newLayout);
+        ValidationResult validationResult = validationService.validate(room, execution.furniture());
+        ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
+        return FeedbackResponse.of(responseLayout, RecommendationStatus.SUCCESS,
+                scoreSummary, validationResult, interpretedPlan(plan), execution.result());
+    }
 
-        ValidationResult validationResult = validationService.validate(room, recommended);
-        ScoreSummary scoreSummary = scoreService.calculate(context, recommended, validationResult);
-        return FeedbackResponse.of(newLayout, RecommendationStatus.SUCCESS,
-                scoreSummary, validationResult, intent.interpretedIntent());
+    private Map<String, Object> interpretedPlan(FeedbackPlan plan) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("source", plan.source().name());
+        result.put("fallbackUsed", plan.fallbackUsed());
+        result.put("version", plan.version());
+        result.put("targetFurnitureId", plan.furnitureId());
+        result.put("targetFurniture", plan.furnitureType());
+        result.put("operations", plan.operations().stream().map(operation -> operation.type().name()).toList());
+        result.put("reason", plan.reason());
+        if (plan.source() == FeedbackSource.RULE_BASED && !plan.operations().isEmpty()) {
+            FeedbackOperation operation = plan.operations().get(0);
+            if (operation.type() == FeedbackOperationType.REPLACE_PRODUCT && operation.constraints().largerThanCurrent()) {
+                result.put("rawIntent", "LARGER_DESK");
+                result.put("deskMinWidth", 1.4);
+            }
+            if (operation.type() == FeedbackOperationType.REPLACE_PRODUCT && operation.constraints().storagePreferred()) {
+                result.put("storagePriority", "HIGH");
+            }
+            if (operation.type() == FeedbackOperationType.MOVE && "방이 넓어 보이게".equals(plan.reason())) {
+                result.put("openSpacePriority", "HIGH");
+            }
+        }
+        return result;
     }
 
     private Layout findLayoutOrThrow(Long layoutId) {
