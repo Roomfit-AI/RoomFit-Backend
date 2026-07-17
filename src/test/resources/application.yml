@@ -8,3 +8,12 @@ spring:
     hibernate:
       ddl-auto: create-drop
     open-in-view: false
+
+roomfit:
+  auth:
+    guest:
+      # 테스트 전용 고정 시크릿 — GuestAuthProperties가 이제 값이 없으면
+      # 기동 자체를 실패시키므로(@NotBlank) 테스트 컨텍스트가 뜨려면 필요하다.
+      # 프로덕션에는 절대 이 값을 쓰면 안 되고, 반드시 ROOMFIT_AUTH_GUEST_SECRET
+      # 환경변수로 별도 값을 주입해야 한다.
+      secret: test-only-guest-secret-do-not-use-in-production
