@@ -17,7 +17,7 @@ public class LayoutResponse {
     private final Long layoutId;
     @Schema(description = "추천/저장 상태", example = "SUCCESS")
     private final RecommendationStatus status;
-    @Schema(description = "렌더링할 최종 추천 가구 배열. productId/styleTags는 선택 제품 기반 추천일 때 포함됩니다.")
+    @Schema(description = "렌더링할 최종 추천 가구 배열. productId/variantId/styleTags는 선택 제품 기반 추천일 때 포함됩니다.")
     private final List<Furniture> recommendedFurniture;
     @Schema(description = "추천 점수 요약")
     private final ScoreSummary scoreSummary;

@@ -10,6 +10,9 @@ public class SelectedProductResponse {
 
     @Schema(description = "선택 제품 ID", example = "desk-01")
     private final String productId;
+    @Schema(description = "JSON 기반 Furniture Variant Registry 식별자. 기존 제품은 null 허용",
+            example = "desk-compact", pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$", nullable = true)
+    private final String variantId;
     @Schema(description = "제품 가구 타입", example = "desk")
     private final String type;
     @Schema(description = "제품명", example = "화이트 미니멀 책상")
@@ -25,11 +28,12 @@ public class SelectedProductResponse {
     @Schema(description = "권장 여유 공간")
     private final RequiredClearanceResponse requiredClearance;
 
-    private SelectedProductResponse(String productId, String type, String name,
+    private SelectedProductResponse(String productId, String variantId, String type, String name,
                                     double width, double depth, double height,
                                     List<String> styleTags,
                                     RequiredClearanceResponse requiredClearance) {
         this.productId = productId;
+        this.variantId = variantId;
         this.type = type;
         this.name = name;
         this.width = width;
@@ -42,6 +46,7 @@ public class SelectedProductResponse {
     public static SelectedProductResponse from(MockProduct product) {
         return new SelectedProductResponse(
                 product.getProductId(),
+                product.getVariantId(),
                 product.getType(),
                 product.getName(),
                 product.getWidth(),
@@ -54,6 +59,10 @@ public class SelectedProductResponse {
 
     public String getProductId() {
         return productId;
+    }
+
+    public String getVariantId() {
+        return variantId;
     }
 
     public String getType() {

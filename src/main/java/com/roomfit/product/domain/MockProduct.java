@@ -1,5 +1,7 @@
 package com.roomfit.product.domain;
 
+import com.roomfit.common.VariantIdValidator;
+
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
@@ -7,13 +9,14 @@ import java.util.List;
 public class MockProduct {
 
     private final String productId;
+    private final String variantId;
     private final String type;
     private final String name;
     private final String brand;
     private final double width;
     private final double depth;
     private final double height;
-    private final int price;
+    private final Integer price;
     private final List<String> styleTags;
     private final String imageUrl;
     private final String purchaseUrl;
@@ -23,7 +26,15 @@ public class MockProduct {
                        double width, double depth, double height, int price,
                        List<String> styleTags, String imageUrl,
                        RequiredClearance requiredClearance) {
-        this(productId, type, name, brand, width, depth, height, price,
+        this(productId, type, name, brand, width, depth, height, Integer.valueOf(price),
+                styleTags, imageUrl, requiredClearance);
+    }
+
+    public MockProduct(String productId, String type, String name, String brand,
+                       double width, double depth, double height, Integer price,
+                       List<String> styleTags, String imageUrl,
+                       RequiredClearance requiredClearance) {
+        this(productId, null, type, name, brand, width, depth, height, price,
                 styleTags, imageUrl, null, requiredClearance);
     }
 
@@ -31,7 +42,32 @@ public class MockProduct {
                        double width, double depth, double height, int price,
                        List<String> styleTags, String imageUrl, String purchaseUrl,
                        RequiredClearance requiredClearance) {
+        this(productId, type, name, brand, width, depth, height, Integer.valueOf(price),
+                styleTags, imageUrl, purchaseUrl, requiredClearance);
+    }
+
+    public MockProduct(String productId, String type, String name, String brand,
+                       double width, double depth, double height, Integer price,
+                       List<String> styleTags, String imageUrl, String purchaseUrl,
+                       RequiredClearance requiredClearance) {
+        this(productId, null, type, name, brand, width, depth, height, price,
+                styleTags, imageUrl, purchaseUrl, requiredClearance);
+    }
+
+    public MockProduct(String productId, String variantId, String type, String name, String brand,
+                       double width, double depth, double height, int price,
+                       List<String> styleTags, String imageUrl, String purchaseUrl,
+                       RequiredClearance requiredClearance) {
+        this(productId, variantId, type, name, brand, width, depth, height, Integer.valueOf(price),
+                styleTags, imageUrl, purchaseUrl, requiredClearance);
+    }
+
+    public MockProduct(String productId, String variantId, String type, String name, String brand,
+                       double width, double depth, double height, Integer price,
+                       List<String> styleTags, String imageUrl, String purchaseUrl,
+                       RequiredClearance requiredClearance) {
         this.productId = productId;
+        this.variantId = VariantIdValidator.validateNullable(variantId);
         this.type = type;
         this.name = name;
         this.brand = brand;
@@ -42,6 +78,9 @@ public class MockProduct {
         this.styleTags = List.copyOf(styleTags);
         this.imageUrl = imageUrl;
         this.purchaseUrl = validatePurchaseUrl(purchaseUrl);
+        if (requiredClearance == null) {
+            throw new IllegalArgumentException("requiredClearance must not be null");
+        }
         this.requiredClearance = requiredClearance;
     }
 
@@ -70,6 +109,10 @@ public class MockProduct {
         return productId;
     }
 
+    public String getVariantId() {
+        return variantId;
+    }
+
     public String getType() {
         return type;
     }
@@ -94,7 +137,7 @@ public class MockProduct {
         return height;
     }
 
-    public int getPrice() {
+    public Integer getPrice() {
         return price;
     }
 

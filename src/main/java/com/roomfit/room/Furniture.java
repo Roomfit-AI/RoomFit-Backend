@@ -1,5 +1,6 @@
 package com.roomfit.room;
 
+import com.roomfit.common.VariantIdValidator;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -41,6 +42,10 @@ public class Furniture {
     private FurnitureStatus status;
     @Schema(description = "선택 제품 기반 추천인 경우 제품 ID. 기존 가구는 null 허용", example = "desk-01", nullable = true)
     private String productId;
+    @Column(name = "variant_id", nullable = true)
+    @Schema(description = "JSON 기반 Furniture Variant Registry 식별자. null 또는 미등록 값이면 프론트는 기존 Renderer를 사용합니다.",
+            example = "desk-compact", pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$", nullable = true)
+    private String variantId;
     @Convert(converter = StringListConverter.class)
     @Column(length = 1000)
     @Schema(description = "추천/스타일 계산에 사용되는 태그. 기존 가구는 빈 배열 허용")
@@ -52,12 +57,19 @@ public class Furniture {
 
     public Furniture(String id, String type, String label, double width, double depth, double height,
                       Position position, double rotation, FurnitureStatus status) {
-        this(id, type, label, width, depth, height, position, rotation, status, null, List.of());
+        this(id, type, label, width, depth, height, position, rotation, status, null, List.of(), null);
     }
 
     public Furniture(String id, String type, String label, double width, double depth, double height,
                       Position position, double rotation, FurnitureStatus status,
                       String productId, List<String> styleTags) {
+        this(id, type, label, width, depth, height, position, rotation, status,
+                productId, styleTags, null);
+    }
+
+    public Furniture(String id, String type, String label, double width, double depth, double height,
+                     Position position, double rotation, FurnitureStatus status,
+                     String productId, List<String> styleTags, String variantId) {
         this.id = id;
         this.type = type;
         this.label = label;
@@ -69,6 +81,7 @@ public class Furniture {
         this.status = status;
         this.productId = productId;
         this.styleTags = styleTags == null ? List.of() : List.copyOf(styleTags);
+        this.variantId = VariantIdValidator.validateNullable(variantId);
     }
 
     public String getId() {
@@ -121,6 +134,10 @@ public class Furniture {
 
     public String getProductId() {
         return productId;
+    }
+
+    public String getVariantId() {
+        return variantId;
     }
 
     public List<String> getStyleTags() {

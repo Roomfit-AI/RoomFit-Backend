@@ -19,7 +19,7 @@ public class AgentContextRequest {
     private List<String> optionalItems;
     @Schema(description = "선택한 스타일 이미지 ID 목록", example = "[1, 3]")
     private List<Long> selectedImageIds;
-    @Schema(description = "선택한 Mock Product ID 목록. 추천 가구 크기/productId/styleTags에 반영됩니다.", example = "[\"desk-01\", \"chair-01\", \"lamp-01\"]")
+    @Schema(description = "선택한 Mock Product ID 목록. 추천 가구 크기/productId/variantId/styleTags에 반영됩니다.", example = "[\"desk-01\", \"chair-01\", \"lamp-01\"]")
     private List<String> selectedProductIds;
 
     protected AgentContextRequest() {

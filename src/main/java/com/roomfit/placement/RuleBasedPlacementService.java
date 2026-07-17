@@ -173,7 +173,8 @@ public class RuleBasedPlacementService implements PlacementService {
                 0,
                 FurnitureStatus.RECOMMENDED,
                 spec.productId(),
-                spec.styleTags()
+                spec.styleTags(),
+                spec.variantId()
         );
     }
 
@@ -288,27 +289,28 @@ public class RuleBasedPlacementService implements PlacementService {
                 furniture.getRotation(),
                 furniture.getStatus(),
                 furniture.getProductId(),
-                furniture.getStyleTags()
+                furniture.getStyleTags(),
+                furniture.getVariantId()
         );
     }
 
     private record FurnitureSpec(String label, double width, double depth, double height,
-                                 String productId, List<String> styleTags) {
+                                 String productId, List<String> styleTags, String variantId) {
 
         private static FurnitureSpec from(String itemType, MockProduct product) {
             if (product != null) {
                 return new FurnitureSpec(product.getName(), product.getWidth(), product.getDepth(),
-                        product.getHeight(), product.getProductId(), product.getStyleTags());
+                        product.getHeight(), product.getProductId(), product.getStyleTags(), product.getVariantId());
             }
 
             return switch (itemType) {
-                case "bed" -> new FurnitureSpec("bed", 1.1, 2.0, 0.45, null, List.of());
-                case "desk" -> new FurnitureSpec("desk", 1.0, 0.6, 0.75, null, List.of());
-                case "chair" -> new FurnitureSpec("chair", 0.45, 0.45, 0.8, null, List.of());
-                case "storage" -> new FurnitureSpec("storage", 0.8, 0.4, 1.6, null, List.of());
-                case "rug" -> new FurnitureSpec("rug", 1.2, 1.6, 0.02, null, List.of());
-                case "lamp" -> new FurnitureSpec("lamp", 0.25, 0.25, 1.4, null, List.of());
-                default -> new FurnitureSpec(itemType, 1.0, 0.6, 0.7, null, List.of());
+                case "bed" -> new FurnitureSpec("bed", 1.1, 2.0, 0.45, null, List.of(), null);
+                case "desk" -> new FurnitureSpec("desk", 1.0, 0.6, 0.75, null, List.of(), null);
+                case "chair" -> new FurnitureSpec("chair", 0.45, 0.45, 0.8, null, List.of(), null);
+                case "storage" -> new FurnitureSpec("storage", 0.8, 0.4, 1.6, null, List.of(), null);
+                case "rug" -> new FurnitureSpec("rug", 1.2, 1.6, 0.02, null, List.of(), null);
+                case "lamp" -> new FurnitureSpec("lamp", 0.25, 0.25, 1.4, null, List.of(), null);
+                default -> new FurnitureSpec(itemType, 1.0, 0.6, 0.7, null, List.of(), null);
             };
         }
     }

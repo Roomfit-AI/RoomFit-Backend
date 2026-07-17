@@ -28,6 +28,65 @@ class MockProductTest {
         );
 
         assertThat(product.getPurchaseUrl()).isNull();
+        assertThat(product.getVariantId()).isNull();
+        assertThat(product.getPrice()).isEqualTo(89000);
+    }
+
+    @Test
+    void constructor_withNullableMetadata_keepsNullValues() {
+        MockProduct product = new MockProduct(
+                "desk-compact-01",
+                "desk-compact",
+                "desk",
+                "컴팩트 책상",
+                null,
+                1.2,
+                0.6,
+                0.73,
+                (Integer) null,
+                List.of("minimal", "classic"),
+                null,
+                "https://example.com/products/desk",
+                new RequiredClearance(0.6, 0.2)
+        );
+
+        assertThat(product.getBrand()).isNull();
+        assertThat(product.getPrice()).isNull();
+        assertThat(product.getImageUrl()).isNull();
+    }
+
+    @Test
+    void constructor_withNullRequiredClearance_rejectsProduct() {
+        assertThatThrownBy(() -> new MockProduct(
+                "desk-test", "desk", "테스트 책상", "RoomFit Mock",
+                1.2, 0.6, 0.72, 89000, List.of("minimal"),
+                "/images/products/desk-test.png", null
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("requiredClearance");
+    }
+
+    @Test
+    void constructor_withValidVariantId_keepsVariantId() {
+        MockProduct product = createProduct("desk-midcentury-glass", null);
+
+        assertThat(product.getVariantId()).isEqualTo("desk-midcentury-glass");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "",
+            " ",
+            "Desk-compact",
+            "desk_compact",
+            "-desk-compact",
+            "desk-compact-",
+            "desk--compact"
+    })
+    void constructor_withInvalidVariantId_rejectsVariantId(String variantId) {
+        assertThatThrownBy(() -> createProduct(variantId, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("variantId");
     }
 
     @ParameterizedTest
@@ -58,6 +117,24 @@ class MockProductTest {
     private MockProduct createProduct(String purchaseUrl) {
         return new MockProduct(
                 "desk-test",
+                "desk",
+                "테스트 책상",
+                "RoomFit Mock",
+                1.2,
+                0.6,
+                0.72,
+                89000,
+                List.of("minimal"),
+                "/images/products/desk-test.png",
+                purchaseUrl,
+                new RequiredClearance(0.6, 0.2)
+        );
+    }
+
+    private MockProduct createProduct(String variantId, String purchaseUrl) {
+        return new MockProduct(
+                "desk-test",
+                variantId,
                 "desk",
                 "테스트 책상",
                 "RoomFit Mock",

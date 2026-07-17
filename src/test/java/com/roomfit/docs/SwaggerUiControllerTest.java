@@ -42,6 +42,24 @@ class SwaggerUiControllerTest {
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.format").value("uri"))
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.type").value(
                         containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.brand.type").value(
+                        containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.price.type").value(
+                        containsInAnyOrder("integer", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.imageUrl.type").value(
+                        containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.variantId.type").value(
+                        containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.variantId.pattern")
+                        .value("^[a-z0-9]+(?:-[a-z0-9]+)*$"))
+                .andExpect(jsonPath("$.components.schemas.SelectedProductResponse.properties.variantId.type").value(
+                        containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.SelectedProductResponse.properties.variantId.pattern")
+                        .value("^[a-z0-9]+(?:-[a-z0-9]+)*$"))
+                .andExpect(jsonPath("$.components.schemas.Furniture.properties.variantId.type").value(
+                        containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.Furniture.properties.variantId.pattern")
+                        .value("^[a-z0-9]+(?:-[a-z0-9]+)*$"))
                 .andExpect(jsonPath("$.components.schemas.Furniture.description", containsString("x-z 평면 중심 좌표")))
                 .andExpect(jsonPath("$.components.schemas.ValidationResult.properties.validationItems.description", containsString("체크리스트")));
     }

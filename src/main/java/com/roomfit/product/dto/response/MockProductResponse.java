@@ -10,11 +10,14 @@ public class MockProductResponse {
 
     @Schema(description = "제품 ID. Agent Context의 selectedProductIds에 사용됩니다.", example = "desk-01")
     private final String productId;
+    @Schema(description = "JSON 기반 Furniture Variant Registry 식별자. 기존 제품은 null 허용",
+            example = "desk-compact", pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$", nullable = true)
+    private final String variantId;
     @Schema(description = "제품 가구 타입", example = "desk")
     private final String type;
     @Schema(description = "제품명", example = "화이트 미니멀 책상")
     private final String name;
-    @Schema(description = "브랜드명", example = "RoomFit Mock")
+    @Schema(description = "브랜드명. 확인된 브랜드 정보가 없으면 null", example = "RoomFit Mock", nullable = true)
     private final String brand;
     @Schema(description = "제품 가로 길이(meter)", example = "1.2")
     private final double width;
@@ -22,11 +25,13 @@ public class MockProductResponse {
     private final double depth;
     @Schema(description = "제품 높이(meter)", example = "0.72")
     private final double height;
-    @Schema(description = "가격(원)", example = "89000")
-    private final int price;
+    @Schema(description = "가격(원). 확인된 원화 가격이 없으면 null이며 0원으로 해석하지 않습니다.",
+            example = "89000", nullable = true)
+    private final Integer price;
     @Schema(description = "추천/스타일 계산에 사용되는 태그")
     private final List<String> styleTags;
-    @Schema(description = "제품 이미지 URL", example = "/images/products/desk-white.png")
+    @Schema(description = "제품 이미지 URL. 연결된 이미지가 없으면 null", example = "/images/products/desk-white.png",
+            nullable = true)
     private final String imageUrl;
     @Schema(description = "유사한 구매 가능 제품의 fallback URL. 연결된 제품이 없으면 null입니다.",
             example = "https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/",
@@ -35,11 +40,12 @@ public class MockProductResponse {
     @Schema(description = "가구 앞/옆 권장 여유 공간")
     private final RequiredClearanceResponse requiredClearance;
 
-    private MockProductResponse(String productId, String type, String name, String brand,
-                                double width, double depth, double height, int price,
+    private MockProductResponse(String productId, String variantId, String type, String name, String brand,
+                                double width, double depth, double height, Integer price,
                                 List<String> styleTags, String imageUrl, String purchaseUrl,
                                 RequiredClearanceResponse requiredClearance) {
         this.productId = productId;
+        this.variantId = variantId;
         this.type = type;
         this.name = name;
         this.brand = brand;
@@ -56,6 +62,7 @@ public class MockProductResponse {
     public static MockProductResponse from(MockProduct product) {
         return new MockProductResponse(
                 product.getProductId(),
+                product.getVariantId(),
                 product.getType(),
                 product.getName(),
                 product.getBrand(),
@@ -72,6 +79,10 @@ public class MockProductResponse {
 
     public String getProductId() {
         return productId;
+    }
+
+    public String getVariantId() {
+        return variantId;
     }
 
     public String getType() {
@@ -98,7 +109,7 @@ public class MockProductResponse {
         return height;
     }
 
-    public int getPrice() {
+    public Integer getPrice() {
         return price;
     }
 
