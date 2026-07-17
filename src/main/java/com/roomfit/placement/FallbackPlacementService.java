@@ -3,6 +3,8 @@ package com.roomfit.placement;
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.config.LlmFeedbackProperties;
 import com.roomfit.room.Room;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 
@@ -13,6 +15,8 @@ import java.util.Optional;
  * 기존 TODO("AI Agent 호출 실패 시 규칙 기반 fallback")를 충족.
  */
 public class FallbackPlacementService implements PlacementService {
+
+    private static final Logger log = LoggerFactory.getLogger(FallbackPlacementService.class);
 
     private final Optional<PlacementService> primaryService;
     private final PlacementService ruleBasedService;
@@ -34,7 +38,11 @@ public class FallbackPlacementService implements PlacementService {
 
         try {
             return primaryService.get().recommend(context, room);
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException e) {
+            // 예외를 삼키고 조용히 대체하기 전에 한 줄이라도 남겨야 운영 중
+            // "LLM이 항상 rule-based로만 응답한다"는 상황을 감지할 수 있다.
+            log.warn("LLM placement failed for roomId={}, contextId={} — falling back to rule-based: {}",
+                    room.getId(), context.getId(), e.toString());
             PlacementResult fallback = ruleBasedService.recommend(context, room);
             return new PlacementResult(RecommendationStatus.FALLBACK,
                     fallback.getRecommendedFurniture(), fallback.getScoreSummary());
