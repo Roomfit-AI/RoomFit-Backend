@@ -29,6 +29,41 @@ class MockProductTest {
 
         assertThat(product.getPurchaseUrl()).isNull();
         assertThat(product.getVariantId()).isNull();
+        assertThat(product.getPrice()).isEqualTo(89000);
+    }
+
+    @Test
+    void constructor_withNullableMetadata_keepsNullValues() {
+        MockProduct product = new MockProduct(
+                "desk-compact-01",
+                "desk-compact",
+                "desk",
+                "컴팩트 책상",
+                null,
+                1.2,
+                0.6,
+                0.73,
+                (Integer) null,
+                List.of("minimal", "classic"),
+                null,
+                "https://example.com/products/desk",
+                new RequiredClearance(0.6, 0.2)
+        );
+
+        assertThat(product.getBrand()).isNull();
+        assertThat(product.getPrice()).isNull();
+        assertThat(product.getImageUrl()).isNull();
+    }
+
+    @Test
+    void constructor_withNullRequiredClearance_rejectsProduct() {
+        assertThatThrownBy(() -> new MockProduct(
+                "desk-test", "desk", "테스트 책상", "RoomFit Mock",
+                1.2, 0.6, 0.72, 89000, List.of("minimal"),
+                "/images/products/desk-test.png", null
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("requiredClearance");
     }
 
     @Test

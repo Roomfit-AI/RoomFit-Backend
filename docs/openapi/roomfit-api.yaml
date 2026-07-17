@@ -762,7 +762,10 @@ components:
                 $ref: "#/components/schemas/MockProduct"
     MockProduct:
       type: object
-      description: MVP 제품 카드 렌더링용 Mock Product 응답
+      description: >-
+        MVP 제품 카드 렌더링용 Mock Product 응답. Product 개수와 타입별 Variant 개수는 가변적이므로
+        클라이언트는 배열 길이에 의존하면 안 됩니다. dimensions는 판매 페이지가 아니라 RoomFit 공간 계산에
+        사용하는 Furniture Variant 치수입니다.
       properties:
         productId:
           type: string
@@ -781,6 +784,8 @@ components:
           type: string
         brand:
           type: string
+          nullable: true
+          description: 확인된 브랜드 정보가 없으면 null입니다.
         width:
           type: number
         depth:
@@ -789,17 +794,21 @@ components:
           type: number
         price:
           type: integer
+          nullable: true
+          description: 확인된 원화 가격이 없으면 null입니다. null을 0원으로 표시하지 않습니다.
         styleTags:
           type: array
           items:
             type: string
         imageUrl:
           type: string
+          nullable: true
+          description: 연결된 이미지가 없으면 null이며 프론트는 fallback 이미지를 사용합니다.
         purchaseUrl:
           type: string
           format: uri
           nullable: true
-          description: 유사한 구매 가능 제품의 fallback URL. 연결된 제품이 없으면 null입니다.
+          description: 유사한 구매 가능 제품을 보여주는 fallback URL. 연결된 제품이 없으면 null입니다.
           example: https://www.ikea.com/kr/ko/p/micke-desk-white-80354281/
         requiredClearance:
           $ref: "#/components/schemas/RequiredClearance"

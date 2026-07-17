@@ -42,6 +42,12 @@ class SwaggerUiControllerTest {
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.format").value("uri"))
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.type").value(
                         containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.brand.type").value(
+                        containsInAnyOrder("string", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.price.type").value(
+                        containsInAnyOrder("integer", "null")))
+                .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.imageUrl.type").value(
+                        containsInAnyOrder("string", "null")))
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.variantId.type").value(
                         containsInAnyOrder("string", "null")))
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.variantId.pattern")

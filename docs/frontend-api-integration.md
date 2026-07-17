@@ -271,12 +271,36 @@ Response
         "front": 0.6,
         "side": 0.2
       }
+    },
+    {
+      "productId": "desk-compact-01",
+      "variantId": "desk-compact",
+      "type": "desk",
+      "name": "컴팩트 책상",
+      "brand": null,
+      "width": 1.2,
+      "depth": 0.6,
+      "height": 0.73,
+      "price": null,
+      "styleTags": ["minimal", "classic"],
+      "imageUrl": null,
+      "purchaseUrl": "https://www.ikea.com/kr/ko/p/lagkapten-adils-desk-white-s09416759/",
+      "requiredClearance": {
+        "front": 0.6,
+        "side": 0.2
+      }
     }
   ],
   "error": null
 }
 
-`purchaseUrl`은 유사한 구매 가능 제품의 fallback 링크이며, 연결된 제품이 없으면 `null`입니다.
+`brand`, `price`, `imageUrl`, `purchaseUrl`은 `null`일 수 있습니다. `price=null`을 0원으로 표시하지 말고,
+`brand=null`이면 브랜드 영역을 생략하며, `imageUrl=null`이면 프론트 fallback 이미지를 사용해야 합니다.
+`purchaseUrl`은 정확히 동일한 상품을 보장하지 않는 "유사 제품 보기" 링크입니다.
+
+Product의 `width`, `depth`, `height`는 RoomFit 추천·경계·충돌 계산에 사용하는 Furniture Variant 치수입니다.
+판매 페이지에 표시된 실제 상품 치수와 다를 수 있으며, 공간 계산에는 API 응답 치수를 사용해야 합니다.
+가구 유형별 Variant 수와 Product 전체 개수는 가변적이므로 프론트는 배열 길이나 고정 index에 의존하면 안 됩니다.
 `variantId`는 JSON 기반 Furniture Variant Registry의 key입니다. `null`이거나 프론트 Registry에 등록되지 않은 값이면 기존 가구 Renderer를 사용해야 합니다.
 7. Agent Context 생성
 POST /api/agent/context

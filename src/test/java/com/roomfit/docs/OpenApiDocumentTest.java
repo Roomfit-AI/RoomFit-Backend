@@ -66,6 +66,18 @@ class OpenApiDocumentTest {
         assertVariantIdContract(schemaSection(document, "SelectedProduct", "RecommendRequest"));
     }
 
+    @Test
+    void openApiDocument_declaresNullableProductMetadataContract() throws IOException {
+        String document = Files.readString(Path.of("docs/openapi/roomfit-api.yaml"));
+        String mockProduct = schemaSection(document, "MockProduct", "RequiredClearance");
+
+        assertThat(mockProduct)
+                .containsPattern("brand:\\R\\s+type: string\\R\\s+nullable: true")
+                .containsPattern("price:\\R\\s+type: integer\\R\\s+nullable: true")
+                .containsPattern("imageUrl:\\R\\s+type: string\\R\\s+nullable: true")
+                .containsPattern("purchaseUrl:\\R\\s+type: string\\R\\s+format: uri\\R\\s+nullable: true");
+    }
+
     private String schemaSection(String document, String schemaName, String nextSchemaName) {
         String schemaHeader = "    " + schemaName + ":";
         String nextSchemaHeader = "    " + nextSchemaName + ":";

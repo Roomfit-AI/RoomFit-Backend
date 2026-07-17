@@ -4,13 +4,27 @@ import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.domain.RequiredClearance;
 import org.springframework.stereotype.Repository;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Repository
 public class MockProductRepository {
 
-    private final List<MockProduct> products = List.of(
+    private final List<MockProduct> products;
+
+    public MockProductRepository() {
+        this(defaultProducts());
+    }
+
+    MockProductRepository(List<MockProduct> products) {
+        this.products = List.copyOf(products);
+        validateUniqueProductIds(this.products);
+    }
+
+    private static List<MockProduct> defaultProducts() {
+        return List.of(
             new MockProduct(
                     "bed-01",
                     "bed",
@@ -90,8 +104,78 @@ public class MockProductRepository {
                     List.of("minimal", "cozy", "study"),
                     "/images/products/lamp-minimal.png",
                     new RequiredClearance(0.2, 0.1)
+            ),
+            new MockProduct(
+                    "desk-compact-01",
+                    "desk-compact",
+                    "desk",
+                    "컴팩트 책상",
+                    null,
+                    1.2,
+                    0.6,
+                    0.73,
+                    null,
+                    List.of("minimal", "classic"),
+                    null,
+                    "https://www.ikea.com/kr/ko/p/lagkapten-adils-desk-white-s09416759/",
+                    new RequiredClearance(0.6, 0.2)
+            ),
+            new MockProduct(
+                    "desk-storage-01",
+                    "desk-storage",
+                    "desk",
+                    "수납 결합 책상",
+                    null,
+                    1.4,
+                    0.62,
+                    0.73,
+                    null,
+                    List.of("natural", "classic"),
+                    null,
+                    "https://www.ikea.com/kr/ko/p/micke-desk-black-brown-60354277/",
+                    new RequiredClearance(0.6, 0.2)
+            ),
+            new MockProduct(
+                    "desk-corner-01",
+                    "desk-corner",
+                    "desk",
+                    "코너 책상",
+                    null,
+                    1.3,
+                    1.0,
+                    1.42,
+                    null,
+                    List.of("minimal", "modern"),
+                    null,
+                    "https://www.ikea.com/kr/ko/p/micke-corner-workstation-white-20354284/",
+                    new RequiredClearance(0.6, 0.2)
+            ),
+            new MockProduct(
+                    "desk-midcentury-glass-01",
+                    "desk-midcentury-glass",
+                    "desk",
+                    "미드센추리 글라스 책상",
+                    null,
+                    1.75,
+                    0.74,
+                    0.812,
+                    null,
+                    List.of("midcentury", "modern"),
+                    null,
+                    "https://www.oldbonesco.com/products/denali-glass-top-desk",
+                    new RequiredClearance(0.6, 0.2)
             )
-    );
+        );
+    }
+
+    private static void validateUniqueProductIds(List<MockProduct> products) {
+        Set<String> productIds = new HashSet<>();
+        for (MockProduct product : products) {
+            if (!productIds.add(product.getProductId())) {
+                throw new IllegalArgumentException("Duplicate productId: " + product.getProductId());
+            }
+        }
+    }
 
     public List<MockProduct> findAll() {
         return products;
