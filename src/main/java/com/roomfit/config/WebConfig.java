@@ -1,11 +1,19 @@
 package com.roomfit.config;
 
+import com.roomfit.auth.GuestAuthInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    private final GuestAuthInterceptor guestAuthInterceptor;
+
+    public WebConfig(GuestAuthInterceptor guestAuthInterceptor) {
+        this.guestAuthInterceptor = guestAuthInterceptor;
+    }
 
     private static final String[] ALLOWED_ORIGINS = {
             "http://localhost:3000",
@@ -29,5 +37,14 @@ public class WebConfig implements WebMvcConfigurer {
                 // 나중에 인증이 추가되면 allowCredentials 설정을 별도 검토하세요.
                 .allowCredentials(false)
                 .maxAge(3600);
+    }
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        // 게스트 토큰 발급(POST /api/auth/guest) 자체와 product/style 카탈로그,
+        // actuator, swagger 경로는 보호 대상이 아니다 — 요구사항에 명시된
+        // Room/Agent Context/Layout 관련 API에만 인증을 요구한다.
+        registry.addInterceptor(guestAuthInterceptor)
+                .addPathPatterns("/api/rooms/**", "/api/agent/**", "/api/layouts/**");
     }
 }

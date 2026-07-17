@@ -217,6 +217,7 @@ Without these variables, the backend still runs fully on rule-based logic.
 | `ROOMFIT_LLM_TIMEOUT_MS` | LLM timeout in milliseconds |
 | `SPRING_DATASOURCE_URL` | JDBC URL. Defaults to a local H2 file (`./data/roomfit`) if unset. Set to a real PostgreSQL URL (e.g. Render's managed Postgres) in production. |
 | `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | Datasource credentials (only needed with a real DB) |
+| `ROOMFIT_AUTH_GUEST_SECRET` | HMAC signing secret for guest session tokens (see "Guest Auth" below). If unset, a random secret is generated at boot and logged as a warning — every previously issued token becomes invalid on the next restart. **Must** be set to a fixed value in production. |
 
 Example:
 
@@ -229,7 +230,35 @@ ROOMFIT_LLM_TIMEOUT_MS=15000
 SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
 SPRING_DATASOURCE_USERNAME=<user>
 SPRING_DATASOURCE_PASSWORD=<password>
+ROOMFIT_AUTH_GUEST_SECRET=<random-fixed-string>
 ```
+
+---
+
+## Guest Auth
+
+There is no signup/login flow yet. Instead, `POST /api/auth/guest` issues an
+anonymous, unguessable session (a UUID `guestId` signed with HMAC-SHA256,
+returned as `"<guestId>.<signature>"`). Clients call this once (e.g. on first
+app launch) and send the token back as `Authorization: Bearer <token>` on
+every subsequent `/api/rooms/**`, `/api/agent/**`, and `/api/layouts/**`
+request.
+
+Every `Room` a guest touches — uploaded scans and shared sample rooms alike —
+is scoped to that guest's id. A guest can only list, read, update, delete, or
+run AI recommendation/feedback/confirm against their own rooms; anyone else's
+room (including guessed/sequential ids) returns `404 ROOM_NOT_FOUND`, never a
+403, so existence isn't leaked. Shared sample rooms are read-only templates:
+the first time a guest writes to one (editing furniture, generating a
+recommendation, etc.), the backend transparently forks a private copy for
+that guest and keeps routing that guest's future requests for the same
+template to their own fork — the original template is never modified and
+never appears owned by anyone.
+
+This is intentionally not a full account system: no password, email
+verification, social login, or password reset. `ownerId` is a plain string
+not tied to any particular auth scheme, so linking a guest's rooms to a real
+account later just means overwriting that field — no schema change needed.
 
 > Never commit real API keys to GitHub.
 
@@ -244,6 +273,7 @@ Current MVP limitations:
 - Data persists via JPA/PostgreSQL when `SPRING_DATASOURCE_URL` points to a real database; without it, the backend falls back to a local H2 file (survives restarts on the same machine, but not across ephemeral container redeploys).
 - Product data is mock data.
 - Layout recommendation logic is rule-based by default; LLM-based placement (`ROOMFIT_LLM_PLACEMENT_ENABLED`) generates coordinates directly and always falls back to rule-based on failure.
+- Anonymous guest sessions only (see "Guest Auth" above) — no signup, password, email verification, social login, or password reset yet.
 - Render Free Tier can introduce cold-start latency.
 
 ---

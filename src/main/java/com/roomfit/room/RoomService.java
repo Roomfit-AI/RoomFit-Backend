@@ -1,5 +1,6 @@
 package com.roomfit.room;
 
+import com.roomfit.auth.CurrentGuestContext;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.room.dto.FurnitureUpdateRequest;
@@ -18,18 +19,23 @@ import java.util.stream.Collectors;
 public class RoomService {
 
     private final RoomRepository roomRepository;
+    private final RoomAccessService roomAccessService;
+    private final CurrentGuestContext currentGuestContext;
 
-    public RoomService(RoomRepository roomRepository) {
+    public RoomService(RoomRepository roomRepository, RoomAccessService roomAccessService,
+                        CurrentGuestContext currentGuestContext) {
         this.roomRepository = roomRepository;
+        this.roomAccessService = roomAccessService;
+        this.currentGuestContext = currentGuestContext;
     }
 
     public RoomResponse getRoom(Long roomId) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.resolveAccessibleRoom(roomId);
         return RoomResponse.from(room);
     }
 
     public List<RoomResponse> getSampleRooms() {
-        return roomRepository.findBySourceOrderByIdAsc(RoomSource.SAMPLE).stream()
+        return roomRepository.findBySourceAndOwnerIdIsNullOrderByIdAsc(RoomSource.SAMPLE).stream()
                 .map(RoomResponse::from)
                 .toList();
     }
@@ -39,7 +45,9 @@ public class RoomService {
         if (normalizedLimit == 0) {
             return List.of();
         }
-        return roomRepository.findBySourceOrderByCreatedAtDescIdDesc(RoomSource.ROOMPLAN, PageRequest.of(0, normalizedLimit)).stream()
+        String guestId = currentGuestContext.getGuestId();
+        return roomRepository.findBySourceAndOwnerIdOrderByCreatedAtDescIdDesc(
+                        RoomSource.ROOMPLAN, guestId, PageRequest.of(0, normalizedLimit)).stream()
                 .map(RoomResponse::from)
                 .toList();
     }
@@ -48,6 +56,11 @@ public class RoomService {
         Room room = findRoomOrThrow(roomId);
         if (room.getSource() != RoomSource.ROOMPLAN) {
             throw new CustomException(ErrorCode.ROOM_DELETE_NOT_ALLOWED);
+        }
+        // 다른 게스트의 업로드 방은 "삭제 불가"가 아니라 "존재 자체를 모른다"는
+        // 뜻으로 404 — RoomAccessService.resolveAccessibleRoom과 동일한 원칙.
+        if (!currentGuestContext.getGuestId().equals(room.getOwnerId())) {
+            throw new CustomException(ErrorCode.ROOM_NOT_FOUND);
         }
         roomRepository.deleteById(roomId);
     }
@@ -68,9 +81,12 @@ public class RoomService {
                 .map(this::toFurniture)
                 .toList();
 
+        // ownerId는 요청 바디가 아니라 인증 토큰에서만 가져온다 — 클라이언트가
+        // 다른 사람 소유로 방을 만들 방법이 없다(RoomUploadRequest에는 애초에
+        // ownerId 필드 자체가 없음).
         Room room = new Room(null, name, roomData.getWidth(), roomData.getDepth(), roomData.getHeight(),
                 unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now(),
-                request.getThumbnailBase64());
+                request.getThumbnailBase64(), currentGuestContext.getGuestId(), null);
         validateFurnitureWithinRoom(room);
 
         return RoomResponse.from(roomRepository.save(room));
@@ -81,7 +97,7 @@ public class RoomService {
     // 다루므로(그 문서에 명시된 경계를 지키기 위해) 별도 엔드포인트로 추가함 —
     // uploadRoom과 동일한 검증(toFurniture, validateFurnitureWithinRoom)을 재사용.
     public RoomResponse replaceFurniture(Long roomId, List<RoomUploadRequest.FurnitureData> furnitureData) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.resolveAccessibleRoom(roomId);
         List<Furniture> furniture = nullToEmpty(furnitureData).stream()
                 .map(this::toFurniture)
                 .toList();
@@ -93,7 +109,7 @@ public class RoomService {
     }
 
     public RoomResponse updateFurnitureStatus(Long roomId, FurnitureUpdateRequest request) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.resolveAccessibleRoom(roomId);
         validateFurnitureIds(room, request);
 
         Map<String, String> statusById = request.getFurnitureUpdates().stream()

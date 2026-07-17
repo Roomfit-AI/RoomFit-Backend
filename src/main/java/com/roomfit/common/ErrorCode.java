@@ -25,7 +25,8 @@ public enum ErrorCode {
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "요청 본문이 올바르지 않습니다."),
     ROOM_DELETE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "ROOMPLAN으로 업로드한 방만 삭제할 수 있습니다."),
     ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 배치입니다."),
-    RECOMMENDATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "배치 추천에 실패했습니다.");
+    RECOMMENDATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "배치 추천에 실패했습니다."),
+    UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "게스트 인증 토큰이 없거나 유효하지 않습니다.");
 
     private final HttpStatus status;
     private final String message;

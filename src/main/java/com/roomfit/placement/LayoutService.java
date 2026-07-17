@@ -9,6 +9,7 @@ import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
+import com.roomfit.room.RoomAccessService;
 import com.roomfit.room.RoomRepository;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ public class LayoutService {
     private final LayoutRepository layoutRepository;
     private final AgentContextRepository agentContextRepository;
     private final RoomRepository roomRepository;
+    private final RoomAccessService roomAccessService;
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
     private final FeedbackIntentParser feedbackIntentParser;
@@ -31,6 +33,7 @@ public class LayoutService {
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
                           RoomRepository roomRepository,
+                          RoomAccessService roomAccessService,
                           PlacementService placementService,
                           ValidationService validationService,
                           FeedbackIntentParser feedbackIntentParser,
@@ -38,6 +41,7 @@ public class LayoutService {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
+        this.roomAccessService = roomAccessService;
         this.placementService = placementService;
         this.validationService = validationService;
         this.feedbackIntentParser = feedbackIntentParser;
@@ -47,8 +51,7 @@ public class LayoutService {
     public LayoutResponse recommend(RecommendRequest request) {
         AgentContext context = agentContextRepository.findById(request.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        Room room = roomRepository.findById(context.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.resolveAccessibleRoom(context.getRoomId());
 
         PlacementResult placementResult;
         try {
@@ -72,8 +75,7 @@ public class LayoutService {
 
     public ValidationResult validateOnly(ValidateRequest request) {
         Layout layout = findLayoutOrThrow(request.getLayoutId());
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.resolveAccessibleRoom(layout.getRoomId());
 
         List<Furniture> mergedFurniture = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         return validationService.validate(room, mergedFurniture);
@@ -84,8 +86,7 @@ public class LayoutService {
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.resolveAccessibleRoom(layout.getRoomId());
         AgentContext context = agentContextRepository.findById(layout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
 
@@ -103,6 +104,13 @@ public class LayoutService {
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
+        // 소유권 검사는 반드시 layout.confirm()을 저장하기 전에 해야 한다 —
+        // 순서가 바뀌면 다른 게스트의 확정 시도가 최종적으로 404를 받더라도
+        // 그 사이에 layout이 이미 confirmed=true로 저장돼버려서, 진짜 소유자가
+        // 나중에 정상적으로 확정하려 할 때 409 ALREADY_CONFIRMED를 받는
+        // 부작용이 생긴다(RoomOwnershipControllerTest에서 실제로 재현됨).
+        Room room = roomAccessService.resolveAccessibleRoom(layout.getRoomId());
+
         layout.confirm();
         layoutRepository.save(layout);
 
@@ -110,8 +118,6 @@ public class LayoutService {
         // (및 목록 재조회)가 여전히 확정 이전 가구 배치를 보여준다. Layout은
         // Room과 독립된 값 복사 스냅샷이라(Layout.java 참고) 여기서 명시적으로
         // 동기화해야 한다.
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
         room.setFurniture(layout.getFurniture());
         roomRepository.save(room);
 
@@ -122,8 +128,7 @@ public class LayoutService {
         Layout baseLayout = findLayoutOrThrow(request.getLayoutId());
         AgentContext context = agentContextRepository.findById(baseLayout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        Room room = roomRepository.findById(baseLayout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.resolveAccessibleRoom(baseLayout.getRoomId());
 
         FeedbackIntent intent = feedbackIntentParser.parse(request.getFeedback());
         List<Furniture> recommended = applyFeedbackIntent(room, baseLayout.getFurniture(), intent);

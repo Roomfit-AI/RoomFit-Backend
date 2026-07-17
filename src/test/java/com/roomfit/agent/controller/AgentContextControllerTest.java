@@ -42,7 +42,10 @@ class AgentContextControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data.contextId", notNullValue()))
-                .andExpect(jsonPath("$.data.roomId").value(1))
+                // roomId 1은 공유 샘플 템플릿이라 게스트별 소유권 분리 이후로는
+                // 그 게스트 개인 fork의 id로 바뀐다(RoomAccessService 참고) —
+                // 정확한 값 대신 존재만 확인.
+                .andExpect(jsonPath("$.data.roomId", notNullValue()))
                 .andExpect(jsonPath("$.data.lifestyleGoal").value("STUDY_FOCUSED"))
                 .andExpect(jsonPath("$.data.designStyle").value(hasItems("MINIMAL", "WHITE_TONE")))
                 .andExpect(jsonPath("$.data.requiredItems").value(hasItems("bed", "desk", "chair")))

@@ -23,7 +23,7 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
         // 이제 실제 DB에 영속화되므로, 이 시더가 매 재시작마다 실행돼도 샘플 방이
         // 중복 적재되지 않도록 이미 SAMPLE 방이 있으면 건너뛴다 (in-memory 시절에는
         // 항상 비어있어 무해했지만, DB 도입 후에는 재시작마다 행이 쌓이는 버그가 됨).
-        if (!roomRepository.findBySourceOrderByIdAsc(RoomSource.SAMPLE).isEmpty()) {
+        if (!roomRepository.findBySourceAndOwnerIdIsNullOrderByIdAsc(RoomSource.SAMPLE).isEmpty()) {
             return;
         }
 
