@@ -21,6 +21,7 @@ public class MockProduct {
     private final String imageUrl;
     private final String purchaseUrl;
     private final RequiredClearance requiredClearance;
+    private final List<String> lifestyleTags;
 
     public MockProduct(String productId, String type, String name, String brand,
                        double width, double depth, double height, int price,
@@ -66,6 +67,17 @@ public class MockProduct {
                        double width, double depth, double height, Integer price,
                        List<String> styleTags, String imageUrl, String purchaseUrl,
                        RequiredClearance requiredClearance) {
+        this(productId, variantId, type, name, brand, width, depth, height, price,
+                styleTags, imageUrl, purchaseUrl, requiredClearance, List.of());
+    }
+
+    // Furniture Variant Registry가 공식 lifestyleTags를 제공하는 Product용 — 지금은
+    // desk 4종만 실제 값을 갖고, 나머지 Product는 기존 생성자를 통해 빈 리스트로
+    // 남는다(전체 92종 Catalog 반영은 별도 작업).
+    public MockProduct(String productId, String variantId, String type, String name, String brand,
+                       double width, double depth, double height, Integer price,
+                       List<String> styleTags, String imageUrl, String purchaseUrl,
+                       RequiredClearance requiredClearance, List<String> lifestyleTags) {
         this.productId = productId;
         this.variantId = VariantIdValidator.validateNullable(variantId);
         this.type = type;
@@ -82,6 +94,7 @@ public class MockProduct {
             throw new IllegalArgumentException("requiredClearance must not be null");
         }
         this.requiredClearance = requiredClearance;
+        this.lifestyleTags = lifestyleTags == null ? List.of() : List.copyOf(lifestyleTags);
     }
 
     private static String validatePurchaseUrl(String purchaseUrl) {
@@ -155,5 +168,9 @@ public class MockProduct {
 
     public RequiredClearance getRequiredClearance() {
         return requiredClearance;
+    }
+
+    public List<String> getLifestyleTags() {
+        return lifestyleTags;
     }
 }

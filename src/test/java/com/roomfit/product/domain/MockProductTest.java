@@ -73,6 +73,35 @@ class MockProductTest {
         assertThat(product.getVariantId()).isEqualTo("desk-midcentury-glass");
     }
 
+    @Test
+    void constructor_withoutLifestyleTags_defaultsToEmptyList() {
+        MockProduct product = createProduct("desk-midcentury-glass", null);
+
+        assertThat(product.getLifestyleTags()).isEmpty();
+    }
+
+    @Test
+    void constructor_withLifestyleTags_keepsLifestyleTags() {
+        MockProduct product = new MockProduct(
+                "desk-storage-01",
+                "desk-storage",
+                "desk",
+                "수납 결합 책상",
+                null,
+                1.4,
+                0.62,
+                0.73,
+                (Integer) null,
+                List.of("natural", "classic"),
+                null,
+                "https://example.com/products/desk-storage",
+                new RequiredClearance(0.6, 0.2),
+                List.of("WORK_STUDY", "STORAGE")
+        );
+
+        assertThat(product.getLifestyleTags()).containsExactly("WORK_STUDY", "STORAGE");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "",
