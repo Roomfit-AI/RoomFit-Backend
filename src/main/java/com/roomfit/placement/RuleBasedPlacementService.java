@@ -3,6 +3,7 @@ package com.roomfit.placement;
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
+import com.roomfit.product.service.ProductRecommendationService;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
@@ -38,9 +39,12 @@ public class RuleBasedPlacementService implements PlacementService {
     );
 
     private final MockProductService mockProductService;
+    private final ProductRecommendationService productRecommendationService;
 
-    public RuleBasedPlacementService(MockProductService mockProductService) {
+    public RuleBasedPlacementService(MockProductService mockProductService,
+                                      ProductRecommendationService productRecommendationService) {
         this.mockProductService = mockProductService;
+        this.productRecommendationService = productRecommendationService;
     }
 
     @Override
@@ -71,7 +75,7 @@ public class RuleBasedPlacementService implements PlacementService {
             if (placedTypes.contains(itemType)) {
                 continue;
             }
-            tryAddFurniture(room, recommended, itemType, selectedProductByType.get(itemType))
+            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(itemType))
                     .ifPresent(furniture -> placedTypes.add(furniture.getType()));
         }
 
@@ -79,7 +83,7 @@ public class RuleBasedPlacementService implements PlacementService {
             if (placedTypes.contains(itemType)) {
                 continue;
             }
-            tryAddFurniture(room, recommended, itemType, selectedProductByType.get(itemType))
+            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(itemType))
                     .ifPresent(furniture -> placedTypes.add(furniture.getType()));
         }
 
@@ -148,8 +152,13 @@ public class RuleBasedPlacementService implements PlacementService {
         );
     }
 
-    private Optional<Furniture> tryAddFurniture(Room room, List<Furniture> placed,
-                                                String itemType, MockProduct product) {
+    private Optional<Furniture> tryAddFurniture(Room room, List<Furniture> placed, AgentContext context,
+                                                String itemType, MockProduct exactSelectedProduct) {
+        // selectedProductIds에 이 타입의 정확한 선택이 있으면 그걸 그대로 쓴다(3번 우선순위 그대로 유지).
+        // 없을 때만 ProductRecommendationService가 Catalog에서 하나를 고른다.
+        MockProduct product = exactSelectedProduct != null
+                ? exactSelectedProduct
+                : productRecommendationService.recommend(itemType, context, room).orElse(null);
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
         for (Position position : candidatePositions(itemType, spec, room, placed)) {
             Furniture candidate = createRecommendedFurniture(itemType, spec, position);

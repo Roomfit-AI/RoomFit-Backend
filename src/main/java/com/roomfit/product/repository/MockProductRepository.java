@@ -118,7 +118,8 @@ public class MockProductRepository {
                     List.of("minimal", "classic"),
                     null,
                     "https://www.ikea.com/kr/ko/p/lagkapten-adils-desk-white-s09416759/",
-                    new RequiredClearance(0.6, 0.2)
+                    new RequiredClearance(0.6, 0.2),
+                    List.of("WORK_STUDY")
             ),
             new MockProduct(
                     "desk-storage-01",
@@ -133,7 +134,8 @@ public class MockProductRepository {
                     List.of("natural", "classic"),
                     null,
                     "https://www.ikea.com/kr/ko/p/micke-desk-black-brown-60354277/",
-                    new RequiredClearance(0.6, 0.2)
+                    new RequiredClearance(0.6, 0.2),
+                    List.of("WORK_STUDY", "STORAGE")
             ),
             new MockProduct(
                     "desk-corner-01",
@@ -148,7 +150,8 @@ public class MockProductRepository {
                     List.of("minimal", "modern"),
                     null,
                     "https://www.ikea.com/kr/ko/p/micke-corner-workstation-white-20354284/",
-                    new RequiredClearance(0.6, 0.2)
+                    new RequiredClearance(0.6, 0.2),
+                    List.of("WORK_STUDY", "STORAGE", "HOBBY_LEISURE")
             ),
             new MockProduct(
                     "desk-midcentury-glass-01",
@@ -163,7 +166,8 @@ public class MockProductRepository {
                     List.of("midcentury", "modern"),
                     null,
                     "https://www.oldbonesco.com/products/denali-glass-top-desk",
-                    new RequiredClearance(0.6, 0.2)
+                    new RequiredClearance(0.6, 0.2),
+                    List.of("WORK_STUDY")
             )
         );
     }

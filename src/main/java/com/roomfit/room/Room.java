@@ -12,6 +12,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.OrderColumn;
+import org.hibernate.annotations.Fetch;
+import org.hibernate.annotations.FetchMode;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -43,6 +45,7 @@ public class Room {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "room_furniture", joinColumns = @JoinColumn(name = "room_id"))
     @OrderColumn(name = "furniture_order")
+    @Fetch(FetchMode.SELECT)
     private List<Furniture> furniture;
     @Enumerated(EnumType.STRING)
     private RoomSource source;

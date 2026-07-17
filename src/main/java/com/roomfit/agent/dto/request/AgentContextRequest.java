@@ -21,6 +21,12 @@ public class AgentContextRequest {
     private List<Long> selectedImageIds;
     @Schema(description = "선택한 Mock Product ID 목록. 추천 가구 크기/productId/variantId/styleTags에 반영됩니다.", example = "[\"desk-01\", \"chair-01\", \"lamp-01\"]")
     private List<String> selectedProductIds;
+    @Schema(description = "선호 색감 톤 (선택 항목, 값을 보내지 않으면 반영하지 않습니다). "
+            + "이번 버전의 Product 추천 점수에는 반영되지 않고 저장/응답과 LLM 프롬프트 전달까지만 지원합니다.",
+            example = "GRAY", nullable = true,
+            allowableValues = {"WHITE_IVORY", "BEIGE_SAND", "GRAY", "BROWN_WOOD",
+                    "GREEN_OLIVE", "BLUE_NAVY", "PINK_CORAL", "BLACK_DARK"})
+    private String preferredColorTone;
 
     protected AgentContextRequest() {
         // JSON 역직렬화용
@@ -52,5 +58,9 @@ public class AgentContextRequest {
 
     public List<String> getSelectedProductIds() {
         return selectedProductIds;
+    }
+
+    public String getPreferredColorTone() {
+        return preferredColorTone;
     }
 }

@@ -220,6 +220,7 @@ class LayoutValidateControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "roomId": 1,
                                   "contextId": %d
                                 }
                                 """.formatted(contextId)))

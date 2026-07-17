@@ -154,6 +154,7 @@ class LayoutFeedbackControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "roomId": 1,
                                   "contextId": %d
                                 }
                                 """.formatted(contextId)))

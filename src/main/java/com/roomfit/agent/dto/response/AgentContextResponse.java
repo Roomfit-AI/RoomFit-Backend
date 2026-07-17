@@ -30,6 +30,8 @@ public class AgentContextResponse {
     private final List<String> styleTags;
     @Schema(description = "선택한 제품 상세. 추천 가구 크기, variantId, styleTags에 사용됩니다.")
     private final List<SelectedProductResponse> selectedProducts;
+    @Schema(description = "선호 색감 톤 (값을 보내지 않았으면 null)", example = "GRAY", nullable = true)
+    private final String preferredColorTone;
     @Schema(description = "Context 생성 시각", example = "2026-07-09T02:13:15.411289")
     private final LocalDateTime createdAt;
 
@@ -37,7 +39,7 @@ public class AgentContextResponse {
                                   List<String> requiredItems, List<String> optionalItems,
                                   List<Long> selectedImageIds, List<String> selectedProductIds,
                                   List<String> styleTags, List<SelectedProductResponse> selectedProducts,
-                                  LocalDateTime createdAt) {
+                                  String preferredColorTone, LocalDateTime createdAt) {
         this.contextId = contextId;
         this.roomId = roomId;
         this.lifestyleGoal = lifestyleGoal;
@@ -48,6 +50,7 @@ public class AgentContextResponse {
         this.selectedProductIds = selectedProductIds;
         this.styleTags = styleTags;
         this.selectedProducts = selectedProducts;
+        this.preferredColorTone = preferredColorTone;
         this.createdAt = createdAt;
     }
 
@@ -65,6 +68,7 @@ public class AgentContextResponse {
                 selectedProducts.stream()
                         .map(SelectedProductResponse::from)
                         .toList(),
+                context.getPreferredColorTone() == null ? null : context.getPreferredColorTone().name(),
                 context.getCreatedAt()
         );
     }
@@ -107,6 +111,10 @@ public class AgentContextResponse {
 
     public List<SelectedProductResponse> getSelectedProducts() {
         return selectedProducts;
+    }
+
+    public String getPreferredColorTone() {
+        return preferredColorTone;
     }
 
     public LocalDateTime getCreatedAt() {
