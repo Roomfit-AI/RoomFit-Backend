@@ -79,7 +79,7 @@ class VariantProductFlowControllerTest {
         String recommendResponse = mockMvc.perform(post("/api/layouts/recommend")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                { "contextId": %d }
+                                { "roomId": 1, "contextId": %d }
                                 """.formatted(contextId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.recommendedFurniture[*].productId").value(hasItems("desk-compact-01")))

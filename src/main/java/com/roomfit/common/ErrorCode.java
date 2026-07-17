@@ -15,6 +15,7 @@ public enum ErrorCode {
     INVALID_DESIGN_STYLE(HttpStatus.BAD_REQUEST, "디자인 취향 값이 올바르지 않습니다."),
     INVALID_PREFERRED_COLOR_TONE(HttpStatus.BAD_REQUEST, "선호 색감 톤 값이 올바르지 않습니다."),
     INVALID_FURNITURE_TYPE(HttpStatus.BAD_REQUEST, "가구 타입 값이 올바르지 않습니다."),
+    ROOM_CONTEXT_MISMATCH(HttpStatus.BAD_REQUEST, "요청한 방과 Agent Context의 방이 일치하지 않습니다."),
     INVALID_ROOM_DIMENSION(HttpStatus.BAD_REQUEST, "방 크기 값이 올바르지 않습니다."),
     INVALID_OPENING_DATA(HttpStatus.BAD_REQUEST, "문/창문 데이터가 올바르지 않습니다."),
     REQUIRED_ITEM_EMPTY(HttpStatus.BAD_REQUEST, "requiredItems는 최소 1개 이상이어야 합니다."),

@@ -47,8 +47,12 @@ public class LayoutService {
     public LayoutResponse recommend(RecommendRequest request) {
         AgentContext context = agentContextRepository.findById(request.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        Room room = roomRepository.findById(context.getRoomId())
+        Room room = roomRepository.findById(request.getRoomId())
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+
+        if (!room.getId().equals(context.getRoomId())) {
+            throw new CustomException(ErrorCode.ROOM_CONTEXT_MISMATCH);
+        }
 
         PlacementResult placementResult;
         try {

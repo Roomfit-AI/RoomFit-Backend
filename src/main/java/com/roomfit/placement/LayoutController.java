@@ -27,13 +27,15 @@ public class LayoutController {
     @Operation(summary = "배치 추천 생성", description = "Agent Context를 기반으로 기존 가구와 선택 제품을 고려한 추천 배치를 생성합니다. recommendedFurniture, validationResult, scoreSummary를 반환합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "추천 생성 성공"),
-            @ApiResponse(responseCode = "404", description = "존재하지 않는 contextId")
+            @ApiResponse(responseCode = "400", description = "요청 roomId와 Context roomId 불일치"),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 roomId 또는 contextId")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "추천에 사용할 Agent Context ID",
+            description = "추천 대상 roomId와 Agent Context ID. roomId는 Context의 roomId와 같아야 합니다.",
             required = true,
             content = @Content(examples = @ExampleObject(name = "Recommend from context", value = """
                     {
+                      "roomId": 1,
                       "contextId": 1
                     }
                     """)))

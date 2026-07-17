@@ -9,6 +9,8 @@ import org.springframework.http.MediaType;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -25,6 +27,9 @@ class LayoutRecommendControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private LayoutRepository layoutRepository;
 
     @Test
     void recommend_returnsLayoutWithScoreSummaryAndValidationResult() throws Exception {
@@ -65,6 +70,7 @@ class LayoutRecommendControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "roomId": 1,
                                   "contextId": %s
                                 }
                                 """.formatted(contextId)))
@@ -104,6 +110,7 @@ class LayoutRecommendControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "roomId": 1,
                                   "contextId": 999
                                 }
                                 """))
@@ -111,6 +118,45 @@ class LayoutRecommendControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
                 .andExpect(jsonPath("$.error.code").value("CONTEXT_NOT_FOUND"));
+    }
+
+    @Test
+    void recommend_withRoomThatDoesNotExist_returnsRoomNotFound() throws Exception {
+        long contextId = createDeskContext(1);
+
+        mockMvc.perform(post("/api/layouts/recommend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 999,
+                                  "contextId": %d
+                                }
+                                """.formatted(contextId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("ROOM_NOT_FOUND"));
+    }
+
+    @Test
+    void recommend_withContextFromAnotherRoom_returnsRoomContextMismatchWithoutCreatingLayout() throws Exception {
+        long contextId = createDeskContext(1);
+        long layoutsBefore = layoutRepository.count();
+
+        mockMvc.perform(post("/api/layouts/recommend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 2,
+                                  "contextId": %d
+                                }
+                                """.formatted(contextId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("ROOM_CONTEXT_MISMATCH"))
+                .andExpect(jsonPath("$.error.message").value("요청한 방과 Agent Context의 방이 일치하지 않습니다."));
+
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBefore);
     }
 
     @Test
@@ -139,6 +185,7 @@ class LayoutRecommendControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
+                                  "roomId": 2,
                                   "contextId": %s
                                 }
                                 """.formatted(contextId)))
@@ -153,5 +200,27 @@ class LayoutRecommendControllerTest {
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].position.z").value(hasItems(5.25)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].rotation").value(hasItems(225.0)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'bed-3')]").isEmpty());
+    }
+
+    private long createDeskContext(long roomId) throws Exception {
+        String response = mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": %d,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL"],
+                                  "requiredItems": ["desk"],
+                                  "optionalItems": [],
+                                  "selectedImageIds": [1],
+                                  "selectedProductIds": []
+                                }
+                                """.formatted(roomId)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return ((Number) com.jayway.jsonpath.JsonPath.read(response, "$.data.contextId")).longValue();
     }
 }
