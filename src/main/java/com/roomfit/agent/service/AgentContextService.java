@@ -3,6 +3,7 @@ package com.roomfit.agent.service;
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.agent.domain.DesignStyle;
 import com.roomfit.agent.domain.LifestyleGoal;
+import com.roomfit.agent.domain.PreferredColorTone;
 import com.roomfit.agent.dto.request.AgentContextRequest;
 import com.roomfit.agent.dto.response.AgentContextResponse;
 import com.roomfit.agent.repository.AgentContextRepository;
@@ -57,6 +58,7 @@ public class AgentContextService {
         List<String> optionalItems = validateFurnitureTypes(nullToEmpty(request.getOptionalItems()));
         List<Long> selectedImageIds = List.copyOf(request.getSelectedImageIds());
         List<String> selectedProductIds = nullToEmpty(request.getSelectedProductIds());
+        PreferredColorTone preferredColorTone = parsePreferredColorTone(request.getPreferredColorTone());
 
         List<StyleImage> selectedImages = selectedImageIds.stream()
                 .map(imageId -> styleImageRepository.findById(imageId)
@@ -75,7 +77,8 @@ public class AgentContextService {
                 optionalItems,
                 selectedImageIds,
                 selectedProductIds,
-                styleTags
+                styleTags,
+                preferredColorTone
         );
 
         agentContextRepository.save(context);
@@ -100,6 +103,17 @@ public class AgentContextService {
                     .toList();
         } catch (IllegalArgumentException | NullPointerException e) {
             throw new CustomException(ErrorCode.INVALID_DESIGN_STYLE);
+        }
+    }
+
+    private PreferredColorTone parsePreferredColorTone(String rawPreferredColorTone) {
+        if (rawPreferredColorTone == null || rawPreferredColorTone.isBlank()) {
+            return null;
+        }
+        try {
+            return PreferredColorTone.valueOf(rawPreferredColorTone);
+        } catch (IllegalArgumentException e) {
+            throw new CustomException(ErrorCode.INVALID_PREFERRED_COLOR_TONE);
         }
     }
 

@@ -8,6 +8,7 @@ import com.roomfit.placement.PlacementService;
 import com.roomfit.placement.RuleBasedPlacementService;
 import com.roomfit.placement.ValidationService;
 import com.roomfit.product.service.MockProductService;
+import com.roomfit.product.service.ProductRecommendationService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -25,8 +26,10 @@ public class PlacementServiceConfig {
     public PlacementService placementService(LlmFeedbackProperties properties,
                                               ObjectMapper objectMapper,
                                               MockProductService mockProductService,
+                                              ProductRecommendationService productRecommendationService,
                                               ValidationService validationService) {
-        RuleBasedPlacementService ruleBasedService = new RuleBasedPlacementService(mockProductService);
+        RuleBasedPlacementService ruleBasedService =
+                new RuleBasedPlacementService(mockProductService, productRecommendationService);
         Optional<PlacementService> llmService = createLlmService(properties, objectMapper, mockProductService, validationService);
         return new FallbackPlacementService(llmService, ruleBasedService, properties);
     }

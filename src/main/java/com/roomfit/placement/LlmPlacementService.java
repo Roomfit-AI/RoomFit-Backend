@@ -93,6 +93,7 @@ public class LlmPlacementService implements PlacementService {
         input.put("requiredItems", context.getRequiredItems());
         input.put("optionalItems", context.getOptionalItems());
         input.put("styleTags", context.getStyleTags());
+        input.put("preferredColorTone", context.getPreferredColorTone());
         input.put("selectedProducts", selectedProducts.stream().map(this::productPayload).toList());
 
         String inputJson;

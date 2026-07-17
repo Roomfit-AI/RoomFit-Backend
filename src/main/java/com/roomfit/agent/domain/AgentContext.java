@@ -48,6 +48,8 @@ public class AgentContext {
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "agent_context_style_tags", joinColumns = @JoinColumn(name = "context_id"))
     private List<String> styleTags;
+    @Enumerated(EnumType.STRING)
+    private PreferredColorTone preferredColorTone;
     private LocalDateTime createdAt;
 
     protected AgentContext() {
@@ -58,6 +60,14 @@ public class AgentContext {
                          List<String> requiredItems, List<String> optionalItems,
                          List<Long> selectedImageIds, List<String> selectedProductIds,
                          List<String> styleTags) {
+        this(roomId, lifestyleGoal, designStyle, requiredItems, optionalItems,
+                selectedImageIds, selectedProductIds, styleTags, null);
+    }
+
+    public AgentContext(Long roomId, LifestyleGoal lifestyleGoal, List<DesignStyle> designStyle,
+                         List<String> requiredItems, List<String> optionalItems,
+                         List<Long> selectedImageIds, List<String> selectedProductIds,
+                         List<String> styleTags, PreferredColorTone preferredColorTone) {
         // Hibernate가 @ElementCollection 필드를 직접 관리하려면 가변 List여야
         // 한다 — List.copyOf()로 만든 불변 리스트를 넣으면 저장 시
         // UnsupportedOperationException이 난다.
@@ -69,6 +79,7 @@ public class AgentContext {
         this.selectedImageIds = new ArrayList<>(selectedImageIds);
         this.selectedProductIds = new ArrayList<>(selectedProductIds);
         this.styleTags = new ArrayList<>(styleTags);
+        this.preferredColorTone = preferredColorTone;
         this.createdAt = LocalDateTime.now();
     }
 
@@ -110,6 +121,10 @@ public class AgentContext {
 
     public List<String> getStyleTags() {
         return styleTags;
+    }
+
+    public PreferredColorTone getPreferredColorTone() {
+        return preferredColorTone;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -13,6 +13,7 @@ public enum ErrorCode {
     INVALID_FURNITURE_STATUS(HttpStatus.BAD_REQUEST, "가구 status 값이 올바르지 않습니다."),
     INVALID_LIFESTYLE_GOAL(HttpStatus.BAD_REQUEST, "생활 목적 값이 올바르지 않습니다."),
     INVALID_DESIGN_STYLE(HttpStatus.BAD_REQUEST, "디자인 취향 값이 올바르지 않습니다."),
+    INVALID_PREFERRED_COLOR_TONE(HttpStatus.BAD_REQUEST, "선호 색감 톤 값이 올바르지 않습니다."),
     INVALID_FURNITURE_TYPE(HttpStatus.BAD_REQUEST, "가구 타입 값이 올바르지 않습니다."),
     INVALID_ROOM_DIMENSION(HttpStatus.BAD_REQUEST, "방 크기 값이 올바르지 않습니다."),
     INVALID_OPENING_DATA(HttpStatus.BAD_REQUEST, "문/창문 데이터가 올바르지 않습니다."),

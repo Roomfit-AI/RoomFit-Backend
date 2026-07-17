@@ -9,6 +9,7 @@ import com.roomfit.llm.LlmClient;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.domain.RequiredClearance;
 import com.roomfit.product.service.MockProductService;
+import com.roomfit.product.service.ProductRecommendationService;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
@@ -100,7 +101,9 @@ class LlmPlacementVariantIdTest {
             throw new IllegalStateException("LLM unavailable");
         };
         FallbackPlacementService service = new FallbackPlacementService(
-                Optional.of(failingLlm), new RuleBasedPlacementService(productService), new LlmFeedbackProperties());
+                Optional.of(failingLlm),
+                new RuleBasedPlacementService(productService, mock(ProductRecommendationService.class)),
+                new LlmFeedbackProperties());
 
         PlacementResult result = service.recommend(context(), room());
 

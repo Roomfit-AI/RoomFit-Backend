@@ -61,6 +61,76 @@ class AgentContextControllerTest {
     }
 
     @Test
+    void createContext_withPreferredColorTone_returnsPreferredColorTone() throws Exception {
+        mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 1,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL"],
+                                  "requiredItems": ["desk"],
+                                  "selectedImageIds": [1],
+                                  "preferredColorTone": "GRAY"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.preferredColorTone").value("GRAY"));
+    }
+
+    @Test
+    void createContext_withoutPreferredColorTone_returnsNullPreferredColorTone() throws Exception {
+        mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 1,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL"],
+                                  "requiredItems": ["desk"],
+                                  "selectedImageIds": [1]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.preferredColorTone").value(nullValue()));
+    }
+
+    @Test
+    void createContext_withInvalidPreferredColorTone_returnsInvalidPreferredColorTone() throws Exception {
+        mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 1,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL"],
+                                  "requiredItems": ["desk"],
+                                  "selectedImageIds": [1],
+                                  "preferredColorTone": "NEON"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PREFERRED_COLOR_TONE"));
+    }
+
+    @Test
+    void createContext_withClassicAndMidcenturyDesignStyle_isAccepted() throws Exception {
+        mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 1,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["CLASSIC", "MIDCENTURY"],
+                                  "requiredItems": ["desk"],
+                                  "selectedImageIds": [1]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.designStyle").value(hasItems("CLASSIC", "MIDCENTURY")));
+    }
+
+    @Test
     void createContext_withoutSelectedProducts_returnsEmptySelectedProducts() throws Exception {
         mockMvc.perform(post("/api/agent/context")
                         .contentType(MediaType.APPLICATION_JSON)
