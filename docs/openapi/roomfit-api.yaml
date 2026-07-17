@@ -259,7 +259,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 현재 배치 검증
-      description: 사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
+      description: 사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. width/depth/height/productId/variantId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
       requestBody:
         required: true
         content:
@@ -300,7 +300,7 @@ paths:
     put:
       tags: [Layouts]
       summary: 수정 배치 저장
-      description: 사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다. width/depth/height/productId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
+      description: 사용자가 수정한 최종 가구 배치를 저장하고 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다. width/depth/height/productId/variantId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
       parameters:
         - $ref: "#/components/parameters/LayoutId"
       requestBody:
@@ -674,6 +674,12 @@ components:
           type: string
           description: 선택 제품 기반 추천인 경우 제품 ID. 기존 가구는 null 허용
           nullable: true
+        variantId:
+          type: string
+          nullable: true
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: JSON 기반 Furniture Variant Registry 식별자. null 또는 미등록 값이면 프론트는 기존 Renderer를 사용합니다.
+          example: desk-compact
         styleTags:
           description: 추천/스타일 계산에 사용되는 태그
           type: array
@@ -762,6 +768,12 @@ components:
           type: string
           description: 제품 ID. Agent Context의 selectedProductIds에 사용됩니다.
           example: desk-01
+        variantId:
+          type: string
+          nullable: true
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: JSON 기반 Furniture Variant Registry 식별자. 기존 제품은 null입니다.
+          example: desk-compact
         type:
           type: string
           enum: [bed, desk, chair, storage, rug, lamp]
@@ -831,7 +843,7 @@ components:
             type: integer
             format: int64
         selectedProductIds:
-          description: 선택한 Mock Product ID 목록. 추천 가구 크기/productId/styleTags에 반영됩니다.
+          description: 선택한 Mock Product ID 목록. 추천 가구 크기/productId/variantId/styleTags에 반영됩니다.
           type: array
           items:
             type: string
@@ -884,10 +896,41 @@ components:
         selectedProducts:
           type: array
           items:
-            $ref: "#/components/schemas/MockProduct"
+            $ref: "#/components/schemas/SelectedProduct"
         createdAt:
           type: string
           format: date-time
+    SelectedProduct:
+      type: object
+      description: Agent Context 응답에 포함되는 선택 제품 요약
+      properties:
+        productId:
+          type: string
+          description: 선택 제품 ID
+          example: desk-01
+        variantId:
+          type: string
+          nullable: true
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: JSON 기반 Furniture Variant Registry 식별자. 기존 제품은 null입니다.
+          example: desk-compact
+        type:
+          type: string
+          enum: [bed, desk, chair, storage, rug, lamp]
+        name:
+          type: string
+        width:
+          type: number
+        depth:
+          type: number
+        height:
+          type: number
+        styleTags:
+          type: array
+          items:
+            type: string
+        requiredClearance:
+          $ref: "#/components/schemas/RequiredClearance"
     RecommendRequest:
       type: object
       description: 배치 추천 생성 요청
@@ -983,7 +1026,7 @@ components:
           type: string
     FurniturePositionDto:
       type: object
-      description: 검증/수정 저장 시 사용하는 compact update item. full furniture object가 아니며 type/label/width/depth/height/productId/styleTags는 요청에서 다시 전달하지 않습니다.
+      description: 검증/수정 저장 시 사용하는 compact update item. full furniture object가 아니며 type/label/width/depth/height/productId/variantId/styleTags는 요청에서 다시 전달하지 않습니다.
       properties:
         id:
           type: string
@@ -1007,7 +1050,7 @@ components:
           type: integer
           format: int64
         furniture:
-          description: 프론트 화면의 현재 가구 배치 전체 배열. 전체 가구 배열은 모든 furniture id를 포함한다는 뜻이며, type/label/width/depth/height/productId/styleTags 같은 추천 결과 메타데이터를 다시 보내는 뜻은 아닙니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
+          description: 프론트 화면의 현재 가구 배치 전체 배열. 전체 가구 배열은 모든 furniture id를 포함한다는 뜻이며, type/label/width/depth/height/productId/variantId/styleTags 같은 추천 결과 메타데이터를 다시 보내는 뜻은 아닙니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.
           type: array
           items:
             $ref: "#/components/schemas/FurniturePositionDto"
@@ -1016,7 +1059,7 @@ components:
       description: 수정 배치 저장 요청. 저장 후 validationResult와 scoreSummary를 다시 계산합니다. furniture 배열에는 현재 layout의 전체 furniture id 목록을 compact update item 형태로 전달합니다.
       properties:
         furniture:
-          description: 저장할 최종 가구 배치 전체 배열. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 update item입니다. width/depth/height/productId/styleTags 등은 백엔드 추천 결과 메타데이터이며 요청에서 다시 전달하지 않습니다.
+          description: 저장할 최종 가구 배치 전체 배열. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 update item입니다. width/depth/height/productId/variantId/styleTags 등은 백엔드 추천 결과 메타데이터이며 요청에서 다시 전달하지 않습니다.
           type: array
           items:
             $ref: "#/components/schemas/FurniturePositionDto"

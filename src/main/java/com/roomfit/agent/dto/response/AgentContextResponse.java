@@ -28,7 +28,7 @@ public class AgentContextResponse {
     private final List<String> selectedProductIds;
     @Schema(description = "스타일 이미지와 선택 제품에서 병합한 추천/스타일 계산용 태그")
     private final List<String> styleTags;
-    @Schema(description = "선택한 제품 상세. 추천 가구 크기와 styleTags에 사용됩니다.")
+    @Schema(description = "선택한 제품 상세. 추천 가구 크기, variantId, styleTags에 사용됩니다.")
     private final List<SelectedProductResponse> selectedProducts;
     @Schema(description = "Context 생성 시각", example = "2026-07-09T02:13:15.411289")
     private final LocalDateTime createdAt;

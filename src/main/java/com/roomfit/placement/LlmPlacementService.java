@@ -126,7 +126,8 @@ public class LlmPlacementService implements PlacementService {
                   inside the room's width/depth, and must not overlap any other piece's footprint.
                 - Leave clearance in front of doors and windows (do not block them).
                 - If a selectedProducts entry matches a type you are placing, prefer using its exact
-                  width/depth/height/productId/styleTags instead of inventing your own.
+                  width/depth/height/productId/styleTags instead of inventing your own. variantId is
+                  server-owned catalog metadata: do not generate or modify it.
                 - Return JSON only — no markdown code fences, no explanation text.
 
                 Room and context JSON:
@@ -178,6 +179,7 @@ public class LlmPlacementService implements PlacementService {
     private Map<String, Object> productPayload(MockProduct product) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("productId", product.getProductId());
+        payload.put("variantId", product.getVariantId());
         payload.put("type", product.getType());
         payload.put("name", product.getName());
         payload.put("width", product.getWidth());
@@ -220,36 +222,55 @@ public class LlmPlacementService implements PlacementService {
 
     private Furniture toFurniture(JsonNode item, Map<String, Furniture> existingById) {
         String id = text(item, "id");
-        String type = text(item, "type");
         JsonNode positionNode = item.path("position");
 
-        if (id.isBlank() || type.isBlank() || !positionNode.has("x") || !positionNode.has("z")
-                || !item.path("width").isNumber() || !item.path("depth").isNumber() || !item.path("height").isNumber()) {
+        if (id.isBlank() || !positionNode.has("x") || !positionNode.has("z")) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
 
         Furniture existing = existingById.get(id);
-        String label = text(item, "label");
-        if (label.isBlank()) {
-            label = existing != null ? existing.getLabel() : type;
+        if (existing != null) {
+            return toExistingFurniture(item, positionNode, existing);
         }
 
+        return toNewFurniture(item, positionNode, id);
+    }
+
+    private Furniture toExistingFurniture(JsonNode item, JsonNode positionNode, Furniture existing) {
         double rotation = RotationUtils.snapToRightAngle(item.path("rotation").asDouble(0));
-        FurnitureStatus status = parseStatus(text(item, "status"),
-                existing != null ? FurnitureStatus.USER_MODIFIED : FurnitureStatus.RECOMMENDED);
-        String productId = text(item, "productId");
-        List<String> styleTags = toStringList(item.path("styleTags"));
+        FurnitureStatus status = parseStatus(text(item, "status"), FurnitureStatus.USER_MODIFIED);
 
         return new Furniture(
-                id, type, label,
-                item.path("width").asDouble(),
-                item.path("depth").asDouble(),
-                item.path("height").asDouble(),
+                existing.getId(), existing.getType(), existing.getLabel(),
+                existing.getWidth(),
+                existing.getDepth(),
+                existing.getHeight(),
                 new Position(positionNode.path("x").asDouble(), positionNode.path("z").asDouble()),
                 rotation,
                 status,
-                productId.isBlank() ? (existing != null ? existing.getProductId() : null) : productId,
-                styleTags.isEmpty() && existing != null ? existing.getStyleTags() : styleTags
+                existing.getProductId(),
+                existing.getStyleTags(),
+                existing.getVariantId()
+        );
+    }
+
+    private Furniture toNewFurniture(JsonNode item, JsonNode positionNode, String id) {
+        String productId = text(item, "productId");
+        MockProduct product = mockProductService.findByProductId(productId);
+        double rotation = RotationUtils.snapToRightAngle(item.path("rotation").asDouble(0));
+        FurnitureStatus status = parseStatus(text(item, "status"), FurnitureStatus.RECOMMENDED);
+
+        return new Furniture(
+                id, product.getType(), product.getName(),
+                product.getWidth(),
+                product.getDepth(),
+                product.getHeight(),
+                new Position(positionNode.path("x").asDouble(), positionNode.path("z").asDouble()),
+                rotation,
+                status,
+                product.getProductId(),
+                product.getStyleTags(),
+                product.getVariantId()
         );
     }
 
@@ -262,19 +283,6 @@ public class LlmPlacementService implements PlacementService {
         } catch (IllegalArgumentException e) {
             return fallback;
         }
-    }
-
-    private List<String> toStringList(JsonNode node) {
-        if (!node.isArray()) {
-            return List.of();
-        }
-        List<String> values = new ArrayList<>();
-        node.forEach(child -> {
-            if (child.isTextual()) {
-                values.add(child.asText());
-            }
-        });
-        return values;
     }
 
     private String text(JsonNode node, String field) {

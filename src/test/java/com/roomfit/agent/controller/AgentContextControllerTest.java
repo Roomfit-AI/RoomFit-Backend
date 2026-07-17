@@ -54,6 +54,7 @@ class AgentContextControllerTest {
                 )))
                 .andExpect(jsonPath("$.data.selectedProducts.length()").value(2))
                 .andExpect(jsonPath("$.data.selectedProducts[0].productId").value("desk-01"))
+                .andExpect(jsonPath("$.data.selectedProducts[0].variantId").value(nullValue()))
                 .andExpect(jsonPath("$.data.selectedProducts[0].width").value(1.2))
                 .andExpect(jsonPath("$.data.selectedProducts[0].requiredClearance.front").value(0.6))
                 .andExpect(jsonPath("$.data.createdAt", notNullValue()));

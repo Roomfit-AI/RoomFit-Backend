@@ -220,7 +220,8 @@ public class LayoutService {
                 override.getRotation(),
                 status,
                 furniture.getProductId(),
-                furniture.getStyleTags()
+                furniture.getStyleTags(),
+                furniture.getVariantId()
         );
     }
 
@@ -335,7 +336,8 @@ public class LayoutService {
                 rotation,
                 status,
                 furniture.getProductId(),
-                furniture.getStyleTags()
+                furniture.getStyleTags(),
+                furniture.getVariantId()
         );
     }
 

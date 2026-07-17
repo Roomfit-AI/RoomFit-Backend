@@ -36,6 +36,7 @@ class MockProductControllerTest {
                         "desk-01", "chair-01", "lamp-01"
                 )))
                 .andExpect(jsonPath("$.data[*].productId", everyItem(notNullValue())))
+                .andExpect(jsonPath("$.data[0].variantId").value(nullValue()))
                 .andExpect(jsonPath("$.data[*].name", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[*].brand", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[*].width", everyItem(notNullValue())))

@@ -256,6 +256,7 @@ Response
   "data": [
     {
       "productId": "desk-01",
+      "variantId": null,
       "type": "desk",
       "name": "화이트 미니멀 책상",
       "brand": "RoomFit Mock",
@@ -276,6 +277,7 @@ Response
 }
 
 `purchaseUrl`은 유사한 구매 가능 제품의 fallback 링크이며, 연결된 제품이 없으면 `null`입니다.
+`variantId`는 JSON 기반 Furniture Variant Registry의 key입니다. `null`이거나 프론트 Registry에 등록되지 않은 값이면 기존 가구 Renderer를 사용해야 합니다.
 7. Agent Context 생성
 POST /api/agent/context
 용도
@@ -308,6 +310,7 @@ Response
     "selectedProducts": [
       {
         "productId": "desk-01",
+        "variantId": null,
         "type": "desk",
         "name": "화이트 미니멀 책상",
         "width": 1.2,
@@ -367,6 +370,7 @@ Response
         "rotation": 0,
         "status": "RECOMMENDED",
         "productId": "desk-01",
+        "variantId": null,
         "styleTags": ["minimal", "white_tone", "study"]
       }
     ],
@@ -406,7 +410,7 @@ POST /api/layouts/validate
 POST /api/layouts/validate는 현재 layout의 전체 furniture id 목록을 포함한 배열을 받아 검증합니다.
 여기서 전체 가구 배열이란 모든 furniture id를 포함해야 한다는 뜻이지, 각 가구의 모든 메타데이터 필드를 보내야 한다는 뜻이 아닙니다.
 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다.
-width, depth, height, productId, styleTags 등은 백엔드 추천 결과가 가진 메타데이터이며 요청에서 다시 전달하지 않습니다.
+width, depth, height, productId, variantId, styleTags 등은 백엔드 추천 결과가 가진 메타데이터이며 요청에서 다시 전달하지 않습니다.
 일부 furniture id만 보내는 partial furniture array는 FURNITURE_ARRAY_MISMATCH를 발생시킬 수 있습니다.
 
 Request
@@ -498,7 +502,7 @@ PUT /api/layouts/{layoutId}
 
 사용자가 드래그로 수정한 최종 배치를 저장하고, 점수와 검증 결과를 다시 계산합니다.
 PUT /api/layouts/{layoutId}도 현재 layout의 전체 furniture id 목록을 포함한 compact update item 배열을 받습니다.
-각 item은 id, position, rotation, status 중심이며 type, label, width, depth, height, productId, styleTags는 요청 필드가 아닙니다.
+각 item은 id, position, rotation, status 중심이며 type, label, width, depth, height, productId, variantId, styleTags는 요청 필드가 아닙니다.
 일부 furniture id만 보내는 partial furniture array는 FURNITURE_ARRAY_MISMATCH를 발생시킬 수 있습니다.
 이미 확정된 layout은 수정할 수 없으며 409 ALREADY_CONFIRMED가 반환됩니다.
 
@@ -729,5 +733,6 @@ ROOMPLAN
 7. POST /api/layouts/validate는 저장하지 않습니다.
 8. PUT /api/layouts/{layoutId}는 저장 + 검증 + scoreSummary 재계산입니다.
 9. RoomPlan 업로드 방도 GET /api/rooms/{roomId} 응답 구조로 동일하게 렌더링하면 됩니다.
-10. validate/update 요청의 furniture item은 compact update item입니다. 추천 결과의 width/depth/height/productId/styleTags 메타데이터를 다시 보내지 않습니다.
-11. 에러 분기는 error.message보다 error.code를 기준으로 처리하는 것을 권장합니다.
+10. validate/update 요청의 furniture item은 compact update item입니다. 추천 결과의 width/depth/height/productId/variantId/styleTags 메타데이터를 다시 보내지 않습니다.
+11. recommendedFurniture의 variantId가 null이거나 프론트 Registry에 없으면 기존 가구 Renderer로 fallback합니다.
+12. 에러 분기는 error.message보다 error.code를 기준으로 처리하는 것을 권장합니다.

@@ -28,6 +28,30 @@ class MockProductTest {
         );
 
         assertThat(product.getPurchaseUrl()).isNull();
+        assertThat(product.getVariantId()).isNull();
+    }
+
+    @Test
+    void constructor_withValidVariantId_keepsVariantId() {
+        MockProduct product = createProduct("desk-midcentury-glass", null);
+
+        assertThat(product.getVariantId()).isEqualTo("desk-midcentury-glass");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "",
+            " ",
+            "Desk-compact",
+            "desk_compact",
+            "-desk-compact",
+            "desk-compact-",
+            "desk--compact"
+    })
+    void constructor_withInvalidVariantId_rejectsVariantId(String variantId) {
+        assertThatThrownBy(() -> createProduct(variantId, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("variantId");
     }
 
     @ParameterizedTest
@@ -58,6 +82,24 @@ class MockProductTest {
     private MockProduct createProduct(String purchaseUrl) {
         return new MockProduct(
                 "desk-test",
+                "desk",
+                "테스트 책상",
+                "RoomFit Mock",
+                1.2,
+                0.6,
+                0.72,
+                89000,
+                List.of("minimal"),
+                "/images/products/desk-test.png",
+                purchaseUrl,
+                new RequiredClearance(0.6, 0.2)
+        );
+    }
+
+    private MockProduct createProduct(String variantId, String purchaseUrl) {
+        return new MockProduct(
+                "desk-test",
+                variantId,
                 "desk",
                 "테스트 책상",
                 "RoomFit Mock",

@@ -2,7 +2,7 @@ package com.roomfit.placement.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "검증/수정 저장 시 사용하는 compact update item. full furniture object가 아니며 type/label/width/depth/height/productId/styleTags는 요청에서 다시 전달하지 않습니다.")
+@Schema(description = "검증/수정 저장 시 사용하는 compact update item. full furniture object가 아니며 type/label/width/depth/height/productId/variantId/styleTags는 요청에서 다시 전달하지 않습니다.")
 public class FurniturePositionDto {
 
     @Schema(description = "가구 ID. 기존 recommendedFurniture의 id와 일치해야 합니다.", example = "desk-rec-1")
