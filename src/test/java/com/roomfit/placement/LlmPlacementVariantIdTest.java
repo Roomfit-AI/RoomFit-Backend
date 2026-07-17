@@ -109,6 +109,50 @@ class LlmPlacementVariantIdTest {
         assertThat(result.getRecommendedFurniture().getFirst().getVariantId()).isEqualTo("desk-storage");
     }
 
+    @Test
+    void recommend_newFurnitureWithoutCatalogMatch_usesLlmProposedSpecWithNullProductAndVariant() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        LlmPlacementService service = new LlmPlacementService(
+                ignored -> newFurnitureWithoutProductResponseJson(),
+                new ValidationService(), productService, new ObjectMapper());
+
+        PlacementResult result = service.recommend(contextWithoutProducts(), room());
+
+        assertThat(result.getStatus()).isEqualTo(RecommendationStatus.SUCCESS);
+        Furniture furniture = result.getRecommendedFurniture().getFirst();
+        assertThat(furniture.getType()).isEqualTo("storage");
+        assertThat(furniture.getLabel()).isEqualTo("LLM이 만든 새 수납장");
+        assertThat(furniture.getWidth()).isEqualTo(0.8);
+        assertThat(furniture.getDepth()).isEqualTo(0.4);
+        assertThat(furniture.getHeight()).isEqualTo(1.2);
+        assertThat(furniture.getProductId()).isNull();
+        assertThat(furniture.getVariantId()).isNull();
+        assertThat(furniture.getStyleTags()).containsExactly("llm-invented");
+        verify(productService, never()).findByProductId(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    private String newFurnitureWithoutProductResponseJson() {
+        return """
+                {
+                  "furniture": [
+                    {
+                      "id": "storage-new-1",
+                      "type": "storage",
+                      "label": "LLM이 만든 새 수납장",
+                      "width": 0.8,
+                      "depth": 0.4,
+                      "height": 1.2,
+                      "position": { "x": 2.0, "z": 2.0 },
+                      "rotation": 0,
+                      "status": "RECOMMENDED",
+                      "styleTags": ["llm-invented"]
+                    }
+                  ]
+                }
+                """;
+    }
+
     private MockProductService productService(MockProduct product) {
         MockProductService service = mock(MockProductService.class);
         when(service.findByProductIds(List.of("desk-product"))).thenReturn(List.of(product));

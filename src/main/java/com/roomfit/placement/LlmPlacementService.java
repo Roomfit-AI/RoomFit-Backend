@@ -254,24 +254,68 @@ public class LlmPlacementService implements PlacementService {
         );
     }
 
+    // A catalog match (when the LLM names a real productId) is preferred —
+    // its width/depth/height/productId/variantId/styleTags are trustworthy
+    // catalog data. But requiring one unconditionally (throwing when the id
+    // doesn't resolve) meant *any* newly recommended piece the LLM invents
+    // for a type with no matching selectedProducts entry — the common case,
+    // since the catalog only has one product for bed/chair/storage/rug/lamp
+    // each — silently failed the whole recommendation and fell back to
+    // rule-based. Falling back to the LLM's own proposed type/dimensions/
+    // label/styleTags keeps this service actually able to add new furniture;
+    // productId/variantId simply stay null for a piece with no real catalog
+    // backing, since those are server-owned identifiers the LLM has no
+    // authority to invent (see buildPrompt's own instruction on this).
     private Furniture toNewFurniture(JsonNode item, JsonNode positionNode, String id) {
-        String productId = text(item, "productId");
-        MockProduct product = mockProductService.findByProductId(productId);
+        MockProduct product = findCatalogProduct(text(item, "productId"));
         double rotation = RotationUtils.snapToRightAngle(item.path("rotation").asDouble(0));
         FurnitureStatus status = parseStatus(text(item, "status"), FurnitureStatus.RECOMMENDED);
+        Position position = new Position(positionNode.path("x").asDouble(), positionNode.path("z").asDouble());
+
+        if (product != null) {
+            return new Furniture(
+                    id, product.getType(), product.getName(),
+                    product.getWidth(),
+                    product.getDepth(),
+                    product.getHeight(),
+                    position,
+                    rotation,
+                    status,
+                    product.getProductId(),
+                    product.getStyleTags(),
+                    product.getVariantId()
+            );
+        }
+
+        String type = text(item, "type");
+        if (type.isBlank() || !item.path("width").isNumber() || !item.path("depth").isNumber() || !item.path("height").isNumber()) {
+            throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+        }
+        String label = text(item, "label");
 
         return new Furniture(
-                id, product.getType(), product.getName(),
-                product.getWidth(),
-                product.getDepth(),
-                product.getHeight(),
-                new Position(positionNode.path("x").asDouble(), positionNode.path("z").asDouble()),
+                id, type, label.isBlank() ? type : label,
+                item.path("width").asDouble(),
+                item.path("depth").asDouble(),
+                item.path("height").asDouble(),
+                position,
                 rotation,
                 status,
-                product.getProductId(),
-                product.getStyleTags(),
-                product.getVariantId()
+                null,
+                toStringList(item.path("styleTags")),
+                null
         );
+    }
+
+    private MockProduct findCatalogProduct(String productId) {
+        if (productId.isBlank()) {
+            return null;
+        }
+        try {
+            return mockProductService.findByProductId(productId);
+        } catch (CustomException e) {
+            return null;
+        }
     }
 
     private FurnitureStatus parseStatus(String raw, FurnitureStatus fallback) {
@@ -283,6 +327,19 @@ public class LlmPlacementService implements PlacementService {
         } catch (IllegalArgumentException e) {
             return fallback;
         }
+    }
+
+    private List<String> toStringList(JsonNode node) {
+        if (!node.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        node.forEach(child -> {
+            if (child.isTextual()) {
+                values.add(child.asText());
+            }
+        });
+        return values;
     }
 
     private String text(JsonNode node, String field) {
