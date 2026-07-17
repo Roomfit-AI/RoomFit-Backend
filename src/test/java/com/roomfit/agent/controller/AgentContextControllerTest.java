@@ -1,12 +1,17 @@
 package com.roomfit.agent.controller;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.notNullValue;
@@ -50,7 +55,7 @@ class AgentContextControllerTest {
                 .andExpect(jsonPath("$.data.selectedImageIds").value(hasItems(1, 3)))
                 .andExpect(jsonPath("$.data.selectedProductIds").value(hasItems("desk-01", "chair-01")))
                 .andExpect(jsonPath("$.data.styleTags").value(hasItems(
-                        "minimal", "white_tone", "open_space", "study", "desk_zone"
+                        "minimal", "modern", "white_tone", "study"
                 )))
                 .andExpect(jsonPath("$.data.selectedProducts.length()").value(2))
                 .andExpect(jsonPath("$.data.selectedProducts[0].productId").value("desk-01"))
@@ -148,7 +153,28 @@ class AgentContextControllerTest {
                 .andExpect(jsonPath("$.data.selectedProductIds.length()").value(0))
                 .andExpect(jsonPath("$.data.selectedProducts.length()").value(0))
                 .andExpect(jsonPath("$.data.optionalItems.length()").value(0))
-                .andExpect(jsonPath("$.data.styleTags").value(hasItems("natural", "wood_tone", "cozy")));
+                .andExpect(jsonPath("$.data.styleTags").value(hasItems("natural")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("fixedStyleImages")
+    void createContext_withEachFixedStyleImage_returnsOnlyItsStyleTag(long imageId, String tag) throws Exception {
+        mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": 1,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL"],
+                                  "requiredItems": ["desk"],
+                                  "selectedImageIds": [%d],
+                                  "selectedProductIds": []
+                                }
+                                """.formatted(imageId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.selectedImageIds[0]").value(imageId))
+                .andExpect(jsonPath("$.data.styleTags.length()").value(1))
+                .andExpect(jsonPath("$.data.styleTags[0]").value(tag));
     }
 
     @Test
@@ -288,5 +314,15 @@ class AgentContextControllerTest {
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_TYPE"));
+    }
+
+    private static Stream<Arguments> fixedStyleImages() {
+        return Stream.of(
+                Arguments.of(1L, "minimal"),
+                Arguments.of(2L, "natural"),
+                Arguments.of(3L, "modern"),
+                Arguments.of(4L, "classic"),
+                Arguments.of(5L, "midcentury")
+        );
     }
 }

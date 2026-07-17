@@ -12,21 +12,33 @@ public class StyleImageRepository {
     private final List<StyleImage> styleImages = List.of(
             new StyleImage(
                     1L,
-                    "화이트톤 미니멀 원룸",
-                    "/images/styles/minimal-white-1.jpg",
-                    List.of("minimal", "white_tone", "open_space")
+                    "미니멀 원룸 인테리어",
+                    "/images/styles/minimal-1.jpg",
+                    List.of("minimal")
             ),
             new StyleImage(
                     2L,
-                    "내추럴 우드톤 원룸",
-                    "/images/styles/natural-wood-1.jpg",
-                    List.of("natural", "wood_tone", "cozy")
+                    "내추럴 원룸 인테리어",
+                    "/images/styles/natural-1.jpg",
+                    List.of("natural")
             ),
             new StyleImage(
                     3L,
-                    "공부형 원룸 인테리어",
-                    "/images/styles/study-focused-1.jpg",
-                    List.of("study", "desk_zone", "minimal")
+                    "모던 원룸 인테리어",
+                    "/images/styles/modern-1.jpg",
+                    List.of("modern")
+            ),
+            new StyleImage(
+                    4L,
+                    "클래식 원룸 인테리어",
+                    "/images/styles/classic-1.jpg",
+                    List.of("classic")
+            ),
+            new StyleImage(
+                    5L,
+                    "미드센추리 원룸 인테리어",
+                    "/images/styles/midcentury-1.jpg",
+                    List.of("midcentury")
             )
     );
 

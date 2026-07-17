@@ -23,28 +23,32 @@ class StyleImageControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    void getStyleImages_returnsSpecStyleImageExamples() throws Exception {
+    void getStyleImages_returnsFixedStyleImageContract() throws Exception {
         mockMvc.perform(get("/api/styles/images"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
-                .andExpect(jsonPath("$.data.length()").value(3))
-                .andExpect(jsonPath("$.data[*].imageId").value(containsInAnyOrder(1, 2, 3)))
+                .andExpect(jsonPath("$.data.length()").value(5))
+                .andExpect(jsonPath("$.data[*].imageId").value(containsInAnyOrder(1, 2, 3, 4, 5)))
                 .andExpect(jsonPath("$.data[*].title").value(hasItems(
-                        "화이트톤 미니멀 원룸",
-                        "내추럴 우드톤 원룸",
-                        "공부형 원룸 인테리어"
+                        "미니멀 원룸 인테리어",
+                        "내추럴 원룸 인테리어",
+                        "모던 원룸 인테리어",
+                        "클래식 원룸 인테리어",
+                        "미드센추리 원룸 인테리어"
                 )))
                 .andExpect(jsonPath("$.data[*].imageUrl", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[*].tags", everyItem(notNullValue())))
                 .andExpect(jsonPath("$.data[0].tags").value(hasItems(
-                        "minimal", "white_tone", "open_space"
+                        "minimal"
                 )))
                 .andExpect(jsonPath("$.data[1].tags").value(hasItems(
-                        "natural", "wood_tone", "cozy"
+                        "natural"
                 )))
                 .andExpect(jsonPath("$.data[2].tags").value(hasItems(
-                        "study", "desk_zone", "minimal"
-                )));
+                        "modern"
+                )))
+                .andExpect(jsonPath("$.data[3].tags").value(hasItems("classic")))
+                .andExpect(jsonPath("$.data[4].tags").value(hasItems("midcentury")));
     }
 }
