@@ -10,7 +10,8 @@ import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
-import com.roomfit.room.RoomRepository;
+import com.roomfit.room.Room;
+import com.roomfit.room.RoomAccessService;
 import com.roomfit.style.domain.StyleImage;
 import com.roomfit.style.repository.StyleImageRepository;
 import org.springframework.stereotype.Service;
@@ -26,23 +27,25 @@ public class AgentContextService {
     private static final Set<String> FURNITURE_TYPES = Set.of("bed", "desk", "chair", "storage", "rug", "lamp");
 
     private final AgentContextRepository agentContextRepository;
-    private final RoomRepository roomRepository;
+    private final RoomAccessService roomAccessService;
     private final StyleImageRepository styleImageRepository;
     private final MockProductService mockProductService;
 
     public AgentContextService(AgentContextRepository agentContextRepository,
-                               RoomRepository roomRepository,
+                               RoomAccessService roomAccessService,
                                StyleImageRepository styleImageRepository,
                                MockProductService mockProductService) {
         this.agentContextRepository = agentContextRepository;
-        this.roomRepository = roomRepository;
+        this.roomAccessService = roomAccessService;
         this.styleImageRepository = styleImageRepository;
         this.mockProductService = mockProductService;
     }
 
     public AgentContextResponse createContext(AgentContextRequest request) {
-        roomRepository.findById(request.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        // roomId가 공유 샘플 템플릿을 가리키면 여기서 현재 게스트의 개인 fork로
+        // 투명하게 전환된다 — 이 컨텍스트가 그 fork의 실제 id를 갖고 있어야
+        // 이후 recommend/feedback 등이 같은 fork를 계속 가리킨다.
+        Room room = roomAccessService.resolveAccessibleRoom(request.getRoomId());
 
         if (request.getRequiredItems() == null || request.getRequiredItems().isEmpty()) {
             throw new CustomException(ErrorCode.REQUIRED_ITEM_EMPTY);
@@ -68,7 +71,7 @@ public class AgentContextService {
         List<String> styleTags = collectStyleTags(selectedImages, selectedProducts);
 
         AgentContext context = new AgentContext(
-                request.getRoomId(),
+                room.getId(),
                 lifestyleGoal,
                 designStyles,
                 requiredItems,

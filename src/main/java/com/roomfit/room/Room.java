@@ -54,6 +54,16 @@ public class Room {
     // Null for sample rooms and any older upload predating this field.
     @Lob
     private String thumbnailBase64;
+    // 이 방을 소유한 게스트(또는 향후 정식 계정)의 식별자. 특정 인증 방식에
+    // 묶이지 않은 범용 문자열로 둬서, 나중에 정식 계정이 생기면 이 값을
+    // 계정 id로 갈아끼우기만 하면 된다(RoomAccessService 참고). null이면
+    // "소유자 없는 공유 템플릿"(RoomSampleDataInitializer가 심는 시드
+    // 샘플룸) 또는 이 기능 도입 이전의 레거시 업로드.
+    private String ownerId;
+    // 이 방이 어떤 공유 템플릿에서 게스트별로 fork된 것인지 — fork가 아니면
+    // null. RoomAccessService.resolveAccessibleRoom이 같은 게스트의 재요청을
+    // 같은 fork로 계속 이어주기 위한 조회 키로 쓴다.
+    private Long sourceTemplateId;
 
     protected Room() {
         // JPA/JSON 역직렬화용
@@ -68,6 +78,13 @@ public class Room {
     public Room(Long id, String name, double width, double depth, double height, String unit,
                 List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
                 LocalDateTime createdAt, String thumbnailBase64) {
+        this(id, name, width, depth, height, unit, walls, openings, furniture, source,
+                createdAt, thumbnailBase64, null, null);
+    }
+
+    public Room(Long id, String name, double width, double depth, double height, String unit,
+                List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
+                LocalDateTime createdAt, String thumbnailBase64, String ownerId, Long sourceTemplateId) {
         this.id = id;
         this.name = name;
         this.width = width;
@@ -83,6 +100,8 @@ public class Room {
         this.source = source == null ? RoomSource.SAMPLE : source;
         this.createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
         this.thumbnailBase64 = thumbnailBase64;
+        this.ownerId = ownerId;
+        this.sourceTemplateId = sourceTemplateId;
     }
 
     public Long getId() {
@@ -142,5 +161,13 @@ public class Room {
 
     public String getThumbnailBase64() {
         return thumbnailBase64;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
+    }
+
+    public Long getSourceTemplateId() {
+        return sourceTemplateId;
     }
 }

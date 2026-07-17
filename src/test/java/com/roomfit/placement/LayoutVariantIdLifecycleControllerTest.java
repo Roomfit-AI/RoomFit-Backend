@@ -11,6 +11,7 @@ import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 import com.roomfit.room.RoomRepository;
 import com.roomfit.room.RoomSource;
+import com.roomfit.testsupport.DefaultTestGuest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -44,6 +45,8 @@ class LayoutVariantIdLifecycleControllerTest {
     private AgentContextRepository agentContextRepository;
     @Autowired
     private LayoutRepository layoutRepository;
+    @Autowired
+    private DefaultTestGuest defaultTestGuest;
 
     @Test
     void updateFeedbackConfirmAndRoomRead_preserveVariantId() throws Exception {
@@ -91,8 +94,12 @@ class LayoutVariantIdLifecycleControllerTest {
     }
 
     private Layout createLayout(String variantId) {
+        // ownerId를 이 컨텍스트의 기본 테스트 게스트로 명시해야 한다 — 그렇지
+        // 않으면 RoomAccessService.resolveAccessibleRoom이 ROOMPLAN 방인데
+        // 소유자가 없다고 보고 404를 던진다(다른 게스트 소유 취급).
         Room room = roomRepository.save(new Room(null, "Variant lifecycle room", 4.0, 4.0, 2.4,
-                "meter", List.of(), List.of(), List.of(), RoomSource.ROOMPLAN, LocalDateTime.now(), null));
+                "meter", List.of(), List.of(), List.of(), RoomSource.ROOMPLAN, LocalDateTime.now(), null,
+                defaultTestGuest.guestId(), null));
         AgentContext context = agentContextRepository.save(new AgentContext(room.getId(),
                 LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL), List.of("desk"), List.of(),
                 List.of(1L), List.of(), List.of("minimal")));
