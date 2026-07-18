@@ -12,3 +12,9 @@ spring:
 
 server:
   port: ${PORT:10000}
+
+roomfit:
+  client-scope:
+    # Header-less RoomPlan/Web clients stay in the legacy scope while they migrate.
+    enabled: ${ROOMFIT_CLIENT_SCOPE_ENABLED:true}
+    required: ${ROOMFIT_CLIENT_SCOPE_REQUIRED:false}

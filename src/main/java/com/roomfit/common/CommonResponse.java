@@ -17,7 +17,8 @@ public class CommonResponse<T> {
     }
 
     public static <T> CommonResponse<T> fail(ErrorCode errorCode) {
-        return new CommonResponse<>(false, null, new ErrorPayload(errorCode.name(), errorCode.getMessage()));
+        return new CommonResponse<>(false, null,
+                new ErrorPayload(errorCode.name(), errorCode.getMessage(), RequestIdContext.get()));
     }
 
     public boolean isSuccess() {
@@ -35,10 +36,16 @@ public class CommonResponse<T> {
     public static class ErrorPayload {
         private final String code;
         private final String message;
+        private final String requestId;
 
         public ErrorPayload(String code, String message) {
+            this(code, message, null);
+        }
+
+        public ErrorPayload(String code, String message, String requestId) {
             this.code = code;
             this.message = message;
+            this.requestId = requestId;
         }
 
         public String getCode() {
@@ -47,6 +54,10 @@ public class CommonResponse<T> {
 
         public String getMessage() {
             return message;
+        }
+
+        public String getRequestId() {
+            return requestId;
         }
     }
 }

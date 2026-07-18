@@ -26,4 +26,11 @@ public class GlobalExceptionHandler {
                 .status(ErrorCode.INVALID_REQUEST_BODY.getStatus())
                 .body(CommonResponse.fail(ErrorCode.INVALID_REQUEST_BODY));
     }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<CommonResponse<Void>> handleUnexpectedException(Exception e) {
+        return ResponseEntity
+                .status(ErrorCode.INTERNAL_SERVER_ERROR.getStatus())
+                .body(CommonResponse.fail(ErrorCode.INTERNAL_SERVER_ERROR));
+    }
 }

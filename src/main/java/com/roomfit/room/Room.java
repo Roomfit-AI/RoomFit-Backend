@@ -57,6 +57,9 @@ public class Room {
     // Null for sample rooms and any older upload predating this field.
     @Lob
     private String thumbnailBase64;
+    // Null is kept for samples and rows created before anonymous client
+    // isolation was introduced. New client-owned uploads store a UUID scope.
+    private String clientScope;
 
     protected Room() {
         // JPA/JSON 역직렬화용
@@ -71,6 +74,13 @@ public class Room {
     public Room(Long id, String name, double width, double depth, double height, String unit,
                 List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
                 LocalDateTime createdAt, String thumbnailBase64) {
+        this(id, name, width, depth, height, unit, walls, openings, furniture, source, createdAt,
+                thumbnailBase64, null);
+    }
+
+    public Room(Long id, String name, double width, double depth, double height, String unit,
+                List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
+                LocalDateTime createdAt, String thumbnailBase64, String clientScope) {
         this.id = id;
         this.name = name;
         this.width = width;
@@ -86,6 +96,7 @@ public class Room {
         this.source = source == null ? RoomSource.SAMPLE : source;
         this.createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
         this.thumbnailBase64 = thumbnailBase64;
+        this.clientScope = clientScope;
     }
 
     public Long getId() {
@@ -145,5 +156,9 @@ public class Room {
 
     public String getThumbnailBase64() {
         return thumbnailBase64;
+    }
+
+    public String getClientScope() {
+        return clientScope;
     }
 }

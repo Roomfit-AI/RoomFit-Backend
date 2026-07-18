@@ -26,10 +26,14 @@ public enum ErrorCode {
     UNSUPPORTED_FEEDBACK_INTENT(HttpStatus.BAD_REQUEST, "지원하지 않는 피드백입니다."),
     INVALID_REQUEST_BODY(HttpStatus.BAD_REQUEST, "요청 본문이 올바르지 않습니다."),
     ROOM_DELETE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "ROOMPLAN으로 업로드한 방만 삭제할 수 있습니다."),
+    ROOM_COPY_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "샘플 방만 복제할 수 있습니다."),
+    CLIENT_ID_REQUIRED(HttpStatus.BAD_REQUEST, "X-RoomFit-Client-Id 헤더가 필요합니다."),
+    INVALID_CLIENT_ID(HttpStatus.BAD_REQUEST, "X-RoomFit-Client-Id는 UUID 형식이어야 합니다."),
     ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 배치입니다."),
     LAYOUT_NOT_CONFIRMED(HttpStatus.CONFLICT, "확정된 배치만 편집 Draft로 복제할 수 있습니다."),
     FURNITURE_ADDITION_FAILED(HttpStatus.UNPROCESSABLE_ENTITY, "선택한 추가 가구를 안전하게 배치할 수 없습니다."),
-    RECOMMENDATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "배치 추천에 실패했습니다.");
+    RECOMMENDATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "배치 추천에 실패했습니다."),
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 처리 중 오류가 발생했습니다.");
 
     private final HttpStatus status;
     private final String message;

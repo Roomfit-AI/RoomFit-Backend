@@ -67,7 +67,7 @@ class WebConfigTest {
         mockMvc.perform(options("/api/rooms/uploads/recent")
                         .header(HttpHeaders.ORIGIN, DEPLOYED_FRONTEND_ORIGIN)
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
-                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Content-Type,X-RoomFit-Test"))
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Content-Type,X-RoomFit-Test,X-RoomFit-Client-Id"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(
                         HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -86,7 +86,8 @@ class WebConfigTest {
                 ))
                 .andExpect(header().string(
                         HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
-                        allOf(containsString("Content-Type"), containsString("X-RoomFit-Test"))
+                        allOf(containsString("Content-Type"), containsString("X-RoomFit-Test"),
+                                containsString("X-RoomFit-Client-Id"))
                 ))
                 .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
     }

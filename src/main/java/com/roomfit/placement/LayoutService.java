@@ -11,6 +11,7 @@ import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
+import com.roomfit.room.RoomAccessService;
 import com.roomfit.room.RoomRepository;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +30,7 @@ public class LayoutService {
     private final LayoutRepository layoutRepository;
     private final AgentContextRepository agentContextRepository;
     private final RoomRepository roomRepository;
+    private final RoomAccessService roomAccessService;
     private final PlacementService placementService; // 규칙기반/AI기반 구현체를 DI로 교체 가능
     private final ValidationService validationService;
     private final FeedbackPlanInterpreter feedbackPlanInterpreter;
@@ -38,6 +40,7 @@ public class LayoutService {
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
                           RoomRepository roomRepository,
+                          RoomAccessService roomAccessService,
                           PlacementService placementService,
                           ValidationService validationService,
                           FeedbackPlanInterpreter feedbackPlanInterpreter,
@@ -46,6 +49,7 @@ public class LayoutService {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
+        this.roomAccessService = roomAccessService;
         this.placementService = placementService;
         this.validationService = validationService;
         this.feedbackPlanInterpreter = feedbackPlanInterpreter;
@@ -56,8 +60,7 @@ public class LayoutService {
     public LayoutResponse recommend(RecommendRequest request) {
         AgentContext context = agentContextRepository.findById(request.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        Room room = roomRepository.findById(request.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findWritableRoom(request.getRoomId());
 
         if (!room.getId().equals(context.getRoomId())) {
             throw new CustomException(ErrorCode.ROOM_CONTEXT_MISMATCH);
@@ -103,12 +106,13 @@ public class LayoutService {
     }
 
     public LayoutResponse getLayout(Long layoutId) {
-        return snapshotResponse(findLayoutOrThrow(layoutId));
+        Layout layout = findLayoutOrThrow(layoutId);
+        roomAccessService.findReadableRoom(layout.getRoomId());
+        return snapshotResponse(layout);
     }
 
     public LayoutResponse getLatestConfirmedLayout(Long roomId) {
-        roomRepository.findById(roomId)
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        roomAccessService.findReadableRoom(roomId);
         Layout layout = layoutRepository.findFirstByRoomIdAndConfirmedTrueOrderByConfirmedAtDesc(roomId)
                 .orElseThrow(() -> new CustomException(ErrorCode.LAYOUT_NOT_FOUND));
         return snapshotResponse(layout);
@@ -116,12 +120,12 @@ public class LayoutService {
 
     public LayoutResponse createDraft(Long sourceLayoutId) {
         Layout source = findLayoutOrThrow(sourceLayoutId);
+        roomAccessService.findWritableRoom(source.getRoomId());
         if (!source.isConfirmed()) {
             throw new CustomException(ErrorCode.LAYOUT_NOT_CONFIRMED);
         }
 
-        Room room = roomRepository.findById(source.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findWritableRoom(source.getRoomId());
         List<Furniture> furniture = deepCopyFurniture(source.getFurniture());
         ValidationResult validationResult = validationService.validate(room, furniture);
         if (!validationResult.isBoundaryValid()) {
@@ -138,8 +142,7 @@ public class LayoutService {
 
     public ValidationResult validateOnly(ValidateRequest request) {
         Layout layout = findLayoutOrThrow(request.getLayoutId());
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findReadableRoom(layout.getRoomId());
 
         List<Furniture> mergedFurniture = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         return validationService.validate(room, mergedFurniture);
@@ -147,11 +150,11 @@ public class LayoutService {
 
     public LayoutResponse updateLayout(Long layoutId, LayoutUpdateRequest request) {
         Layout layout = findLayoutOrThrow(layoutId);
+        roomAccessService.findWritableRoom(layout.getRoomId());
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findWritableRoom(layout.getRoomId());
         AgentContext context = agentContextRepository.findById(layout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
 
@@ -166,6 +169,7 @@ public class LayoutService {
 
     public LayoutResponse addFurniture(Long layoutId, DraftFurnitureAdditionRequest request) {
         Layout layout = findLayoutOrThrow(layoutId);
+        roomAccessService.findWritableRoom(layout.getRoomId());
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
@@ -173,8 +177,7 @@ public class LayoutService {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
 
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findWritableRoom(layout.getRoomId());
         AgentContext context = agentContextRepository.findById(request.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
         if (!room.getId().equals(context.getRoomId())) {
@@ -237,11 +240,11 @@ public class LayoutService {
 
     public ConfirmResponse confirmLayout(Long layoutId) {
         Layout layout = findLayoutOrThrow(layoutId);
+        roomAccessService.findWritableRoom(layout.getRoomId());
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findWritableRoom(layout.getRoomId());
         if (!validationService.validate(room, layout.getFurniture()).isBoundaryValid()) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
@@ -260,10 +263,10 @@ public class LayoutService {
 
     public FeedbackResponse feedback(FeedbackRequest request) {
         Layout baseLayout = findLayoutOrThrow(request.getLayoutId());
+        roomAccessService.findWritableRoom(baseLayout.getRoomId());
         AgentContext context = agentContextRepository.findById(baseLayout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        Room room = roomRepository.findById(baseLayout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findWritableRoom(baseLayout.getRoomId());
 
         FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context);
         FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
@@ -483,8 +486,7 @@ public class LayoutService {
     }
 
     private LayoutResponse snapshotResponse(Layout layout) {
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Room room = roomAccessService.findReadableRoom(layout.getRoomId());
         AgentContext context = agentContextRepository.findById(layout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
         ValidationResult validationResult = validationService.validate(room, layout.getFurniture());

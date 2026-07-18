@@ -2,6 +2,7 @@ package com.roomfit.room;
 
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import com.roomfit.client.ClientScope;
 import com.roomfit.room.dto.FurnitureUpdateRequest;
 import com.roomfit.room.dto.RoomResponse;
 import com.roomfit.room.dto.RoomUploadRequest;
@@ -18,13 +19,15 @@ import java.util.stream.Collectors;
 public class RoomService {
 
     private final RoomRepository roomRepository;
+    private final RoomAccessService roomAccessService;
 
-    public RoomService(RoomRepository roomRepository) {
+    public RoomService(RoomRepository roomRepository, RoomAccessService roomAccessService) {
         this.roomRepository = roomRepository;
+        this.roomAccessService = roomAccessService;
     }
 
     public RoomResponse getRoom(Long roomId) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.findReadableRoom(roomId);
         return RoomResponse.from(room);
     }
 
@@ -39,13 +42,20 @@ public class RoomService {
         if (normalizedLimit == 0) {
             return List.of();
         }
-        return roomRepository.findBySourceOrderByCreatedAtDescIdDesc(RoomSource.ROOMPLAN, PageRequest.of(0, normalizedLimit)).stream()
+        ClientScope scope = roomAccessService.currentScope();
+        if (!scope.enabled()) {
+            return roomRepository.findBySourceOrderByCreatedAtDescIdDesc(RoomSource.ROOMPLAN, PageRequest.of(0, normalizedLimit)).stream()
+                    .map(RoomResponse::from)
+                    .toList();
+        }
+        return roomRepository.findAccessibleBySourceOrderByCreatedAtDescIdDesc(
+                        RoomSource.ROOMPLAN, scope.id(), scope.legacy(), PageRequest.of(0, normalizedLimit)).stream()
                 .map(RoomResponse::from)
                 .toList();
     }
 
     public void deleteUploadedRoom(Long roomId) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.findWritableRoom(roomId);
         if (room.getSource() != RoomSource.ROOMPLAN) {
             throw new CustomException(ErrorCode.ROOM_DELETE_NOT_ALLOWED);
         }
@@ -68,9 +78,10 @@ public class RoomService {
                 .map(this::toFurniture)
                 .toList();
 
+        ClientScope scope = roomAccessService.currentScope();
         Room room = new Room(null, name, roomData.getWidth(), roomData.getDepth(), roomData.getHeight(),
                 unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now(),
-                request.getThumbnailBase64());
+                request.getThumbnailBase64(), scope.enabled() ? scope.id() : null);
         validateFurnitureWithinRoom(room);
 
         return RoomResponse.from(roomRepository.save(room));
@@ -81,7 +92,7 @@ public class RoomService {
     // 다루므로(그 문서에 명시된 경계를 지키기 위해) 별도 엔드포인트로 추가함 —
     // uploadRoom과 동일한 검증(toFurniture, validateFurnitureWithinRoom)을 재사용.
     public RoomResponse replaceFurniture(Long roomId, List<RoomUploadRequest.FurnitureData> furnitureData) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.findWritableRoom(roomId);
         List<Furniture> furniture = nullToEmpty(furnitureData).stream()
                 .map(this::toFurniture)
                 .toList();
@@ -93,7 +104,7 @@ public class RoomService {
     }
 
     public RoomResponse updateFurnitureStatus(Long roomId, FurnitureUpdateRequest request) {
-        Room room = findRoomOrThrow(roomId);
+        Room room = roomAccessService.findWritableRoom(roomId);
         validateFurnitureIds(room, request);
 
         Map<String, String> statusById = request.getFurnitureUpdates().stream()
@@ -111,9 +122,24 @@ public class RoomService {
         return RoomResponse.from(room);
     }
 
-    private Room findRoomOrThrow(Long roomId) {
-        return roomRepository.findById(roomId)
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+    public RoomResponse copySampleRoom(Long roomId) {
+        Room sample = roomAccessService.findReadableRoom(roomId);
+        if (sample.getSource() != RoomSource.SAMPLE) {
+            throw new CustomException(ErrorCode.ROOM_COPY_NOT_ALLOWED);
+        }
+        ClientScope scope = roomAccessService.currentScope();
+        Room copy = new Room(null, sample.getName() + " 복사본", sample.getWidth(), sample.getDepth(),
+                sample.getHeight(), sample.getUnit(), sample.getWalls(), sample.getOpenings(),
+                copyFurniture(sample.getFurniture()),
+                RoomSource.ROOMPLAN, LocalDateTime.now(), null, scope.enabled() ? scope.id() : null);
+        return RoomResponse.from(roomRepository.save(copy));
+    }
+
+    private List<Furniture> copyFurniture(List<Furniture> source) {
+        return source.stream().map(item -> new Furniture(item.getId(), item.getType(), item.getLabel(),
+                item.getWidth(), item.getDepth(), item.getHeight(),
+                new Position(item.getPosition().getX(), item.getPosition().getZ()), item.getRotation(),
+                item.getStatus(), item.getProductId(), item.getStyleTags(), item.getVariantId())).toList();
     }
 
     private void validateUploadRequest(RoomUploadRequest request) {

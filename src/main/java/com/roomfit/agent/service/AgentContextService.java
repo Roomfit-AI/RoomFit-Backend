@@ -12,7 +12,7 @@ import com.roomfit.common.ErrorCode;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.service.MockProductService;
-import com.roomfit.room.RoomRepository;
+import com.roomfit.room.RoomAccessService;
 import com.roomfit.style.domain.StyleImage;
 import com.roomfit.style.repository.StyleImageRepository;
 import org.springframework.stereotype.Service;
@@ -27,23 +27,22 @@ import java.util.stream.Collectors;
 public class AgentContextService {
 
     private final AgentContextRepository agentContextRepository;
-    private final RoomRepository roomRepository;
+    private final RoomAccessService roomAccessService;
     private final StyleImageRepository styleImageRepository;
     private final MockProductService mockProductService;
 
     public AgentContextService(AgentContextRepository agentContextRepository,
-                               RoomRepository roomRepository,
+                               RoomAccessService roomAccessService,
                                StyleImageRepository styleImageRepository,
                                MockProductService mockProductService) {
         this.agentContextRepository = agentContextRepository;
-        this.roomRepository = roomRepository;
+        this.roomAccessService = roomAccessService;
         this.styleImageRepository = styleImageRepository;
         this.mockProductService = mockProductService;
     }
 
     public AgentContextResponse createContext(AgentContextRequest request) {
-        roomRepository.findById(request.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        roomAccessService.findWritableRoom(request.getRoomId());
 
         if (request.getRequiredItems() == null || request.getRequiredItems().isEmpty()) {
             throw new CustomException(ErrorCode.REQUIRED_ITEM_EMPTY);

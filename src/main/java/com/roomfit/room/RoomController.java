@@ -111,6 +111,13 @@ public class RoomController {
         return CommonResponse.ok(roomService.uploadRoom(request));
     }
 
+    @PostMapping("/{roomId}/copy")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "샘플 방 복제", description = "공개 샘플 Room을 현재 익명 client가 수정 가능한 독립 Room으로 복제합니다.")
+    public CommonResponse<RoomResponse> copySampleRoom(@PathVariable Long roomId) {
+        return CommonResponse.ok(roomService.copySampleRoom(roomId));
+    }
+
     @PutMapping("/{roomId}/layout")
     @Operation(summary = "가구 배치 전체 반영 (manage-furniture 단계)", description = "아직 AI 추천(Layout)을 생성하기 전 단계에서, 가구 추가/이동/삭제/회전을 전체 배열 교체 방식으로 Room에 반영합니다. 이 방의 최종 가구 목록 전체를 보내야 하며(RoomUploadRequest.furniture와 동일한 shape), 위치/회전 변경 및 신규 가구 추가를 모두 포함할 수 있습니다. 이미 AI 추천을 생성해 Layout이 있는 단계의 편집은 이 API가 아니라 PUT /api/layouts/{layoutId}를 사용해야 합니다.")
     @ApiResponses({

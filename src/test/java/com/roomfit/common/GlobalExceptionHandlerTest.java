@@ -8,6 +8,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -32,7 +34,9 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"))
+                .andExpect(jsonPath("$.error.requestId", notNullValue()))
+                .andExpect(header().exists("X-Request-Id"));
     }
 
     @Test
@@ -41,6 +45,7 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
-                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"));
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST_BODY"))
+                .andExpect(jsonPath("$.error.requestId", notNullValue()));
     }
 }
