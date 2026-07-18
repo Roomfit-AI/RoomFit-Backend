@@ -47,7 +47,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             }
         } catch (AmbiguousRuleTargetException e) {
             return new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION, List.of(), List.of(),
-                    new FeedbackClarification(e.getMessage()), normalized,
+                    new FeedbackClarification(e.getMessage(), e.targetFurnitureType()), normalized,
                     FeedbackSource.RULE_BASED, true);
         }
         throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
@@ -70,7 +70,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             throw new CustomException(ErrorCode.FURNITURE_NOT_FOUND);
         }
         if (desks.size() > 1) {
-            throw new AmbiguousRuleTargetException("어떤 책상을 변경할지 알려주세요.");
+            throw new AmbiguousRuleTargetException("어떤 책상을 변경할지 알려주세요.", "desk");
         }
 
         FeedbackTargetSelector target = new FeedbackTargetSelector(desks.getFirst().getId(), "desk", "");
@@ -257,7 +257,18 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
 
     private static final class AmbiguousRuleTargetException extends RuntimeException {
         private AmbiguousRuleTargetException(String question) {
+            this(question, "");
+        }
+
+        private AmbiguousRuleTargetException(String question, String targetFurnitureType) {
             super(question);
+            this.targetFurnitureType = targetFurnitureType;
+        }
+
+        private final String targetFurnitureType;
+
+        private String targetFurnitureType() {
+            return targetFurnitureType;
         }
     }
 }

@@ -636,6 +636,20 @@ Response
   "data": {
     "layoutId": 2,
     "status": "SUCCESS",
+    "feedbackStatus": "SUCCESS",
+    "operationResults": [
+      {
+        "operationId": "op-1",
+        "operationType": "REPLACE_PRODUCT",
+        "status": "APPLIED",
+        "reasonCode": null,
+        "message": "가구 제품을 교체했습니다.",
+        "targetFurnitureId": "desk-1",
+        "resultFurnitureId": "desk-1",
+        "productId": "desk-storage-01",
+        "variantId": "desk-storage"
+      }
+    ],
     "recommendedFurniture": [
       {
         "id": "desk-rec-1",
@@ -685,6 +699,13 @@ Response
 - 404 LAYOUT_NOT_FOUND: layoutId가 존재하지 않습니다.
 - 404 CONTEXT_NOT_FOUND: layout에 연결된 contextId가 존재하지 않습니다.
 - 404 ROOM_NOT_FOUND: layout에 연결된 roomId가 존재하지 않습니다.
+
+Feedback 실행 결과
+
+- `feedbackStatus`는 기존 `status`와 별개인 전체 실행 결과입니다. `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `NEEDS_CLARIFICATION` 중 하나입니다.
+- `operationResults`는 Plan 순서대로 반환됩니다. 의존 작업이 적용되지 않으면 하위 작업은 `SKIPPED_DEPENDENCY`와 `DEPENDENCY_NOT_APPLIED`를 반환합니다.
+- 하나 이상의 작업만 성공한 경우 성공한 변경만 새 snapshot에 저장되고 `feedbackStatus`는 `PARTIAL_SUCCESS`입니다. 모두 실패하거나 재질문이 필요하면 입력 `layoutId`를 그대로 반환합니다.
+- 모호한 대상은 `clarification`(그리고 복수인 경우 `clarifications`)에 후보 최대 10개와 `requiredField`를 반환합니다. 클라이언트는 첫 후보를 임의 선택하지 않아야 합니다.
 
 12. 최종 배치 확정
 POST /api/layouts/{layoutId}/confirm

@@ -16,8 +16,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -258,7 +260,174 @@ public class LayoutService {
         ValidationResult validationResult = validationService.validate(room, execution.furniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         return FeedbackResponse.of(responseLayout, RecommendationStatus.SUCCESS,
-                scoreSummary, validationResult, interpretedPlan(plan), execution.result());
+                scoreSummary, validationResult, interpretedPlan(plan), execution.result(),
+                feedbackStatus(plan, execution), operationResults(plan, execution, baseLayout.getFurniture()),
+                clarifications(plan, execution, baseLayout.getFurniture()));
+    }
+
+    private FeedbackStatus feedbackStatus(FeedbackPlan plan, FeedbackExecution execution) {
+        long applied = execution.operationResults().stream()
+                .filter(result -> result.status() == FeedbackOperationExecution.Status.APPLIED)
+                .count();
+        if (applied == plan.operations().size() && !plan.operations().isEmpty()) {
+            return FeedbackStatus.SUCCESS;
+        }
+        if (applied > 0) {
+            return FeedbackStatus.PARTIAL_SUCCESS;
+        }
+        if (plan.needsClarification() || execution.operationResults().stream()
+                .anyMatch(result -> needsClarification(result.reasonCode()))) {
+            return FeedbackStatus.NEEDS_CLARIFICATION;
+        }
+        return FeedbackStatus.FAILED;
+    }
+
+    /**
+     * The executor exposes compact internal execution data. Convert it here so
+     * the HTTP response remains additive and is ordered exactly as the Plan.
+     */
+    private List<FeedbackOperationResult> operationResults(FeedbackPlan plan, FeedbackExecution execution,
+                                                            List<Furniture> originalFurniture) {
+        Map<String, FeedbackOperationExecution> executions = execution.operationResults().stream()
+                .collect(Collectors.toMap(FeedbackOperationExecution::operationId, result -> result,
+                        (first, ignored) -> first, LinkedHashMap::new));
+        return plan.operations().stream().map(operation -> {
+            FeedbackOperationExecution executionResult = executions.get(operation.operationId());
+            if (executionResult == null) {
+                return new FeedbackOperationResult(operation.operationId(), operation.type(),
+                        FeedbackOperationResult.Status.FAILED, "INVALID_OPERATION",
+                        operationMessage(operation.type(), FeedbackOperationResult.Status.FAILED, "INVALID_OPERATION"),
+                        targetFurnitureId(operation, null), null, null, null);
+            }
+            FeedbackOperationResult.Status status = publicOperationStatus(executionResult);
+            String affectedId = executionResult.affectedFurnitureId();
+            Furniture resultFurniture = findFurniture(execution.furniture(), affectedId).orElse(null);
+            if (resultFurniture == null && status == FeedbackOperationResult.Status.APPLIED
+                    && operation.type() == FeedbackOperationType.REMOVE_FURNITURE) {
+                resultFurniture = findFurniture(originalFurniture, affectedId).orElse(null);
+            }
+            String targetId = targetFurnitureId(operation, affectedId);
+            return new FeedbackOperationResult(operation.operationId(), operation.type(), status,
+                    executionResult.reasonCode(),
+                    operationMessage(operation.type(), status, executionResult.reasonCode()),
+                    targetId, affectedId,
+                    resultFurniture == null ? null : resultFurniture.getProductId(),
+                    resultFurniture == null ? null : resultFurniture.getVariantId());
+        }).toList();
+    }
+
+    private List<FeedbackClarificationResponse> clarifications(FeedbackPlan plan, FeedbackExecution execution,
+                                                                 List<Furniture> originalFurniture) {
+        List<FeedbackClarificationResponse> result = new ArrayList<>();
+        if (plan.needsClarification()) {
+            FeedbackClarification clarification = plan.clarification();
+            String type = clarification == null ? "" : clarification.targetFurnitureType();
+            List<FeedbackClarificationResponse.Candidate> candidates = clarificationCandidates(type, "", originalFurniture);
+            result.add(new FeedbackClarificationResponse(candidates.size() > 1 ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
+                    clarificationQuestion(type, false), null, "targetFurnitureId",
+                    candidates));
+        }
+        Map<String, FeedbackOperation> operations = plan.operations().stream()
+                .collect(Collectors.toMap(FeedbackOperation::operationId, operation -> operation,
+                        (first, ignored) -> first, LinkedHashMap::new));
+        for (FeedbackOperationExecution executionResult : execution.operationResults()) {
+            if (!needsClarification(executionResult.reasonCode())) continue;
+            FeedbackOperation operation = operations.get(executionResult.operationId());
+            if (operation == null) continue;
+            boolean reference = executionResult.reasonCode().contains("REFERENCE");
+            FeedbackTargetSelector target = reference ? operation.referenceTarget() : operation.target();
+            String type = target == null ? "" : target.furnitureType();
+            String keyword = target == null ? "" : target.labelKeyword();
+            result.add(new FeedbackClarificationResponse(executionResult.reasonCode(),
+                    clarificationQuestion(type, reference), operation.operationId(),
+                    reference ? "referenceTargetFurnitureId" : "targetFurnitureId",
+                    clarificationCandidates(type, keyword, originalFurniture)));
+        }
+        return List.copyOf(result);
+    }
+
+    private FeedbackOperationResult.Status publicOperationStatus(FeedbackOperationExecution result) {
+        if (result.status() == FeedbackOperationExecution.Status.APPLIED) {
+            return FeedbackOperationResult.Status.APPLIED;
+        }
+        if (result.status() == FeedbackOperationExecution.Status.SKIPPED) {
+            return FeedbackOperationResult.Status.SKIPPED_DEPENDENCY;
+        }
+        return needsClarification(result.reasonCode())
+                ? FeedbackOperationResult.Status.NEEDS_CLARIFICATION
+                : FeedbackOperationResult.Status.FAILED;
+    }
+
+    private boolean needsClarification(String reasonCode) {
+        if (reasonCode == null) return false;
+        return Set.of("NEEDS_CLARIFICATION", "AMBIGUOUS_TARGET", "AMBIGUOUS_REFERENCE_TARGET",
+                        "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT")
+                .contains(reasonCode);
+    }
+
+    private String targetFurnitureId(FeedbackOperation operation, String affectedId) {
+        if (operation.target() != null && !operation.target().furnitureId().isBlank()) {
+            return operation.target().furnitureId();
+        }
+        return operation.type() == FeedbackOperationType.ADD_FURNITURE ? null : affectedId;
+    }
+
+    private Optional<Furniture> findFurniture(List<Furniture> furniture, String furnitureId) {
+        if (furnitureId == null) return Optional.empty();
+        return furniture.stream().filter(item -> furnitureId.equals(item.getId())).findFirst();
+    }
+
+    private List<FeedbackClarificationResponse.Candidate> clarificationCandidates(String type, String labelKeyword,
+                                                                                    List<Furniture> furniture) {
+        if (type == null || type.isBlank()) return List.of();
+        String normalizedKeyword = labelKeyword == null ? "" : labelKeyword.toLowerCase(java.util.Locale.ROOT);
+        return furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> GeneratedFurnitureCatalog.get().sameType(type, item.getType()))
+                .filter(item -> normalizedKeyword.isBlank() || (item.getLabel() != null
+                        && item.getLabel().toLowerCase(java.util.Locale.ROOT).contains(normalizedKeyword)))
+                .sorted(Comparator.comparingDouble((Furniture item) -> item.getPosition().getX())
+                        .thenComparingDouble(item -> item.getPosition().getZ())
+                        .thenComparing(Furniture::getId))
+                .limit(10)
+                .map(item -> new FeedbackClarificationResponse.Candidate(item.getId(), item.getType(), item.getLabel()))
+                .toList();
+    }
+
+    private String clarificationQuestion(String type, boolean reference) {
+        String subject = type == null || type.isBlank() ? "가구" : type + " 가구";
+        return reference ? subject + " 중 기준으로 사용할 가구를 선택해주세요."
+                : subject + " 중 변경할 가구를 선택해주세요.";
+    }
+
+    private String operationMessage(FeedbackOperationType type, FeedbackOperationResult.Status status,
+                                    String reasonCode) {
+        if (status == FeedbackOperationResult.Status.APPLIED) {
+            return switch (type) {
+                case MOVE -> "가구 위치를 이동했습니다.";
+                case ROTATE -> "가구 방향을 회전했습니다.";
+                case REPLACE_PRODUCT -> "가구 제품을 교체했습니다.";
+                case ADD_FURNITURE -> "가구를 추가했습니다.";
+                case REMOVE_FURNITURE -> "가구를 제거했습니다.";
+                case SWAP_FURNITURE -> "가구 종류를 교체했습니다.";
+                default -> "작업을 적용했습니다.";
+            };
+        }
+        return switch (reasonCode == null ? "" : reasonCode) {
+            case "DEPENDENCY_NOT_APPLIED" -> "선행 작업이 적용되지 않아 실행하지 않았습니다.";
+            case "AMBIGUOUS_TARGET" -> "변경할 가구를 하나로 특정할 수 없습니다.";
+            case "AMBIGUOUS_REFERENCE_TARGET" -> "기준 가구를 하나로 특정할 수 없습니다.";
+            case "TARGET_NOT_FOUND" -> "요청한 가구를 찾을 수 없습니다.";
+            case "REFERENCE_TARGET_NOT_FOUND" -> "기준 가구를 찾을 수 없습니다.";
+            case "NO_RENDERABLE_PRODUCT" -> "렌더링 가능한 제품을 찾을 수 없습니다.";
+            case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
+            case "NO_VALID_SWAP_PLACEMENT" -> "교체 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
+            case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구를 방 경계 안에 배치할 수 없습니다.";
+            case "ROTATION_OUT_OF_BOUNDS" -> "회전하면 가구가 방 경계를 벗어납니다.";
+            case "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT" ->
+                    "현재 방 정보로 위치 표현을 안전하게 판별할 수 없습니다.";
+            default -> "작업을 안전하게 적용할 수 없습니다.";
+        };
     }
 
     private Map<String, Object> interpretedPlan(FeedbackPlan plan) {

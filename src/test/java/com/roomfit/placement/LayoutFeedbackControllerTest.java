@@ -1,6 +1,9 @@
 package com.roomfit.placement;
 
 import com.jayway.jsonpath.JsonPath;
+import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
+import com.roomfit.room.Position;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -20,6 +23,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -27,6 +33,8 @@ class LayoutFeedbackControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private LayoutRepository layoutRepository;
 
     @Test
     void feedback_withLargerDesk_returnsReRecommendedLayout() throws Exception {
@@ -45,6 +53,14 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data.layoutId", notNullValue()))
                 .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(1)))
+                .andExpect(jsonPath("$.data.operationResults[0].operationId").value("op-1"))
+                .andExpect(jsonPath("$.data.operationResults[0].operationType").value("REPLACE_PRODUCT"))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("APPLIED"))
+                .andExpect(jsonPath("$.data.operationResults[0].resultFurnitureId", notNullValue()))
+                .andExpect(jsonPath("$.data.operationResults[0].productId", notNullValue()))
+                .andExpect(jsonPath("$.data.operationResults[0].variantId", notNullValue()))
                 .andExpect(jsonPath("$.data.recommendedFurniture", notNullValue()))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')]").value(hasSize(1)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')].width")
@@ -193,6 +209,35 @@ class LayoutFeedbackControllerTest {
                         .value(hasItems("lamp-floor")))
                 .andExpect(jsonPath("$.data.interpretedIntent.operations").value(hasItems("ADD_FURNITURE")))
                 .andExpect(jsonPath("$.data.feedbackResult.applied").value(true));
+    }
+
+    @Test
+    void feedback_withAmbiguousTarget_returnsStructuredClarificationWithoutSnapshot() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        List<Furniture> furniture = new ArrayList<>(layout.getFurniture());
+        furniture.add(new Furniture("desk-second", "desk", "보조 책상", 1.0, 0.6, 0.73,
+                new Position(3.5, 3.5), 0, FurnitureStatus.RECOMMENDED));
+        layout.setFurniture(furniture);
+        layoutRepository.save(layout);
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "책상 더 크게"
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(layoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("NEEDS_CLARIFICATION"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(0)))
+                .andExpect(jsonPath("$.data.clarification.reasonCode").value("AMBIGUOUS_TARGET"))
+                .andExpect(jsonPath("$.data.clarification.requiredField").value("targetFurnitureId"))
+                .andExpect(jsonPath("$.data.clarification.candidates", hasSize(2)))
+                .andExpect(jsonPath("$.data.clarification.candidates[0].furnitureId").value("desk-1"))
+                .andExpect(jsonPath("$.data.clarification.candidates[1].furnitureId").value("desk-second"));
     }
 
     private Long createLayout() throws Exception {
