@@ -17,14 +17,19 @@ import java.util.Map;
 
 public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
-    private static final double MAX_DISTANCE_METERS = 2.0;
-
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
+    private final FeedbackPlanValidator planValidator;
 
     public LlmFeedbackPlanInterpreter(LlmClient llmClient, ObjectMapper objectMapper) {
+        this(llmClient, objectMapper, new FeedbackPlanValidator());
+    }
+
+    LlmFeedbackPlanInterpreter(LlmClient llmClient, ObjectMapper objectMapper,
+                               FeedbackPlanValidator planValidator) {
         this.llmClient = llmClient;
         this.objectMapper = objectMapper;
+        this.planValidator = planValidator;
     }
 
     @Override
@@ -42,67 +47,87 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
         try {
             JsonNode root = parseObject(rawResponse);
-            if (!"1.0".equals(text(root, "version"))) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
-            }
-
-            JsonNode target = root.path("target");
-            String furnitureId = text(target, "furnitureId");
-            String furnitureType = text(target, "furnitureType");
-            List<FeedbackOperation> operations = parseOperations(root.path("operations"), furnitureType, feedback);
-            return new FeedbackPlan("1.0", furnitureId, furnitureType, operations,
-                    text(root, "reason"), FeedbackSource.LLM, false);
+            planValidator.validateProviderResponse(root);
+            FeedbackPlan plan = new FeedbackPlan(
+                    text(root, "version"),
+                    enumValue(FeedbackRequestKind.class, text(root, "requestKind")),
+                    parseOperations(root.path("operations"), feedback),
+                    stringList(root.path("goals")),
+                    parseClarification(root.path("clarification")),
+                    text(root, "reason"),
+                    FeedbackSource.LLM,
+                    false
+            );
+            planValidator.validate(plan);
+            return plan;
         } catch (CustomException e) {
-            // A syntactically malformed or schema-invalid provider response is a provider failure,
-            // not a reason to execute an invented layout change.
+            // Invalid provider output is a provider failure. The caller may safely use the
+            // existing rule-based interpreter without making a second LLM request.
             throw new LlmProviderException(e);
         }
     }
 
-    private List<FeedbackOperation> parseOperations(JsonNode node, String targetFurnitureType, String feedback) {
+    private List<FeedbackOperation> parseOperations(JsonNode node, String feedback) {
         if (!node.isArray()) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
         List<FeedbackOperation> operations = new ArrayList<>();
         for (JsonNode item : node) {
-            String rawType = text(item, "type");
-            if (!isMvpOperation(rawType)) {
-                // Keep the response as an explicit no-op/unsupported result.  It must not be
-                // converted into a rule-based operation.
-                return List.of();
-            }
-            FeedbackOperationType type = enumValue(FeedbackOperationType.class, rawType);
-            FeedbackDirection direction = optionalEnum(FeedbackDirection.class, text(item, "direction"));
-            Double distance = optionalNumber(item, "distanceMeters");
-            Integer rotation = optionalInteger(item, "rotationDegrees");
-            FeedbackReplaceConstraints constraints = parseConstraints(
-                    item.path("constraints"), targetFurnitureType, feedback);
-
-            if (type == FeedbackOperationType.MOVE && (direction == null || distance == null
-                    || distance <= 0 || distance > MAX_DISTANCE_METERS)) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
-            }
-            if (type == FeedbackOperationType.ROTATE && (rotation == null || rotation == 0 || Math.abs(rotation) > 360)) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
-            }
-            if (type == FeedbackOperationType.REPLACE_PRODUCT
-                    && (constraints == null || !hasSelectionConstraint(constraints))) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
-            }
-            operations.add(new FeedbackOperation(type, direction, distance, rotation, constraints));
+            FeedbackOperationType type = enumValue(FeedbackOperationType.class, text(item, "type"));
+            FeedbackTargetSelector target = parseTarget(item.path("target"));
+            operations.add(new FeedbackOperation(
+                    text(item, "operationId"),
+                    type,
+                    target,
+                    parsePlacement(item.path("placement")),
+                    parseConstraints(item.path("constraints"), target.furnitureType(), feedback),
+                    stringList(item.path("dependsOn"))
+            ));
         }
         return operations;
     }
 
-    private boolean isMvpOperation(String rawType) {
-        return FeedbackOperationType.MOVE.name().equals(rawType)
-                || FeedbackOperationType.ROTATE.name().equals(rawType)
-                || FeedbackOperationType.REPLACE_PRODUCT.name().equals(rawType);
+    private FeedbackTargetSelector parseTarget(JsonNode node) {
+        if (!node.isObject()) {
+            return new FeedbackTargetSelector("", "", "");
+        }
+        return new FeedbackTargetSelector(
+                text(node, "furnitureId"),
+                text(node, "furnitureType"),
+                text(node, "labelKeyword")
+        );
+    }
+
+    private FeedbackPlacement parsePlacement(JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (!node.isObject()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        return new FeedbackPlacement(
+                optionalEnum(FeedbackRelation.class, text(node, "relation")),
+                optionalEnum(FeedbackMagnitude.class, text(node, "magnitude")),
+                optionalEnum(FeedbackOrientation.class, text(node, "orientation"))
+        );
+    }
+
+    private FeedbackClarification parseClarification(JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (!node.isObject()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        return new FeedbackClarification(text(node, "question"));
     }
 
     private FeedbackReplaceConstraints parseConstraints(JsonNode node, String targetFurnitureType, String feedback) {
         if (node.isMissingNode() || node.isNull()) {
             return null;
+        }
+        if (!node.isObject()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
         String furnitureType = text(node, "furnitureType");
         if (furnitureType.isBlank()) {
@@ -130,15 +155,6 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 largerThanCurrent, minWidth,
                 stringList(node.path("requiredStyleTags")), stringList(node.path("requiredLifestyleTags")),
                 storagePreferred);
-    }
-
-    private boolean hasSelectionConstraint(FeedbackReplaceConstraints constraints) {
-        return !constraints.furnitureType().isBlank()
-                && (constraints.largerThanCurrent()
-                || constraints.minWidth() != null
-                || !constraints.requiredStyleTags().isEmpty()
-                || !constraints.requiredLifestyleTags().isEmpty()
-                || constraints.storagePreferred());
     }
 
     private boolean isStorageRequest(String feedback) {
@@ -180,17 +196,25 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         );
         try {
             return """
-                    Interpret room layout feedback into JSON only. Do not produce coordinates or product IDs.
-                    Return exactly: {"version":"1.0","target":{"furnitureId":"...","furnitureType":"..."},"operations":[...],"reason":"..."}.
-                    Allowed operation types: MOVE, ROTATE, REPLACE_PRODUCT, ADD_FURNITURE, REMOVE_FURNITURE.
-                    MOVE needs direction (LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW, AWAY_FROM_DOOR, CENTER) and distanceMeters in (0,2].
-                    ROTATE needs rotationDegrees in [-360,360], excluding 0.
-                    REPLACE_PRODUCT needs a constraints object with exactly these fields when relevant:
-                    {"furnitureType":"desk","largerThanCurrent":false,"minWidth":null,"requiredStyleTags":[],"requiredLifestyleTags":[],"storagePreferred":true}.
-                    For a storage request, set storagePreferred=true and do not set largerThanCurrent or minWidth unless the user also explicitly asks for a larger item.
-                    For a wider/larger request, set largerThanCurrent=true and storagePreferred=false unless storage is also explicitly requested.
-                    Never include productId or variantId. Product selection and placement are deterministic server responsibilities.
-                    If no furniture can be identified, return target with empty furnitureId and an empty operations array only when clarification is required.
+                    Interpret Korean room-layout feedback into Plan v2 JSON only.
+                    The only executable operation types are MOVE, ROTATE, and REPLACE_PRODUCT.
+                    Use requestKind DIRECT for exactly one operation, COMPOSITE for two to four operations,
+                    or CLARIFICATION with no operations when the target or request is ambiguous.
+                    Each operation must have a unique operationId, a target selector, and dependsOn containing only earlier operationIds.
+                    Target fields are furnitureId, furnitureType, and labelKeyword. Use only the fields needed to identify one item.
+                    MOVE uses placement.relation from LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW,
+                    AWAY_FROM_DOOR, CENTER and placement.magnitude from SMALL, MEDIUM, LARGE.
+                    ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
+                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
+                    requiredStyleTags, requiredLifestyleTags, and storagePreferred.
+                    Never output x, z, coordinates, position, distanceMeters, rotation, rotationDegrees, score,
+                    validationResult, weight, objectiveWeight, productId, or variantId.
+                    Do not output ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE, CHANGE_MATERIAL,
+                    CHANGE_COLOR_TONE, ABSTRACT goals, coordinates, angles, scores, or validation decisions.
+                    Return exactly this shape and no markdown or explanation:
+                    {"version":"2.0","requestKind":"DIRECT","operations":[{"operationId":"op-1","type":"MOVE","target":{"furnitureId":"desk-1","furnitureType":"desk","labelKeyword":""},"placement":{"relation":"RIGHT","magnitude":"MEDIUM"},"constraints":null,"dependsOn":[]}],"goals":[],"clarification":null,"reason":"..."}
+                    For CLARIFICATION, return operations=[], goals=[], and clarification={"question":"..."}.
+                    Existing room coordinates in the input are context only and must never be copied to the output.
                     Input:
                     %s
                     """.formatted(objectMapper.writeValueAsString(payload));
@@ -219,23 +243,29 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return node.path(field).isNumber() ? node.path(field).asDouble() : null;
     }
 
-    private Integer optionalInteger(JsonNode node, String field) {
-        return node.path(field).canConvertToInt() ? node.path(field).asInt() : null;
-    }
-
     private List<String> stringList(JsonNode node) {
-        if (!node.isArray() || node.isEmpty()) return List.of();
+        if (node.isMissingNode() || node.isNull()) {
+            return List.of();
+        }
+        if (!node.isArray()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
         List<String> values = new ArrayList<>();
         for (JsonNode item : node) {
-            if (!item.isTextual() || item.asText().isBlank()) throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
-            values.add(item.asText());
+            if (!item.isTextual() || item.asText().isBlank()) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            }
+            values.add(item.asText().trim());
         }
         return values;
     }
 
     private <T extends Enum<T>> T enumValue(Class<T> type, String raw) {
-        try { return Enum.valueOf(type, raw); }
-        catch (IllegalArgumentException e) { throw new CustomException(ErrorCode.INVALID_REQUEST_BODY); }
+        try {
+            return Enum.valueOf(type, raw);
+        } catch (IllegalArgumentException e) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
     }
 
     private <T extends Enum<T>> T optionalEnum(Class<T> type, String raw) {

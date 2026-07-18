@@ -102,11 +102,19 @@ class LlmReplaceProductFeedbackControllerTest {
         FeedbackPlanInterpreter fakeLlmFeedbackPlanInterpreter(ObjectMapper objectMapper) {
             return new LlmFeedbackPlanInterpreter(prompt -> """
                     {
-                      "version": "1.0",
-                      "target": {"furnitureId": "desk-rec-1", "furnitureType": "desk"},
+                      "version": "2.0",
+                      "requestKind": "DIRECT",
                       "operations": [
-                        {"type": "REPLACE_PRODUCT", "constraints": {"storagePreferred": true}}
+                        {
+                          "operationId": "op-1",
+                          "type": "REPLACE_PRODUCT",
+                          "target": {"furnitureId": "desk-rec-1", "furnitureType": "desk"},
+                          "constraints": {"furnitureType": "desk", "storagePreferred": true},
+                          "dependsOn": []
+                        }
                       ],
+                      "goals": [],
+                      "clarification": null,
                       "reason": "storage desk requested"
                     }
                     """, objectMapper);

@@ -1,12 +1,12 @@
 package com.roomfit.placement;
 
-public enum FeedbackDirection {
+public enum FeedbackRelation {
     LEFT,
     RIGHT,
     FORWARD,
     BACKWARD,
-    NEAR_WALL,
     NEAR_WINDOW,
+    NEAR_WALL,
     AWAY_FROM_DOOR,
     CENTER
 }

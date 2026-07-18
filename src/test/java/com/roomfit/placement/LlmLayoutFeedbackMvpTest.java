@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LlmLayoutFeedbackMvpTest {
 
@@ -30,14 +31,15 @@ class LlmLayoutFeedbackMvpTest {
         AtomicInteger calls = new AtomicInteger();
         LlmFeedbackPlanInterpreter interpreter = interpreter(prompt -> {
             calls.incrementAndGet();
-            assertThat(prompt).contains("Do not produce coordinates or product IDs");
+            assertThat(prompt).contains("Never output x, z, coordinates, position, distanceMeters");
+            assertThat(prompt).contains("The only executable operation types are MOVE, ROTATE, and REPLACE_PRODUCT");
             return planJson("desk-1", "desk", """
-                    {"type":"MOVE","direction":"RIGHT","distanceMeters":0.3}
+                    {"type":"MOVE","placement":{"relation":"RIGHT","magnitude":"MEDIUM"}}
                     """);
         });
         Furniture before = compactDesk();
 
-        FeedbackPlan plan = interpreter.interpret("책상을 오른쪽으로 30cm 옮겨줘", room(6, 6), List.of(before), context());
+        FeedbackPlan plan = interpreter.interpret("책상을 오른쪽으로 옮겨줘", room(6, 6), List.of(before), context());
         FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
         Furniture after = execution.furniture().getFirst();
 
@@ -45,7 +47,7 @@ class LlmLayoutFeedbackMvpTest {
         assertThat(execution.result().applied()).isTrue();
         assertThat(execution.result().source()).isEqualTo(FeedbackSource.LLM);
         assertThat(execution.result().fallbackUsed()).isFalse();
-        assertThat(after.getPosition().getX()).isEqualTo(2.3);
+        assertThat(after.getPosition().getX()).isEqualTo(2.4);
         assertThat(after.getPosition().getZ()).isEqualTo(before.getPosition().getZ());
         assertThat(after.getProductId()).isEqualTo(before.getProductId());
         assertThat(after.getVariantId()).isEqualTo(before.getVariantId());
@@ -56,7 +58,9 @@ class LlmLayoutFeedbackMvpTest {
     void rotateChangesFootprintRotationWithoutChangingProductLifecycle() {
         Furniture before = compactDesk();
         FeedbackExecution execution = executor.execute(plan("desk-1", "desk", new FeedbackOperation(
-                FeedbackOperationType.ROTATE, null, null, 90, null)), room(6, 6), List.of(before));
+                "op-1", FeedbackOperationType.ROTATE, null,
+                new FeedbackPlacement(null, null, FeedbackOrientation.QUARTER_TURN_CW), null, List.of())),
+                room(6, 6), List.of(before));
         Furniture after = execution.furniture().getFirst();
 
         assertThat(execution.result().applied()).isTrue();
@@ -200,9 +204,8 @@ class LlmLayoutFeedbackMvpTest {
     void missingStorageProductReturnsNoMatchingProduct() {
         Furniture sofa = new Furniture("sofa-1", "sofa", "소파", 1.8, 0.8, 0.8,
                 new Position(3.0, 3.0), 0, FurnitureStatus.EXISTING);
-        FeedbackOperation storageSofa = new FeedbackOperation(FeedbackOperationType.REPLACE_PRODUCT,
-                null, null, null,
-                new FeedbackReplaceConstraints("sofa", false, null, List.of(), List.of(), true));
+        FeedbackOperation storageSofa = new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT,
+                null, null, new FeedbackReplaceConstraints("sofa", false, null, List.of(), List.of(), true), List.of());
 
         FeedbackExecution execution = executor.execute(plan("sofa-1", "sofa", storageSofa),
                 room(6, 6), List.of(sofa));
@@ -212,16 +215,13 @@ class LlmLayoutFeedbackMvpTest {
     }
 
     @Test
-    void invalidReplaceConstraintsReturnExplicitNoOpReason() {
-        FeedbackOperation invalid = new FeedbackOperation(FeedbackOperationType.REPLACE_PRODUCT,
-                null, null, null,
-                new FeedbackReplaceConstraints("", false, null, List.of(), List.of(), false));
+    void invalidReplaceConstraintsAreRejectedBeforeExecution() {
+        FeedbackOperation invalid = new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT,
+                null, null, new FeedbackReplaceConstraints("", false, null, List.of(), List.of(), false), List.of());
 
-        FeedbackExecution execution = executor.execute(plan("desk-1", "desk", invalid),
-                room(6, 6), List.of(compactDesk()));
-
-        assertThat(execution.result().applied()).isFalse();
-        assertThat(execution.result().noChangeReason()).isEqualTo("INVALID_REPLACE_CONSTRAINTS");
+        assertThatThrownBy(() -> executor.execute(plan("desk-1", "desk", invalid),
+                room(6, 6), List.of(compactDesk())))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
     }
 
     @Test
@@ -236,7 +236,7 @@ class LlmLayoutFeedbackMvpTest {
     }
 
     @Test
-    void malformedProviderResponseFallsBackButUnknownOperationAndMissingTargetDoNotInventAnOperation() {
+    void malformedAndUnsupportedProviderResponsesFallBackAndClarificationDoesNotInventAnOperation() {
         FallbackFeedbackPlanInterpreter fallback = new FallbackFeedbackPlanInterpreter(
                 Optional.of(interpreter(prompt -> "{ malformed")), new RuleBasedFeedbackPlanInterpreter());
         FeedbackPlan fallbackPlan = fallback.interpret("책상 더 크게", room(6, 6), List.of(compactDesk()), context());
@@ -253,15 +253,18 @@ class LlmLayoutFeedbackMvpTest {
         assertThat(normalizedFallback.fallbackUsed()).isTrue();
         assertThat(normalizedFallback.operations().getFirst().constraints().storagePreferred()).isTrue();
 
-        FeedbackPlan unsupported = interpreter(prompt -> planJson("desk-1", "desk", """
-                {"type":"WARP_FURNITURE"}
-                """)).interpret("가구를 추가해줘", room(6, 6), List.of(compactDesk()), context());
-        FeedbackExecution unsupportedExecution = executor.execute(unsupported, room(6, 6), List.of(compactDesk()));
-        assertThat(unsupportedExecution.result().applied()).isFalse();
-        assertThat(unsupportedExecution.result().noChangeReason()).isEqualTo("UNSUPPORTED_OPERATION");
+        FallbackFeedbackPlanInterpreter unsupportedFallback = new FallbackFeedbackPlanInterpreter(
+                Optional.of(interpreter(prompt -> planJson("desk-1", "desk", """
+                        {"type":"WARP_FURNITURE"}
+                        """))), new RuleBasedFeedbackPlanInterpreter());
+        FeedbackPlan unsupportedPlan = unsupportedFallback.interpret(
+                "책상 더 크게", room(6, 6), List.of(compactDesk()), context());
+        assertThat(unsupportedPlan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(unsupportedPlan.fallbackUsed()).isTrue();
 
         FeedbackPlan clarification = interpreter(prompt -> """
-                {"version":"1.0","target":{"furnitureId":"","furnitureType":""},"operations":[],"reason":"target is ambiguous"}
+                {"version":"2.0","requestKind":"CLARIFICATION","operations":[],"goals":[],
+                 "clarification":{"question":"어떤 가구를 옮길까요?"},"reason":"target is ambiguous"}
                 """).interpret("옮겨줘", room(6, 6), List.of(compactDesk()), context());
         FeedbackExecution clarificationExecution = executor.execute(clarification, room(6, 6), List.of(compactDesk()));
         assertThat(clarificationExecution.result().applied()).isFalse();
@@ -287,17 +290,21 @@ class LlmLayoutFeedbackMvpTest {
     }
 
     private FeedbackPlan plan(String furnitureId, String furnitureType, FeedbackOperation operation) {
-        return new FeedbackPlan("1.0", furnitureId, furnitureType, List.of(operation), "test", FeedbackSource.LLM, false);
+        FeedbackOperation targeted = new FeedbackOperation(operation.operationId(), operation.type(),
+                new FeedbackTargetSelector(furnitureId, furnitureType, ""), operation.placement(),
+                operation.constraints(), operation.dependsOn());
+        return new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(targeted), List.of(), null,
+                "test", FeedbackSource.LLM, false);
     }
 
     private FeedbackOperation widerDesk() {
-        return new FeedbackOperation(FeedbackOperationType.REPLACE_PRODUCT, null, null, null,
-                new FeedbackReplaceConstraints("desk", true, null, List.of(), List.of(), false));
+        return new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT, null, null,
+                new FeedbackReplaceConstraints("desk", true, null, List.of(), List.of(), false), List.of());
     }
 
     private FeedbackOperation storageDesk() {
-        return new FeedbackOperation(FeedbackOperationType.REPLACE_PRODUCT, null, null, null,
-                new FeedbackReplaceConstraints("desk", false, null, List.of(), List.of(), true));
+        return new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT, null, null,
+                new FeedbackReplaceConstraints("desk", false, null, List.of(), List.of(), true), List.of());
     }
 
     private Furniture compactDesk() {
@@ -342,8 +349,10 @@ class LlmLayoutFeedbackMvpTest {
     }
 
     private String planJson(String furnitureId, String furnitureType, String operation) {
+        String operationFields = operation.trim();
+        operationFields = operationFields.substring(1, operationFields.length() - 1);
         return """
-                {"version":"1.0","target":{"furnitureId":"%s","furnitureType":"%s"},"operations":[%s],"reason":"test"}
-                """.formatted(furnitureId, furnitureType, operation);
+                {"version":"2.0","requestKind":"DIRECT","operations":[{"operationId":"op-1","target":{"furnitureId":"%s","furnitureType":"%s","labelKeyword":""},"dependsOn":[],%s}],"goals":[],"clarification":null,"reason":"test"}
+                """.formatted(furnitureId, furnitureType, operationFields);
     }
 }

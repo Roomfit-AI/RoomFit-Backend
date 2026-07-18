@@ -3,49 +3,66 @@ package com.roomfit.placement;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class DeterministicFeedbackExecutor {
 
     private final ValidationService validationService;
     private final MockProductRepository productRepository;
+    private final FeedbackPlanValidator planValidator;
 
     public DeterministicFeedbackExecutor(ValidationService validationService, MockProductRepository productRepository) {
         this.validationService = validationService;
         this.productRepository = productRepository;
+        this.planValidator = new FeedbackPlanValidator();
     }
 
     public FeedbackExecution execute(FeedbackPlan plan, Room room, List<Furniture> original) {
+        planValidator.validate(plan);
         List<String> requested = plan.operations().stream().map(operation -> operation.type().name()).toList();
         if (plan.needsClarification()) {
-            return noChange(original, plan, requested, "NEEDS_CLARIFICATION", "어떤 가구를 변경할지 알려주세요.");
+            return noChange(original, plan, requested, "NEEDS_CLARIFICATION", plan.clarification().question());
         }
         if (plan.operations().isEmpty()) {
             return noChange(original, plan, requested, "UNSUPPORTED_OPERATION", "이번 피드백에서는 요청한 작업을 지원하지 않습니다.");
         }
-        int targetIndex = targetIndex(plan, original);
-        if (targetIndex < 0) {
-            return noChange(original, plan, requested, "TARGET_FURNITURE_NOT_FOUND", "요청한 가구를 현재 배치에서 찾을 수 없습니다.");
-        }
-
         List<Furniture> candidate = new ArrayList<>(original);
         List<String> applied = new ArrayList<>();
+        Set<String> appliedOperationIds = new HashSet<>();
         String noChangeReason = null;
         for (FeedbackOperation operation : plan.operations()) {
-            Furniture target = candidate.get(targetIndex);
+            if (!appliedOperationIds.containsAll(operation.dependsOn())) {
+                noChangeReason = "DEPENDENCY_NOT_APPLIED";
+                continue;
+            }
+            TargetResolution resolution = resolveTarget(operation.target(), candidate);
+            if (resolution.status() == TargetResolutionStatus.AMBIGUOUS) {
+                noChangeReason = "NEEDS_CLARIFICATION";
+                continue;
+            }
+            if (resolution.status() == TargetResolutionStatus.NOT_FOUND) {
+                noChangeReason = "TARGET_FURNITURE_NOT_FOUND";
+                continue;
+            }
+            int targetIndex = resolution.index();
             OperationAttempt attempt = switch (operation.type()) {
                 case MOVE -> OperationAttempt.applied(move(room, candidate, targetIndex, operation));
                 case ROTATE -> OperationAttempt.applied(rotate(room, candidate, targetIndex, operation));
                 case REPLACE_PRODUCT -> replace(room, candidate, targetIndex, operation.constraints());
-                case ADD_FURNITURE, REMOVE_FURNITURE -> OperationAttempt.notApplied("UNSUPPORTED_OPERATION");
+                case ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE, CHANGE_MATERIAL, CHANGE_COLOR_TONE ->
+                        OperationAttempt.notApplied("UNSUPPORTED_OPERATION");
             };
             if (attempt.furniture().isEmpty()) {
                 noChangeReason = attempt.noChangeReason();
@@ -53,6 +70,7 @@ public class DeterministicFeedbackExecutor {
             }
             candidate.set(targetIndex, attempt.furniture().get());
             applied.add(operation.type().name());
+            appliedOperationIds.add(operation.operationId());
         }
 
         if (applied.isEmpty()) {
@@ -63,14 +81,36 @@ public class DeterministicFeedbackExecutor {
                 "요청한 배치 변경을 적용했습니다.", requested, applied, null));
     }
 
-    private int targetIndex(FeedbackPlan plan, List<Furniture> furniture) {
+    private TargetResolution resolveTarget(FeedbackTargetSelector target, List<Furniture> furniture) {
+        if (!target.furnitureId().isBlank()) {
+            for (int i = 0; i < furniture.size(); i++) {
+                if (target.furnitureId().equals(furniture.get(i).getId())
+                        && furniture.get(i).getStatus() != FurnitureStatus.DELETED) {
+                    return TargetResolution.resolved(i);
+                }
+            }
+            return TargetResolution.notFound();
+        }
+
+        List<Integer> matches = new ArrayList<>();
+        String labelKeyword = target.labelKeyword().toLowerCase(Locale.ROOT);
         for (int i = 0; i < furniture.size(); i++) {
             Furniture item = furniture.get(i);
-            if (plan.furnitureId().equals(item.getId()) && (plan.furnitureType().isBlank() || plan.furnitureType().equals(item.getType()))) {
-                return i;
+            if (item.getStatus() == FurnitureStatus.DELETED) {
+                continue;
             }
+            if (!target.furnitureType().isBlank() && !target.furnitureType().equals(item.getType())) {
+                continue;
+            }
+            String label = item.getLabel() == null ? "" : item.getLabel().toLowerCase(Locale.ROOT);
+            if (!labelKeyword.isBlank() && !label.contains(labelKeyword)) {
+                continue;
+            }
+            matches.add(i);
         }
-        return -1;
+        if (matches.isEmpty()) return TargetResolution.notFound();
+        if (matches.size() > 1) return TargetResolution.ambiguous();
+        return TargetResolution.resolved(matches.getFirst());
     }
 
     private Optional<Furniture> move(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
@@ -84,11 +124,12 @@ public class DeterministicFeedbackExecutor {
     }
 
     private List<Position> movePositions(Room room, Furniture item, FeedbackOperation operation) {
-        double distance = operation.distanceMeters();
+        FeedbackPlacement placement = operation.placement();
+        double distance = FeedbackPlacementPolicy.movementDistance(placement.magnitude());
         FurnitureFootprint footprint = FurnitureFootprint.from(item);
         double x = item.getPosition().getX();
         double z = item.getPosition().getZ();
-        Position delta = switch (operation.direction()) {
+        Position delta = switch (placement.relation()) {
             case LEFT -> new Position(x - distance, z);
             case RIGHT -> new Position(x + distance, z);
             case FORWARD -> new Position(x, z - distance);
@@ -103,10 +144,13 @@ public class DeterministicFeedbackExecutor {
 
     private Optional<Furniture> rotate(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
         Furniture current = base.get(index);
-        double rotation = normalize(current.getRotation() + operation.rotationDegrees());
-        if (rotation == current.getRotation()) return Optional.empty();
-        Furniture updated = copy(current, current.getPosition(), rotation);
-        return valid(room, replace(base, index, updated)) ? Optional.of(updated) : Optional.empty();
+        for (double rotation : FeedbackPlacementPolicy.rotationCandidates(
+                current.getRotation(), operation.placement().orientation())) {
+            if (rotation == FeedbackPlacementPolicy.normalize(current.getRotation())) continue;
+            Furniture updated = copy(current, current.getPosition(), rotation);
+            if (valid(room, replace(base, index, updated))) return Optional.of(updated);
+        }
+        return Optional.empty();
     }
 
     private OperationAttempt replace(Room room, List<Furniture> base, int index, FeedbackReplaceConstraints constraints) {
@@ -190,7 +234,7 @@ public class DeterministicFeedbackExecutor {
     }
 
     private List<Double> replacementRotations(double currentRotation) {
-        double quarterTurn = normalize(currentRotation + 90);
+        double quarterTurn = FeedbackPlacementPolicy.normalize(currentRotation + 90);
         return quarterTurn == currentRotation ? List.of(currentRotation) : List.of(currentRotation, quarterTurn);
     }
 
@@ -229,6 +273,15 @@ public class DeterministicFeedbackExecutor {
         if ("UNSUPPORTED_OPERATION".equals(noChangeReason)) {
             return "이번 피드백에서는 요청한 작업을 지원하지 않습니다.";
         }
+        if ("NEEDS_CLARIFICATION".equals(noChangeReason)) {
+            return "변경할 가구를 하나로 특정할 수 없어 추가 설명이 필요합니다.";
+        }
+        if ("TARGET_FURNITURE_NOT_FOUND".equals(noChangeReason)) {
+            return "요청한 가구를 현재 배치에서 찾을 수 없습니다.";
+        }
+        if ("DEPENDENCY_NOT_APPLIED".equals(noChangeReason)) {
+            return "앞선 변경이 적용되지 않아 이어지는 변경을 실행하지 않았습니다.";
+        }
         return "요청을 안전하게 적용할 수 없어 기존 배치를 유지했습니다.";
     }
 
@@ -262,11 +315,6 @@ public class DeterministicFeedbackExecutor {
         return new Position(x, z);
     }
 
-    private double normalize(double rotation) {
-        double normalized = rotation % 360;
-        return normalized < 0 ? normalized + 360 : normalized;
-    }
-
     private record OperationAttempt(Optional<Furniture> furniture, String noChangeReason) {
         private static OperationAttempt applied(Optional<Furniture> furniture) {
             return furniture.map(value -> new OperationAttempt(Optional.of(value), null))
@@ -279,6 +327,26 @@ public class DeterministicFeedbackExecutor {
 
         private static OperationAttempt notApplied(String noChangeReason) {
             return new OperationAttempt(Optional.empty(), noChangeReason);
+        }
+    }
+
+    private enum TargetResolutionStatus {
+        RESOLVED,
+        NOT_FOUND,
+        AMBIGUOUS
+    }
+
+    private record TargetResolution(TargetResolutionStatus status, int index) {
+        private static TargetResolution resolved(int index) {
+            return new TargetResolution(TargetResolutionStatus.RESOLVED, index);
+        }
+
+        private static TargetResolution notFound() {
+            return new TargetResolution(TargetResolutionStatus.NOT_FOUND, -1);
+        }
+
+        private static TargetResolution ambiguous() {
+            return new TargetResolution(TargetResolutionStatus.AMBIGUOUS, -1);
         }
     }
 }

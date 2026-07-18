@@ -52,10 +52,17 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true))
                 .andExpect(jsonPath("$.data.validationResult.validationItems.length()").value(5))
                 .andExpect(jsonPath("$.data.interpretedIntent.source").value("RULE_BASED"))
+                .andExpect(jsonPath("$.data.interpretedIntent.version").value("2.0"))
+                .andExpect(jsonPath("$.data.interpretedIntent.requestKind").value("DIRECT"))
+                .andExpect(jsonPath("$.data.interpretedIntent.operations").value(hasItems("REPLACE_PRODUCT")))
+                .andExpect(jsonPath("$.data.interpretedIntent.operationIds").value(hasItems("op-1")))
                 .andExpect(jsonPath("$.data.interpretedIntent.rawIntent").value("LARGER_DESK"))
                 .andExpect(jsonPath("$.data.interpretedIntent.targetFurniture").value("desk"))
                 .andExpect(jsonPath("$.data.interpretedIntent.deskMinWidth").value(1.4))
-                .andExpect(jsonPath("$.data.interpretedIntent.fallbackUsed").value(true));
+                .andExpect(jsonPath("$.data.interpretedIntent.fallbackUsed").value(true))
+                .andExpect(jsonPath("$.data.feedbackResult.applied").value(true))
+                .andExpect(jsonPath("$.data.feedbackResult.operationsRequested").value(hasItems("REPLACE_PRODUCT")))
+                .andExpect(jsonPath("$.data.feedbackResult.operationsApplied").value(hasItems("REPLACE_PRODUCT")));
     }
 
     @Test

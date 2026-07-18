@@ -152,10 +152,15 @@ public class LayoutService {
         result.put("source", plan.source().name());
         result.put("fallbackUsed", plan.fallbackUsed());
         result.put("version", plan.version());
+        result.put("requestKind", plan.requestKind().name());
         result.put("targetFurnitureId", plan.furnitureId());
         result.put("targetFurniture", plan.furnitureType());
         result.put("operations", plan.operations().stream().map(operation -> operation.type().name()).toList());
+        result.put("operationIds", plan.operations().stream().map(FeedbackOperation::operationId).toList());
         result.put("reason", plan.reason());
+        if (plan.clarification() != null) {
+            result.put("clarificationQuestion", plan.clarification().question());
+        }
         if (plan.source() == FeedbackSource.RULE_BASED && !plan.operations().isEmpty()) {
             FeedbackOperation operation = plan.operations().get(0);
             if (operation.type() == FeedbackOperationType.REPLACE_PRODUCT && operation.constraints().largerThanCurrent()) {
