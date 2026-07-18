@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -57,7 +58,7 @@ class LlmPlacementVariantIdTest {
     }
 
     @Test
-    void recommend_existingFurnitureIgnoresDifferentCatalogProductMetadata() {
+    void recommend_existingFurniturePreservesMatchingImmutableMetadata() {
         MockProduct productB = new MockProduct("product-b", "desk-storage", "desk", "다른 책상",
                 "RoomFit Mock", 1.8, 0.8, 0.8, 99000, List.of("storage"),
                 "/images/products/product-b.png", null, new RequiredClearance(0.6, 0.2));
@@ -65,7 +66,7 @@ class LlmPlacementVariantIdTest {
         when(productService.findByProductIds(List.of())).thenReturn(List.of());
         when(productService.findByProductId("product-b")).thenReturn(productB);
         LlmPlacementService service = new LlmPlacementService(
-                ignored -> existingResponseJson("product-b", "invented-variant"),
+                ignored -> existingResponseJson("product-a", "desk-compact"),
                 new ValidationService(), productService, new ObjectMapper());
 
         PlacementResult result = service.recommend(contextWithoutProducts(), roomWithExistingDesk());
@@ -75,21 +76,19 @@ class LlmPlacementVariantIdTest {
         assertThat(furniture.getPosition().getX()).isEqualTo(2.0);
         assertThat(furniture.getPosition().getZ()).isEqualTo(2.0);
         assertThat(furniture.getRotation()).isEqualTo(90);
-        verify(productService, never()).findByProductId("product-b");
+        verify(productService, never()).findByProductId(org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
-    void recommend_existingFurnitureIgnoresUnknownProductIdWithoutFallback() {
+    void recommend_rejectsExistingFurnitureProductOrVariantChanges() {
         MockProductService productService = mock(MockProductService.class);
         when(productService.findByProductIds(List.of())).thenReturn(List.of());
         LlmPlacementService service = new LlmPlacementService(
                 ignored -> existingResponseJson("unknown-product", "invented-variant"),
                 new ValidationService(), productService, new ObjectMapper());
 
-        PlacementResult result = service.recommend(contextWithoutProducts(), roomWithExistingDesk());
-
-        assertThat(result.getStatus()).isEqualTo(RecommendationStatus.SUCCESS);
-        assertExistingCatalogMetadata(result.getRecommendedFurniture().getFirst());
+        assertThatThrownBy(() -> service.recommend(contextWithoutProducts(), roomWithExistingDesk()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
         verify(productService, never()).findByProductId("unknown-product");
     }
 
@@ -120,7 +119,7 @@ class LlmPlacementVariantIdTest {
                 ignored -> newFurnitureWithoutProductResponseJson(),
                 new ValidationService(), productService, new ObjectMapper());
 
-        PlacementResult result = service.recommend(contextWithoutProducts(), room());
+        PlacementResult result = service.recommend(contextWithoutProducts("storage"), room());
 
         assertThat(result.getStatus()).isEqualTo(RecommendationStatus.SUCCESS);
         Furniture furniture = result.getRecommendedFurniture().getFirst();
@@ -133,6 +132,68 @@ class LlmPlacementVariantIdTest {
         assertThat(furniture.getVariantId()).isNull();
         assertThat(furniture.getStyleTags()).containsExactly("llm-invented");
         verify(productService, never()).findByProductId(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void recommend_rejectsMissingOrDuplicateExistingFurnitureIds() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        LlmPlacementService missingService = new LlmPlacementService(
+                ignored -> """
+                        { "furniture": [{
+                          "id":"new-desk", "type":"desk", "label":"new", "width":1.0, "depth":0.5, "height":0.7,
+                          "position":{"x":2.0,"z":2.0}, "rotation":0, "status":"RECOMMENDED", "styleTags":[]
+                        }] }
+                        """, new ValidationService(), productService, new ObjectMapper());
+        LlmPlacementService duplicateService = new LlmPlacementService(
+                ignored -> """
+                        { "furniture": [
+                        %s,
+                        %s ] }
+                        """.formatted(existingFurnitureJson("product-a", "desk-compact", "EXISTING"),
+                        existingFurnitureJson("product-a", "desk-compact", "EXISTING")),
+                new ValidationService(), productService, new ObjectMapper());
+
+        assertThatThrownBy(() -> missingService.recommend(contextWithoutProducts(), roomWithExistingDesk()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
+        assertThatThrownBy(() -> duplicateService.recommend(contextWithoutProducts(), roomWithExistingDesk()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
+    }
+
+    @Test
+    void recommend_rejectsExistingStatusOrShapeChanges() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        LlmPlacementService statusChange = new LlmPlacementService(
+                ignored -> existingResponseJson("product-a", "desk-compact").replace("\"status\": \"EXISTING\"", "\"status\": \"USER_MODIFIED\""),
+                new ValidationService(), productService, new ObjectMapper());
+        LlmPlacementService dimensionChange = new LlmPlacementService(
+                ignored -> existingResponseJson("product-a", "desk-compact").replace("\"width\": 1.2", "\"width\": 1.8"),
+                new ValidationService(), productService, new ObjectMapper());
+
+        assertThatThrownBy(() -> statusChange.recommend(contextWithoutProducts(), roomWithExistingDesk()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
+        assertThatThrownBy(() -> dimensionChange.recommend(contextWithoutProducts(), roomWithExistingDesk()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
+    }
+
+    @Test
+    void recommend_requiresExactCanonicalTypeInsteadOfSimilarTypeOrStorage() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        LlmPlacementService sofaBedRequest = new LlmPlacementService(
+                ignored -> newFurnitureJson("bed", "bed-new"), new ValidationService(), productService, new ObjectMapper());
+
+        assertThatThrownBy(() -> sofaBedRequest.recommend(contextWithoutProducts("sofa_bed"), room()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
+        for (String canonicalStorageType : List.of("bookshelf", "hanger", "partition_shelf", "wardrobe", "drawer_chest", "media_console")) {
+            LlmPlacementService storageSubstitution = new LlmPlacementService(
+                    ignored -> newFurnitureJson("storage", "storage-new-" + canonicalStorageType),
+                    new ValidationService(), productService, new ObjectMapper());
+            assertThatThrownBy(() -> storageSubstitution.recommend(contextWithoutProducts(canonicalStorageType), room()))
+                    .as("storage must not fulfil %s", canonicalStorageType)
+                    .isInstanceOf(com.roomfit.common.CustomException.class);
+        }
     }
 
     private String newFurnitureWithoutProductResponseJson() {
@@ -169,8 +230,12 @@ class LlmPlacementVariantIdTest {
     }
 
     private AgentContext contextWithoutProducts() {
+        return contextWithoutProducts("desk");
+    }
+
+    private AgentContext contextWithoutProducts(String type) {
         return new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
-                List.of("desk"), List.of(), List.of(1L), List.of(), List.of("minimal"));
+                List.of(type), List.of(), List.of(1L), List.of(), List.of("minimal"));
     }
 
     private Room room() {
@@ -228,23 +293,36 @@ class LlmPlacementVariantIdTest {
     private String existingResponseJson(String productId, String untrustedVariantId) {
         return """
                 {
-                  "furniture": [
-                    {
-                      "id": "desk-1",
-                      "type": "storage",
-                      "label": "LLM이 바꾼 이름",
-                      "width": 1.8,
-                      "depth": 0.8,
-                      "height": 0.8,
-                      "position": { "x": 2.0, "z": 2.0 },
-                      "rotation": 90,
-                      "status": "USER_MODIFIED",
-                      "productId": "%s",
-                      "variantId": "%s",
-                      "styleTags": ["llm-invented"]
-                    }
-                  ]
+                  "furniture": [%s]
                 }
-                """.formatted(productId, untrustedVariantId);
+                """.formatted(existingFurnitureJson(productId, untrustedVariantId, "EXISTING"));
+    }
+
+    private String existingFurnitureJson(String productId, String variantId, String status) {
+        return """
+                {
+                  "id": "desk-1",
+                  "type": "desk",
+                  "label": "기존 책상",
+                  "width": 1.2,
+                  "depth": 0.6,
+                  "height": 0.73,
+                  "position": { "x": 2.0, "z": 2.0 },
+                  "rotation": 90,
+                  "status": "%s",
+                  "productId": "%s",
+                  "variantId": "%s",
+                  "styleTags": ["original-style"]
+                }
+                """.formatted(status, productId, variantId);
+    }
+
+    private String newFurnitureJson(String type, String id) {
+        return """
+                { "furniture": [{
+                  "id":"%s", "type":"%s", "label":"LLM furniture", "width":1.0, "depth":0.5, "height":0.7,
+                  "position":{"x":2.0,"z":2.0}, "rotation":0, "status":"RECOMMENDED", "styleTags":[]
+                }] }
+                """.formatted(id, type);
     }
 }

@@ -76,10 +76,19 @@ public class LayoutService {
         }
 
         ValidationResult validationResult = validationService.validate(room, placementResult.getRecommendedFurniture());
+        // A PlacementService may use a provisional summary while it constructs a
+        // candidate. The API must always expose the score calculated from this
+        // exact validation result, including normal FAILED outcomes.
+        ScoreSummary scoreSummary = scoreService.calculate(context, placementResult.getRecommendedFurniture(), validationResult);
+        PlacementResult scoredPlacementResult = new PlacementResult(placementResult.getStatus(),
+                placementResult.getRecommendedFurniture(), scoreSummary,
+                placementResult.getRequestedFurnitureCount(), placementResult.getPlacedFurnitureCount(),
+                placementResult.getUnplacedFurniture(), placementResult.getRecommendationStatus(),
+                placementResult.getWarningCode(), placementResult.getMessage());
         if (placementResult.getRecommendationStatus() == RecommendationExecutionStatus.FAILED) {
             // A normal lack of physical space is a valid recommendation outcome, not a server error.
             // Do not persist an empty or invalid recommendation snapshot.
-            return LayoutResponse.ofRecommendationFailure(room.getId(), placementResult, validationResult);
+            return LayoutResponse.ofRecommendationFailure(room.getId(), scoredPlacementResult, validationResult);
         }
         // Legacy scripted sample layouts intentionally preserve their historical
         // composition (including decorative rug/table overlap) and do not carry
@@ -90,12 +99,6 @@ public class LayoutService {
         }
         Layout layout = new Layout(room.getId(), context.getId(), placementResult.getRecommendedFurniture());
         layoutRepository.save(layout);
-        ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
-        PlacementResult scoredPlacementResult = new PlacementResult(placementResult.getStatus(),
-                placementResult.getRecommendedFurniture(), scoreSummary,
-                placementResult.getRequestedFurnitureCount(), placementResult.getPlacedFurnitureCount(),
-                placementResult.getUnplacedFurniture(), placementResult.getRecommendationStatus(),
-                placementResult.getWarningCode(), placementResult.getMessage());
 
         return LayoutResponse.ofRecommendation(layout, scoredPlacementResult, validationResult);
     }

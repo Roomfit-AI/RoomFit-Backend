@@ -50,8 +50,7 @@ class LlmLayoutFeedbackMvpTest {
         assertThat(execution.result().fallbackUsed()).isFalse();
         assertThat(after.getPosition().getX()).isEqualTo(2.4);
         assertThat(after.getPosition().getZ()).isEqualTo(before.getPosition().getZ());
-        assertThat(after.getProductId()).isEqualTo(before.getProductId());
-        assertThat(after.getVariantId()).isEqualTo(before.getVariantId());
+        assertBackendIdentityAndAppearancePreserved(before, after);
         assertValid(room(6, 6), execution.furniture());
     }
 
@@ -66,8 +65,7 @@ class LlmLayoutFeedbackMvpTest {
 
         assertThat(execution.result().applied()).isTrue();
         assertThat(after.getRotation()).isEqualTo(90);
-        assertThat(after.getProductId()).isEqualTo(before.getProductId());
-        assertThat(after.getVariantId()).isEqualTo(before.getVariantId());
+        assertBackendIdentityAndAppearancePreserved(before, after);
         assertValid(room(6, 6), execution.furniture());
     }
 
@@ -338,6 +336,19 @@ class LlmLayoutFeedbackMvpTest {
     private AgentContext context() {
         return new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
                 List.of("desk"), List.of(), List.of(1L), List.of("desk-compact-01"), List.of("minimal"));
+    }
+
+    private void assertBackendIdentityAndAppearancePreserved(Furniture before, Furniture after) {
+        assertThat(after.getId()).isEqualTo(before.getId());
+        assertThat(after.getType()).isEqualTo(before.getType());
+        assertThat(after.getLabel()).isEqualTo(before.getLabel());
+        assertThat(after.getWidth()).isEqualTo(before.getWidth());
+        assertThat(after.getDepth()).isEqualTo(before.getDepth());
+        assertThat(after.getHeight()).isEqualTo(before.getHeight());
+        assertThat(after.getStatus()).isEqualTo(before.getStatus());
+        assertThat(after.getProductId()).isEqualTo(before.getProductId());
+        assertThat(after.getVariantId()).isEqualTo(before.getVariantId());
+        assertThat(after.getStyleTags()).containsExactlyElementsOf(before.getStyleTags());
     }
 
     private void assertValid(Room room, List<Furniture> furniture) {

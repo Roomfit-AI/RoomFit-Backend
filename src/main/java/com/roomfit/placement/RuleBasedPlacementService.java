@@ -37,11 +37,6 @@ public class RuleBasedPlacementService implements PlacementService {
     private static final String COLLECTOR_ROOM_NAME = "미드센추리 컬렉터 룸";
     private static final String COLLECTOR_STUDIO_ROOM_NAME = "샘플룸2";
 
-    private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
-            FurnitureStatus.EXISTING,
-            FurnitureStatus.USER_MODIFIED
-    );
-
     private final MockProductService mockProductService;
     private final ProductRecommendationService productRecommendationService;
     private final ValidationService validationService;
@@ -62,12 +57,10 @@ public class RuleBasedPlacementService implements PlacementService {
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
         if (COLLECTOR_ROOM_NAME.equals(room.getName())) {
-            return new PlacementResult(RecommendationStatus.SUCCESS,
-                    clampScriptedRecommendation(room, midCenturyCollectorRecommendation()));
+            return scriptedRecommendation(room, midCenturyCollectorRecommendation());
         }
         if (COLLECTOR_STUDIO_ROOM_NAME.equals(room.getName())) {
-            return new PlacementResult(RecommendationStatus.SUCCESS,
-                    clampScriptedRecommendation(room, midCenturyStudioRecommendation()));
+            return scriptedRecommendation(room, midCenturyStudioRecommendation());
         }
 
         List<Furniture> recommended = new ArrayList<>();
@@ -132,29 +125,29 @@ public class RuleBasedPlacementService implements PlacementService {
         return List.of(
                 new Furniture("collector-bed", "bed", "미드센추리 싱글 침대", 1.35, 2.0, 0.5,
                         new Position(1.35, 1.8), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-bedside", "storage", "코랄 협탁", 0.48, 0.42, 0.52,
+                new Furniture("collector-bedside", "nightstand", "코랄 협탁", 0.48, 0.42, 0.52,
                         new Position(0.55, 1.7), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-floor-plant", "storage", "플로어 식물", 0.48, 0.48, 0.92,
+                new Furniture("collector-floor-plant", "plant", "플로어 식물", 0.48, 0.48, 0.92,
                         new Position(0.58, 4.5), 0, FurnitureStatus.RECOMMENDED),
                 new Furniture("collector-desk", "desk", "미드센추리 컬렉터 데스크", 1.35, 0.62, 0.74,
                         new Position(2.9, 1.0), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-desk-chair", "chair", "월넛 데스크 체어", 0.58, 0.58, 0.82,
+                new Furniture("collector-desk-chair", "desk_chair", "월넛 데스크 체어", 0.58, 0.58, 0.82,
                         new Position(2.9, 1.95), 180, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-blue-cabinet", "storage", "코발트 모듈 수납장", 0.78, 0.42, 1.08,
+                new Furniture("collector-blue-cabinet", "drawer_chest", "코발트 모듈 수납장", 0.78, 0.42, 1.08,
                         new Position(1.35, 3.15), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-glass-shelf", "storage", "크롬 글라스 전시 선반", 1.28, 0.36, 1.48,
+                new Furniture("collector-glass-shelf", "bookshelf", "크롬 글라스 전시 선반", 1.28, 0.36, 1.48,
                         new Position(3.95, 0.98), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-console", "storage", "크림 LP 콘솔", 1.76, 0.44, 0.78,
+                new Furniture("collector-console", "media_console", "크림 LP 콘솔", 1.76, 0.44, 0.78,
                         new Position(5.08, 2.7), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-red-shelf", "shelf", "레트로 레드 벽 선반", 0.92, 0.18, 0.22,
+                new Furniture("collector-red-shelf", "partition_shelf", "레트로 레드 벽 선반", 0.92, 0.18, 0.22,
                         new Position(5.9, 2.3), 90, FurnitureStatus.RECOMMENDED),
                 new Furniture("collector-lounge-chair", "sofa", "코랄 라운지 체어", 0.92, 0.86, 0.84,
                         new Position(5.1, 4.55), 135, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-cane-chair", "chair", "케인 크롬 체어", 0.68, 0.7, 0.82,
+                new Furniture("collector-cane-chair", "desk_chair", "케인 크롬 체어", 0.68, 0.7, 0.82,
                         new Position(3.75, 4.6), 320, FurnitureStatus.RECOMMENDED),
                 new Furniture("collector-rug", "rug", "크림 라운드 러그", 2.2, 2.2, 0.035,
                         new Position(3.9, 4.08), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("collector-coffee-table", "table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
+                new Furniture("collector-coffee-table", "multi_table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
                         new Position(3.9, 4.08), 0, FurnitureStatus.RECOMMENDED)
         );
     }
@@ -163,29 +156,29 @@ public class RuleBasedPlacementService implements PlacementService {
         return List.of(
                 new Furniture("studio-bed", "bed", "코랄 프레임 침대", 1.35, 2.0, 0.5,
                         new Position(1.35, 1.8), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-bedside", "storage", "레드 미드센추리 협탁", 0.48, 0.42, 0.52,
+                new Furniture("studio-bedside", "nightstand", "레드 미드센추리 협탁", 0.48, 0.42, 0.52,
                         new Position(0.55, 1.7), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-floor-plant", "storage", "윈도우 플로어 식물", 0.48, 0.48, 0.92,
+                new Furniture("studio-floor-plant", "plant", "윈도우 플로어 식물", 0.48, 0.48, 0.92,
                         new Position(0.58, 4.5), 0, FurnitureStatus.RECOMMENDED),
                 new Furniture("studio-desk", "desk", "컬렉터 데스크", 1.35, 0.62, 0.74,
                         new Position(2.8, 1.05), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-desk-chair", "chair", "월넛 데스크 체어", 0.58, 0.58, 0.82,
+                new Furniture("studio-desk-chair", "desk_chair", "월넛 데스크 체어", 0.58, 0.58, 0.82,
                         new Position(2.8, 1.9), 180, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-blue-cabinet", "storage", "코발트 모듈 수납장", 0.78, 0.42, 1.08,
+                new Furniture("studio-blue-cabinet", "drawer_chest", "코발트 모듈 수납장", 0.78, 0.42, 1.08,
                         new Position(5.55, 1.0), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-glass-shelf", "storage", "크롬 글라스 전시 선반", 1.28, 0.36, 1.48,
+                new Furniture("studio-glass-shelf", "bookshelf", "크롬 글라스 전시 선반", 1.28, 0.36, 1.48,
                         new Position(4.45, 0.95), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-console", "storage", "크림 LP 콘솔", 1.76, 0.44, 0.78,
+                new Furniture("studio-console", "media_console", "크림 LP 콘솔", 1.76, 0.44, 0.78,
                         new Position(5.08, 2.7), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-red-shelf", "shelf", "레트로 레드 벽 선반", 0.92, 0.18, 0.22,
+                new Furniture("studio-red-shelf", "partition_shelf", "레트로 레드 벽 선반", 0.92, 0.18, 0.22,
                         new Position(5.9, 2.3), 90, FurnitureStatus.RECOMMENDED),
                 new Furniture("studio-lounge-chair", "sofa", "코랄 라운지 체어", 0.92, 0.86, 0.84,
                         new Position(5.45, 4.75), 135, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-cane-chair", "chair", "케인 크롬 체어", 0.68, 0.7, 0.82,
+                new Furniture("studio-cane-chair", "desk_chair", "케인 크롬 체어", 0.68, 0.7, 0.82,
                         new Position(3.4, 5.25), 225, FurnitureStatus.RECOMMENDED),
                 new Furniture("studio-rug", "rug", "크림 라운드 러그", 2.2, 2.2, 0.035,
                         new Position(4.35, 4.3), 0, FurnitureStatus.RECOMMENDED),
-                new Furniture("studio-coffee-table", "table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
+                new Furniture("studio-coffee-table", "multi_table", "글라스 커피 테이블", 0.9, 0.9, 0.42,
                         new Position(4.35, 4.3), 0, FurnitureStatus.RECOMMENDED)
         );
     }
@@ -333,7 +326,7 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private boolean isActivePlacedFurniture(Furniture furniture) {
-        return ACTIVE_STATUSES.contains(furniture.getStatus());
+        return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 
     private boolean fitsInRoom(Room room, Furniture candidate) {
@@ -407,11 +400,33 @@ public class RuleBasedPlacementService implements PlacementService {
         return copyFurniture(furniture, furniture.getPosition());
     }
 
-    private List<Furniture> clampScriptedRecommendation(Room room, List<Furniture> furniture) {
-        return furniture.stream()
+    private PlacementResult scriptedRecommendation(Room room, List<Furniture> scriptedFurniture) {
+        List<Furniture> furniture = new ArrayList<>(room.getFurniture().stream()
+                .filter(this::isActivePlacedFurniture)
+                .map(this::copyFurniture)
+                .toList());
+        Set<String> existingIds = furniture.stream().map(Furniture::getId).collect(Collectors.toSet());
+        scriptedFurniture.stream()
+                .filter(item -> !existingIds.contains(item.getId()))
                 .map(item -> copyFurniture(item,
                         FurnitureBoundary.clamp(room, item.getPosition(), item).orElse(item.getPosition())))
-                .toList();
+                .forEach(furniture::add);
+
+        ValidationResult validation = validationService.validate(room, furniture);
+        RecommendationExecutionStatus outcome = isHardValid(validation)
+                ? RecommendationExecutionStatus.SUCCESS
+                : validation.isBoundaryValid() && !furniture.isEmpty()
+                ? RecommendationExecutionStatus.PARTIAL_SUCCESS
+                : RecommendationExecutionStatus.FAILED;
+        String warningCode = outcome == RecommendationExecutionStatus.SUCCESS
+                ? null : "LAYOUT_VALIDATION_FAILED";
+        String message = switch (outcome) {
+            case SUCCESS -> "고정 데모 배치가 모든 검증 조건을 통과했습니다.";
+            case PARTIAL_SUCCESS -> "고정 데모 배치를 반환했지만 일부 검증 조건을 통과하지 못했습니다.";
+            case FAILED -> "고정 데모 배치가 필수 검증 조건을 통과하지 못했습니다.";
+        };
+        return new PlacementResult(RecommendationStatus.SUCCESS, furniture, ScoreSummary.defaultSummary(),
+                0, 0, List.of(), outcome, warningCode, message);
     }
 
     private Furniture copyFurniture(Furniture furniture, Position position) {

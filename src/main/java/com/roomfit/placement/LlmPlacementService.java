@@ -7,6 +7,7 @@ import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.llm.LlmClient;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
 import com.roomfit.room.Furniture;
@@ -37,10 +38,9 @@ import java.util.stream.Collectors;
  */
 public class LlmPlacementService implements PlacementService {
 
-    private static final Set<FurnitureStatus> ACTIVE_STATUSES = Set.of(
-            FurnitureStatus.EXISTING,
-            FurnitureStatus.USER_MODIFIED
-    );
+    // "storage" predates the generated catalog and remains a deliberately
+    // supported legacy type. It is not an alias for any canonical storage type.
+    private static final Set<String> EXPLICIT_LEGACY_TYPES = Set.of("storage");
 
     private final LlmClient llmClient;
     private final ValidationService validationService;
@@ -58,13 +58,15 @@ public class LlmPlacementService implements PlacementService {
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
         List<Furniture> activeExisting = room.getFurniture().stream()
-                .filter(item -> ACTIVE_STATUSES.contains(item.getStatus()))
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
                 .toList();
         List<MockProduct> selectedProducts = mockProductService.findByProductIds(context.getSelectedProductIds());
 
         String prompt = buildPrompt(room, activeExisting, context, selectedProducts);
         JsonNode root = parseJson(llmClient.complete(prompt));
         List<Furniture> candidate = toFurnitureList(root, activeExisting);
+
+        verifyRequestedTypeCounts(context, candidate);
 
         if (candidate.isEmpty()) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
@@ -116,13 +118,11 @@ public class LlmPlacementService implements PlacementService {
                 productId (nullable), styleTags (array, can be empty).
 
                 Rules:
-                - Reuse the exact same "id" for any existingFurniture item you keep (even if you move
-                  or rotate it) so it isn't treated as a brand new piece. Existing pieces you
-                  intentionally drop should simply be omitted from the output array.
-                - Every type listed in requiredItems must appear in the output (either an existing
-                  piece of that type, or a new one you add).
-                - Prefer adding optionalItems too when there is credible open floor space, but skip
-                  them rather than force an overlap.
+                - Include every existingFurniture item exactly once. For those items, id, type, label,
+                  width, depth, height, status, productId, variantId, and styleTags are immutable.
+                  You may change only position.x, position.z, and rotation.
+                - Every type listed in requiredItems and optionalItems is a required independent request:
+                  preserve its exact normalized type and do not substitute a similar type.
                 - Every piece's full footprint (width/depth rotated by `rotation`) must stay strictly
                   inside the room's width/depth, and must not overlap any other piece's footprint.
                 - Leave clearance in front of doors and windows (do not block them).
@@ -174,6 +174,9 @@ public class LlmPlacementService implements PlacementService {
         payload.put("position", Map.of("x", item.getPosition().getX(), "z", item.getPosition().getZ()));
         payload.put("rotation", item.getRotation());
         payload.put("status", item.getStatus());
+        payload.put("productId", item.getProductId());
+        payload.put("variantId", item.getVariantId());
+        payload.put("styleTags", item.getStyleTags());
         return payload;
     }
 
@@ -215,8 +218,16 @@ public class LlmPlacementService implements PlacementService {
         }
 
         List<Furniture> result = new ArrayList<>();
+        Set<String> responseIds = new java.util.HashSet<>();
         for (JsonNode item : furnitureNode) {
+            String id = text(item, "id");
+            if (id.isBlank() || !responseIds.add(id)) {
+                throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+            }
             result.add(toFurniture(item, existingById));
+        }
+        if (!responseIds.containsAll(existingById.keySet())) {
+            throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
         return result;
     }
@@ -238,8 +249,8 @@ public class LlmPlacementService implements PlacementService {
     }
 
     private Furniture toExistingFurniture(JsonNode item, JsonNode positionNode, Furniture existing) {
+        verifyExistingFurnitureInvariant(item, existing);
         double rotation = RotationUtils.snapToRightAngle(item.path("rotation").asDouble(0));
-        FurnitureStatus status = parseStatus(text(item, "status"), FurnitureStatus.USER_MODIFIED);
 
         return new Furniture(
                 existing.getId(), existing.getType(), existing.getLabel(),
@@ -248,7 +259,7 @@ public class LlmPlacementService implements PlacementService {
                 existing.getHeight(),
                 new Position(positionNode.path("x").asDouble(), positionNode.path("z").asDouble()),
                 rotation,
-                status,
+                existing.getStatus(),
                 existing.getProductId(),
                 existing.getStyleTags(),
                 existing.getVariantId()
@@ -270,26 +281,29 @@ public class LlmPlacementService implements PlacementService {
     private Furniture toNewFurniture(JsonNode item, JsonNode positionNode, String id) {
         MockProduct product = findCatalogProduct(text(item, "productId"));
         double rotation = RotationUtils.snapToRightAngle(item.path("rotation").asDouble(0));
-        FurnitureStatus status = parseStatus(text(item, "status"), FurnitureStatus.RECOMMENDED);
         Position position = new Position(positionNode.path("x").asDouble(), positionNode.path("z").asDouble());
 
         if (product != null) {
+            String canonicalType = canonicalOrLegacyType(product.getType());
+            if (canonicalType == null) {
+                throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+            }
             return new Furniture(
-                    id, product.getType(), product.getName(),
+                    id, canonicalType, product.getName(),
                     product.getWidth(),
                     product.getDepth(),
                     product.getHeight(),
                     position,
                     rotation,
-                    status,
+                    FurnitureStatus.RECOMMENDED,
                     product.getProductId(),
                     product.getStyleTags(),
                     product.getVariantId()
             );
         }
 
-        String type = text(item, "type");
-        if (type.isBlank() || !item.path("width").isNumber() || !item.path("depth").isNumber() || !item.path("height").isNumber()) {
+        String type = canonicalOrLegacyType(text(item, "type"));
+        if (type == null || !item.path("width").isNumber() || !item.path("depth").isNumber() || !item.path("height").isNumber()) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
         String label = text(item, "label");
@@ -301,7 +315,7 @@ public class LlmPlacementService implements PlacementService {
                 item.path("height").asDouble(),
                 position,
                 rotation,
-                status,
+                FurnitureStatus.RECOMMENDED,
                 null,
                 toStringList(item.path("styleTags")),
                 null
@@ -327,6 +341,62 @@ public class LlmPlacementService implements PlacementService {
             return FurnitureStatus.valueOf(raw);
         } catch (IllegalArgumentException e) {
             return fallback;
+        }
+    }
+
+    private void verifyExistingFurnitureInvariant(JsonNode item, Furniture existing) {
+        if (!existing.getType().equals(text(item, "type"))
+                || !existing.getLabel().equals(text(item, "label"))
+                || !sameNumber(existing.getWidth(), item.path("width"))
+                || !sameNumber(existing.getDepth(), item.path("depth"))
+                || !sameNumber(existing.getHeight(), item.path("height"))
+                || !existing.getStatus().name().equals(text(item, "status"))
+                || !sameNullableText(existing.getProductId(), item.get("productId"))
+                || !sameNullableText(existing.getVariantId(), item.get("variantId"))
+                || !existing.getStyleTags().equals(toStringList(item.get("styleTags")))) {
+            throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+        }
+    }
+
+    private boolean sameNumber(double expected, JsonNode node) {
+        return node != null && node.isNumber() && Double.compare(expected, node.asDouble()) == 0;
+    }
+
+    private boolean sameNullableText(String expected, JsonNode node) {
+        return expected == null ? node != null && node.isNull()
+                : node != null && node.isTextual() && expected.equals(node.asText());
+    }
+
+    private String canonicalOrLegacyType(String rawType) {
+        String normalized = GeneratedFurnitureCatalog.get().normalizeType(rawType);
+        if (normalized == null) {
+            return null;
+        }
+        boolean canonical = GeneratedFurnitureCatalog.get().products().stream()
+                .anyMatch(product -> product.getType().equals(normalized));
+        return canonical || EXPLICIT_LEGACY_TYPES.contains(normalized) ? normalized : null;
+    }
+
+    private void verifyRequestedTypeCounts(AgentContext context, List<Furniture> candidate) {
+        Map<String, Long> requestedCounts = new LinkedHashMap<>();
+        List<String> requested = new ArrayList<>(context.getRequiredItems());
+        requested.addAll(context.getOptionalItems());
+        for (String requestedType : requested) {
+            String normalized = canonicalOrLegacyType(requestedType);
+            if (normalized == null) {
+                throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+            }
+            requestedCounts.merge(normalized, 1L, Long::sum);
+        }
+
+        Map<String, Long> candidateCounts = candidate.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .map(item -> canonicalOrLegacyType(item.getType()))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.groupingBy(type -> type, LinkedHashMap::new, Collectors.counting()));
+        if (requestedCounts.entrySet().stream()
+                .anyMatch(entry -> candidateCounts.getOrDefault(entry.getKey(), 0L) < entry.getValue())) {
+            throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
     }
 
