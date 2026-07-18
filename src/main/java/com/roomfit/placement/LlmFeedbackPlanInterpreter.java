@@ -9,6 +9,7 @@ import com.roomfit.common.ErrorCode;
 import com.roomfit.llm.LlmClient;
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
 
@@ -225,7 +226,10 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 "feedback", feedback,
                 "room", Map.of("width", room.getWidth(), "depth", room.getDepth(), "height", room.getHeight(),
                         "openings", room.getOpenings().stream().map(this::opening).toList()),
-                "furniture", furniture.stream().map(this::furniture).toList(),
+                "furniture", furniture.stream()
+                        .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                        .map(this::furniture)
+                        .toList(),
                 "agentContext", Map.of("lifestyleGoal", context.getLifestyleGoal().name(),
                         "designStyle", context.getDesignStyle().stream().map(Enum::name).toList(),
                         "preferredColorTone", context.getPreferredColorTone() == null ? "" : context.getPreferredColorTone().name())

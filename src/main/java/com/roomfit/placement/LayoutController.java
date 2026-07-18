@@ -43,6 +43,39 @@ public class LayoutController {
         return CommonResponse.ok(layoutService.recommend(request));
     }
 
+    @GetMapping("/{layoutId}")
+    @Operation(summary = "배치 조회", description = "저장된 Layout의 전체 가구, 확정 상태, 원본 Layout ID, 최신 검증 및 점수를 반환합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "배치 조회 성공"),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId")
+    })
+    public CommonResponse<LayoutResponse> getLayout(@PathVariable Long layoutId) {
+        return CommonResponse.ok(layoutService.getLayout(layoutId));
+    }
+
+    @GetMapping("/rooms/{roomId}/confirmed/latest")
+    @Operation(summary = "방의 최신 확정 배치 조회", description = "저장된 인테리어 재편집에 사용할 방의 최신 확정 Layout을 반환합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "최신 확정 배치 조회 성공"),
+            @ApiResponse(responseCode = "404", description = "방 또는 확정 Layout 없음")
+    })
+    public CommonResponse<LayoutResponse> getLatestConfirmedLayout(@PathVariable Long roomId) {
+        return CommonResponse.ok(layoutService.getLatestConfirmedLayout(roomId));
+    }
+
+    @PostMapping("/{layoutId}/draft")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "확정 배치 재편집 Draft 생성", description = "확정 Layout을 변경하지 않고 전체 가구 metadata와 배치를 deep copy한 새 미확정 Draft를 생성합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Draft 생성 성공"),
+            @ApiResponse(responseCode = "400", description = "원본 Layout의 boundary가 유효하지 않음"),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 layoutId"),
+            @ApiResponse(responseCode = "409", description = "원본 Layout이 확정 상태가 아님")
+    })
+    public CommonResponse<LayoutResponse> createDraft(@PathVariable Long layoutId) {
+        return CommonResponse.ok(layoutService.createDraft(layoutId));
+    }
+
     @PostMapping("/validate")
     @Operation(summary = "현재 배치 검증", description = "사용자가 가구를 드래그하는 중 현재 화면의 가구 배치가 충돌/경계/문/창문/동선 조건을 만족하는지 검증합니다. 저장은 수행하지 않습니다. furniture 배열에는 현재 layoutId에 포함된 전체 furniture id 목록을 전달해야 합니다. 각 item은 full furniture object가 아니라 id, position, rotation, status 중심의 compact update item입니다. width/depth/height/productId/variantId/styleTags 등은 요청 필드가 아니라 백엔드 추천 결과 메타데이터입니다. 일부 가구 id만 전달하면 FURNITURE_ARRAY_MISMATCH가 발생할 수 있습니다.")
     @ApiResponses({
@@ -90,6 +123,20 @@ public class LayoutController {
     public CommonResponse<LayoutResponse> updateLayout(@PathVariable Long layoutId,
                                                          @RequestBody LayoutUpdateRequest request) {
         return CommonResponse.ok(layoutService.updateLayout(layoutId, request));
+    }
+
+    @PostMapping("/{layoutId}/furniture-additions")
+    @Operation(summary = "Draft 추가 희망 가구 배치", description = "현재 Draft의 기존 가구 위치와 metadata를 유지하고 Agent Context의 requiredItems 중 현재 없는 타입만 결정론적으로 안전한 위치에 추가합니다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "추가 가구 배치 또는 변경 없음"),
+            @ApiResponse(responseCode = "400", description = "Room과 Context 불일치 또는 잘못된 요청"),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 Layout 또는 Context"),
+            @ApiResponse(responseCode = "409", description = "이미 확정된 Layout"),
+            @ApiResponse(responseCode = "422", description = "선택한 가구를 안전하게 배치하지 못함")
+    })
+    public CommonResponse<LayoutResponse> addFurniture(@PathVariable Long layoutId,
+                                                        @RequestBody DraftFurnitureAdditionRequest request) {
+        return CommonResponse.ok(layoutService.addFurniture(layoutId, request));
     }
 
     @PostMapping("/{layoutId}/confirm")

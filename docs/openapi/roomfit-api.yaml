@@ -297,6 +297,21 @@ paths:
         "404":
           $ref: "#/components/responses/LayoutNotFound"
   /api/layouts/{layoutId}:
+    get:
+      tags: [Layouts]
+      summary: 배치 조회
+      description: 저장된 Layout의 전체 가구, 확정 상태, 원본 Layout ID, 최신 검증 및 점수를 반환합니다.
+      parameters:
+        - $ref: "#/components/parameters/LayoutId"
+      responses:
+        "200":
+          description: Layout snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayoutCommonResponse"
+        "404":
+          $ref: "#/components/responses/LayoutNotFound"
     put:
       tags: [Layouts]
       summary: 수정 배치 저장
@@ -340,6 +355,94 @@ paths:
           $ref: "#/components/responses/LayoutNotFound"
         "409":
           $ref: "#/components/responses/AlreadyConfirmed"
+  /api/layouts/{layoutId}/draft:
+    post:
+      tags: [Layouts]
+      summary: 확정 배치 재편집 Draft 생성
+      description: 확정 Layout을 변경하지 않고 전체 가구 metadata와 배치를 deep copy한 새 미확정 Draft를 생성합니다.
+      parameters:
+        - $ref: "#/components/parameters/LayoutId"
+      responses:
+        "201":
+          description: Draft layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayoutCommonResponse"
+        "400":
+          description: INVALID_FURNITURE_POSITION
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
+        "404":
+          $ref: "#/components/responses/LayoutNotFound"
+        "409":
+          description: LAYOUT_NOT_CONFIRMED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
+  /api/layouts/{layoutId}/furniture-additions:
+    post:
+      tags: [Layouts]
+      summary: Draft 추가 희망 가구 배치
+      description: 현재 Draft의 기존 가구 위치와 metadata를 유지하고 Agent Context의 requiredItems 중 현재 없는 타입만 결정론적으로 안전한 위치에 추가합니다.
+      parameters:
+        - $ref: "#/components/parameters/LayoutId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftFurnitureAdditionRequest"
+      responses:
+        "200":
+          description: Updated Draft layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayoutCommonResponse"
+        "400":
+          description: ROOM_CONTEXT_MISMATCH or INVALID_REQUEST_BODY
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
+        "404":
+          description: LAYOUT_NOT_FOUND or CONTEXT_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
+        "409":
+          $ref: "#/components/responses/AlreadyConfirmed"
+        "422":
+          description: FURNITURE_ADDITION_FAILED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
+  /api/layouts/rooms/{roomId}/confirmed/latest:
+    get:
+      tags: [Layouts]
+      summary: 방의 최신 확정 배치 조회
+      description: 저장된 인테리어 재편집에 사용할 방의 최신 확정 Layout을 반환합니다.
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: Latest confirmed layout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayoutCommonResponse"
+        "404":
+          description: ROOM_NOT_FOUND or LAYOUT_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorCommonResponse"
   /api/layouts/feedback:
     post:
       tags: [Layouts]
@@ -514,6 +617,8 @@ components:
             - UNSUPPORTED_FEEDBACK_INTENT
             - INVALID_REQUEST_BODY
             - ALREADY_CONFIRMED
+            - LAYOUT_NOT_CONFIRMED
+            - FURNITURE_ADDITION_FAILED
             - RECOMMENDATION_FAILED
           example: ROOM_NOT_FOUND
         message:
@@ -965,6 +1070,25 @@ components:
           format: int64
           description: 배치 ID
           example: 1
+        roomId:
+          type: integer
+          format: int64
+          description: 배치가 속한 방 ID
+          example: 1
+        sourceLayoutId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 재편집 Draft의 원본 배치 ID
+          example: 1
+        confirmed:
+          type: boolean
+          description: 최종 확정 여부
+        confirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 확정 시각. 미확정 Draft는 null
         status:
           type: string
           nullable: true
@@ -1072,6 +1196,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FurniturePositionDto"
+    DraftFurnitureAdditionRequest:
+      type: object
+      required: [contextId]
+      properties:
+        contextId:
+          type: integer
+          format: int64
+          description: Preference와 Add Furniture 선택을 반영한 Agent Context ID
     ValidationCommonResponse:
       allOf:
         - $ref: "#/components/schemas/CommonResponse"
@@ -1103,6 +1235,19 @@ components:
         layoutId:
           type: integer
           format: int64
+        roomId:
+          type: integer
+          format: int64
+        sourceLayoutId:
+          type: integer
+          format: int64
+          nullable: true
+        confirmed:
+          type: boolean
+        confirmedAt:
+          type: string
+          format: date-time
+          nullable: true
         status:
           type: string
           enum: [SUCCESS, FALLBACK]

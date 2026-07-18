@@ -37,7 +37,13 @@ class SwaggerUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tags[?(@.name == 'Rooms')].description").exists())
                 .andExpect(jsonPath("$.paths['/api/layouts/recommend'].post.summary").value("배치 추천 생성"))
+                .andExpect(jsonPath("$.paths['/api/layouts/{layoutId}'].get.summary").value("배치 조회"))
+                .andExpect(jsonPath("$.paths['/api/layouts/{layoutId}/draft'].post.summary").value("확정 배치 재편집 Draft 생성"))
+                .andExpect(jsonPath("$.paths['/api/layouts/{layoutId}/furniture-additions'].post.summary").value("Draft 추가 희망 가구 배치"))
+                .andExpect(jsonPath("$.paths['/api/layouts/rooms/{roomId}/confirmed/latest'].get.summary").value("방의 최신 확정 배치 조회"))
                 .andExpect(jsonPath("$.paths['/api/layouts/validate'].post.description", containsString("저장은 수행하지 않습니다")))
+                .andExpect(jsonPath("$.components.schemas.LayoutResponse.properties.sourceLayoutId").exists())
+                .andExpect(jsonPath("$.components.schemas.LayoutResponse.properties.confirmed").exists())
                 .andExpect(jsonPath("$.paths['/api/agent/context'].post.requestBody.content['application/json'].examples['Study focused context'].value.selectedProductIds[0]").value("desk-01"))
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.format").value("uri"))
                 .andExpect(jsonPath("$.components.schemas.MockProductResponse.properties.purchaseUrl.type").value(

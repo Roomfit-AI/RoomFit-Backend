@@ -4,6 +4,7 @@ import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.agent.domain.LifestyleGoal;
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -32,6 +33,7 @@ public class ScoreService {
         }
 
         Set<String> furnitureTypes = furniture.stream()
+                .filter(this::active)
                 .map(item -> GeneratedFurnitureCatalog.get().normalizeType(item.getType()))
                 .collect(Collectors.toSet());
 
@@ -41,6 +43,7 @@ public class ScoreService {
     private int calculateStyleScore(AgentContext context, List<Furniture> furniture) {
         Set<String> contextTags = Set.copyOf(context.getStyleTags());
         Set<String> furnitureTags = furniture.stream()
+                .filter(this::active)
                 .flatMap(item -> item.getStyleTags().stream())
                 .collect(Collectors.toSet());
 
@@ -59,5 +62,9 @@ public class ScoreService {
             return 90;
         }
         return 80;
+    }
+
+    private boolean active(Furniture furniture) {
+        return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 }

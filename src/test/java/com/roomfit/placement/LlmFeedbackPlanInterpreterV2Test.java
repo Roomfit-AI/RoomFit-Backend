@@ -275,6 +275,24 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void excludesDeletedFurnitureFromTheLlmPrompt() {
+        String[] capturedPrompt = new String[1];
+        Furniture deleted = new Furniture("deleted-desk", "desk", "삭제된 책상", 1.2, 0.6, 0.73,
+                new Position(2, 2), 0, FurnitureStatus.DELETED);
+        LlmFeedbackPlanInterpreter interpreter = new LlmFeedbackPlanInterpreter(prompt -> {
+            capturedPrompt[0] = prompt;
+            return directOperation("""
+                    "type":"MOVE",
+                    "placement":{"relation":"RIGHT","magnitude":"SMALL"}
+                    """);
+        }, objectMapper);
+
+        interpreter.interpret("책상을 오른쪽으로 옮겨줘", room(), List.of(desk(), deleted), context());
+
+        assertThat(capturedPrompt[0]).contains("desk-1").doesNotContain("deleted-desk");
+    }
+
+    @Test
     void ruleBasedFallbackDoesNotChooseTheFirstOfMultipleDesks() {
         Furniture secondDesk = new Furniture("desk-2", "desk", "두 번째 책상", 1.4, 0.7, 0.73,
                 new Position(4, 4), 0, FurnitureStatus.EXISTING);

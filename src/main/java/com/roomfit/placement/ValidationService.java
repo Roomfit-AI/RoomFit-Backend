@@ -50,6 +50,15 @@ public class ValidationService {
                 windowClearance, pathSecured, validationItems, warnings);
     }
 
+    boolean isSafeStandalonePlacement(Room room, Furniture furniture) {
+        List<Furniture> standalone = List.of(furniture);
+        List<String> warnings = new ArrayList<>();
+        return checkBoundaryValid(room, standalone, warnings)
+                && checkOpeningClearance(room, standalone, "door", warnings)
+                && checkOpeningClearance(room, standalone, "window", warnings)
+                && checkPathSecured(room, standalone, warnings);
+    }
+
     private boolean checkCollisionFree(List<Furniture> furniture, List<String> warnings) {
         for (int i = 0; i < furniture.size(); i++) {
             Rect current = Rect.from(furniture.get(i));

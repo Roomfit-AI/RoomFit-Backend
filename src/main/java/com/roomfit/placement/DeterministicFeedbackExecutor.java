@@ -169,7 +169,7 @@ public class DeterministicFeedbackExecutor {
                         placement.rotation(), FurnitureStatus.RECOMMENDED);
                 List<Furniture> snapshot = appended(base, added);
                 ValidationResult validation = validationService.validate(room, snapshot);
-                if (hardValid(validation)) {
+                if (safeAddition(room, base, added)) {
                     validCandidates.add(new CandidateEvaluation(snapshot, furnitureId, product.getProductId(),
                             score(context, snapshot, validation),
                             distanceFromReference(placement.position(), reference, room), globalOrder));
@@ -591,6 +591,31 @@ public class DeterministicFeedbackExecutor {
     private boolean hardValid(ValidationResult result) {
         return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
                 && result.isWindowClearance() && result.isPathSecured();
+    }
+
+    private boolean safeAddition(Room room, List<Furniture> base, Furniture added) {
+        if (!validationService.isSafeStandalonePlacement(room, added)) {
+            return false;
+        }
+        FurnitureBoundary.Footprint addedFootprint = FurnitureBoundary.footprint(added);
+        return base.stream()
+                .filter(this::active)
+                .noneMatch(existing -> overlaps(existing, added, FurnitureBoundary.footprint(existing), addedFootprint));
+    }
+
+    private boolean overlaps(Furniture first, Furniture second,
+                             FurnitureBoundary.Footprint firstFootprint,
+                             FurnitureBoundary.Footprint secondFootprint) {
+        double firstMinX = first.getPosition().getX() + firstFootprint.minX();
+        double firstMaxX = first.getPosition().getX() + firstFootprint.maxX();
+        double firstMinZ = first.getPosition().getZ() + firstFootprint.minZ();
+        double firstMaxZ = first.getPosition().getZ() + firstFootprint.maxZ();
+        double secondMinX = second.getPosition().getX() + secondFootprint.minX();
+        double secondMaxX = second.getPosition().getX() + secondFootprint.maxX();
+        double secondMinZ = second.getPosition().getZ() + secondFootprint.minZ();
+        double secondMaxZ = second.getPosition().getZ() + secondFootprint.maxZ();
+        return firstMinX < secondMaxX && firstMaxX > secondMinX
+                && firstMinZ < secondMaxZ && firstMaxZ > secondMinZ;
     }
 
     private List<Furniture> replace(List<Furniture> furniture, int index, Furniture updated) {

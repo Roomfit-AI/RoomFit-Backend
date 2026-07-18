@@ -22,6 +22,7 @@ public class Layout {
     private Long id;
     private Long roomId;
     private Long contextId;
+    private Long sourceLayoutId;
     // Room.furniture와 공유하지 않는 독립된 사본 — 추천/피드백 시점의 값 복사
     // 스냅샷이며(RuleBasedPlacementService.copyFurniture 등 참고), Room 쪽
     // 편집이 이 Layout에 자동 반영되지 않는다. 별도 @ElementCollection 테이블.
@@ -37,9 +38,14 @@ public class Layout {
     }
 
     public Layout(Long roomId, Long contextId, List<Furniture> furniture) {
+        this(roomId, contextId, furniture, null);
+    }
+
+    public Layout(Long roomId, Long contextId, List<Furniture> furniture, Long sourceLayoutId) {
         this.roomId = roomId;
         this.contextId = contextId;
         this.furniture = furniture;
+        this.sourceLayoutId = sourceLayoutId;
         this.confirmed = false;
     }
 
@@ -57,6 +63,14 @@ public class Layout {
 
     public Long getContextId() {
         return contextId;
+    }
+
+    public void setContextId(Long contextId) {
+        this.contextId = contextId;
+    }
+
+    public Long getSourceLayoutId() {
+        return sourceLayoutId;
     }
 
     public List<Furniture> getFurniture() {

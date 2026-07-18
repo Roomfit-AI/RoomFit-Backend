@@ -10,12 +10,21 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 
 @Schema(description = "사용자 피드백 기반 재추천 응답")
 public class FeedbackResponse {
 
     @Schema(description = "새로 생성된 배치 ID", example = "2")
     private final Long layoutId;
+    @Schema(description = "배치가 속한 방 ID", example = "1")
+    private final Long roomId;
+    @Schema(description = "피드백 결과 Layout의 원본 배치 ID", nullable = true)
+    private final Long sourceLayoutId;
+    @Schema(description = "최종 확정 여부")
+    private final boolean confirmed;
+    @Schema(description = "확정 시각", nullable = true)
+    private final LocalDateTime confirmedAt;
     @Schema(description = "재추천 상태", example = "SUCCESS")
     private final RecommendationStatus status;
     @Schema(description = "피드백을 반영한 추천 가구 배열")
@@ -29,12 +38,16 @@ public class FeedbackResponse {
     @Schema(description = "피드백 적용 결과. 실제 변경이 없을 때 이유를 포함합니다.")
     private final FeedbackResult feedbackResult;
 
-    private FeedbackResponse(Long layoutId, RecommendationStatus status, List<Furniture> recommendedFurniture,
-                              ScoreSummary scoreSummary, ValidationResult validationResult,
-                              Map<String, Object> interpretedIntent, FeedbackResult feedbackResult) {
-        this.layoutId = layoutId;
+    private FeedbackResponse(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
+                             ValidationResult validationResult, Map<String, Object> interpretedIntent,
+                             FeedbackResult feedbackResult) {
+        this.layoutId = layout.getId();
+        this.roomId = layout.getRoomId();
+        this.sourceLayoutId = layout.getSourceLayoutId();
+        this.confirmed = layout.isConfirmed();
+        this.confirmedAt = layout.getConfirmedAt();
         this.status = status;
-        this.recommendedFurniture = recommendedFurniture;
+        this.recommendedFurniture = layout.getFurniture();
         this.scoreSummary = scoreSummary;
         this.validationResult = validationResult;
         this.interpretedIntent = interpretedIntent;
@@ -43,19 +56,33 @@ public class FeedbackResponse {
 
     public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
                                        ValidationResult validationResult, Map<String, Object> interpretedIntent) {
-        return new FeedbackResponse(layout.getId(), status, layout.getFurniture(),
-                scoreSummary, validationResult, interpretedIntent, null);
+        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent, null);
     }
 
     public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
                                       ValidationResult validationResult, Map<String, Object> interpretedIntent,
                                       FeedbackResult feedbackResult) {
-        return new FeedbackResponse(layout.getId(), status, layout.getFurniture(),
-                scoreSummary, validationResult, interpretedIntent, feedbackResult);
+        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent, feedbackResult);
     }
 
     public Long getLayoutId() {
         return layoutId;
+    }
+
+    public Long getRoomId() {
+        return roomId;
+    }
+
+    public Long getSourceLayoutId() {
+        return sourceLayoutId;
+    }
+
+    public boolean isConfirmed() {
+        return confirmed;
+    }
+
+    public LocalDateTime getConfirmedAt() {
+        return confirmedAt;
     }
 
     public RecommendationStatus getStatus() {

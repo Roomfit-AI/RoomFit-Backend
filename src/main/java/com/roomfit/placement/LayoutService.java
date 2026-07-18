@@ -5,6 +5,7 @@ import com.roomfit.agent.repository.AgentContextRepository;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.placement.dto.*;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
@@ -82,6 +83,40 @@ public class LayoutService {
         return LayoutResponse.ofRecommendation(layout, scoredPlacementResult, validationResult);
     }
 
+    public LayoutResponse getLayout(Long layoutId) {
+        return snapshotResponse(findLayoutOrThrow(layoutId));
+    }
+
+    public LayoutResponse getLatestConfirmedLayout(Long roomId) {
+        roomRepository.findById(roomId)
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        Layout layout = layoutRepository.findFirstByRoomIdAndConfirmedTrueOrderByConfirmedAtDesc(roomId)
+                .orElseThrow(() -> new CustomException(ErrorCode.LAYOUT_NOT_FOUND));
+        return snapshotResponse(layout);
+    }
+
+    public LayoutResponse createDraft(Long sourceLayoutId) {
+        Layout source = findLayoutOrThrow(sourceLayoutId);
+        if (!source.isConfirmed()) {
+            throw new CustomException(ErrorCode.LAYOUT_NOT_CONFIRMED);
+        }
+
+        Room room = roomRepository.findById(source.getRoomId())
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        List<Furniture> furniture = deepCopyFurniture(source.getFurniture());
+        ValidationResult validationResult = validationService.validate(room, furniture);
+        if (!validationResult.isBoundaryValid()) {
+            throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
+        }
+
+        Layout draft = new Layout(source.getRoomId(), source.getContextId(), furniture, source.getId());
+        layoutRepository.save(draft);
+        AgentContext context = agentContextRepository.findById(source.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
+        ScoreSummary scoreSummary = scoreService.calculate(context, furniture, validationResult);
+        return LayoutResponse.ofSnapshot(draft, scoreSummary, validationResult);
+    }
+
     public ValidationResult validateOnly(ValidateRequest request) {
         Layout layout = findLayoutOrThrow(request.getLayoutId());
         Room room = roomRepository.findById(layout.getRoomId())
@@ -105,6 +140,77 @@ public class LayoutService {
         layout.setFurniture(updated);
         layoutRepository.save(layout);
 
+        ValidationResult validationResult = validationService.validate(room, updated);
+        ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
+        return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
+    }
+
+    public LayoutResponse addFurniture(Long layoutId, DraftFurnitureAdditionRequest request) {
+        Layout layout = findLayoutOrThrow(layoutId);
+        if (layout.isConfirmed()) {
+            throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
+        }
+        if (request == null || request.getContextId() == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+
+        Room room = roomRepository.findById(layout.getRoomId())
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        AgentContext context = agentContextRepository.findById(request.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
+        if (!room.getId().equals(context.getRoomId())) {
+            throw new CustomException(ErrorCode.ROOM_CONTEXT_MISMATCH);
+        }
+
+        Set<String> activeTypes = layout.getFurniture().stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .map(item -> GeneratedFurnitureCatalog.get().normalizeType(item.getType()))
+                .collect(Collectors.toSet());
+        List<String> requestedTypes = context.getRequiredItems().stream()
+                .map(GeneratedFurnitureCatalog.get()::normalizeType)
+                .filter(type -> type != null && !type.isBlank())
+                .distinct()
+                .filter(type -> !activeTypes.contains(type))
+                .toList();
+
+        List<FeedbackOperation> operations = new ArrayList<>();
+        for (int index = 0; index < requestedTypes.size(); index++) {
+            String type = requestedTypes.get(index);
+            operations.add(new FeedbackOperation(
+                    "add-selection-" + (index + 1),
+                    FeedbackOperationType.ADD_FURNITURE,
+                    new FeedbackTargetSelector("", type, ""),
+                    null,
+                    new FeedbackPlacement(FeedbackRelation.NEAR_WALL, null, null, null),
+                    null,
+                    new FeedbackProductRequirements(type, FeedbackSizePreference.ANY, false, List.of()),
+                    null,
+                    List.of()
+            ));
+        }
+
+        List<Furniture> updated = deepCopyFurniture(layout.getFurniture());
+        if (!operations.isEmpty()) {
+            FeedbackPlan plan = new FeedbackPlan(
+                    "2.0",
+                    operations.size() == 1 ? FeedbackRequestKind.DIRECT : FeedbackRequestKind.COMPOSITE,
+                    operations,
+                    List.of(),
+                    null,
+                    "Add Furniture selection",
+                    FeedbackSource.RULE_BASED,
+                    false
+            );
+            FeedbackExecution execution = feedbackExecutor.execute(plan, room, updated, context);
+            if (execution.result().operationsApplied().size() != operations.size()) {
+                throw new CustomException(ErrorCode.FURNITURE_ADDITION_FAILED);
+            }
+            updated = deepCopyFurniture(execution.furniture());
+        }
+
+        layout.setContextId(context.getId());
+        layout.setFurniture(updated);
+        layoutRepository.save(layout);
         ValidationResult validationResult = validationService.validate(room, updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
@@ -145,7 +251,7 @@ public class LayoutService {
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
             responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
-                    new ArrayList<>(execution.furniture()));
+                    deepCopyFurniture(execution.furniture()), baseLayout.getId());
             layoutRepository.save(responseLayout);
         }
 
@@ -188,6 +294,23 @@ public class LayoutService {
     private Layout findLayoutOrThrow(Long layoutId) {
         return layoutRepository.findById(layoutId)
                 .orElseThrow(() -> new CustomException(ErrorCode.LAYOUT_NOT_FOUND));
+    }
+
+    private LayoutResponse snapshotResponse(Layout layout) {
+        Room room = roomRepository.findById(layout.getRoomId())
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        AgentContext context = agentContextRepository.findById(layout.getContextId())
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
+        ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
+        ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
+        return LayoutResponse.ofSnapshot(layout, scoreSummary, validationResult);
+    }
+
+    private List<Furniture> deepCopyFurniture(List<Furniture> furniture) {
+        return furniture.stream()
+                .map(item -> copyFurniture(item, item.getPosition(), item.getRotation(),
+                        item.getWidth(), item.getDepth(), item.getHeight(), item.getStatus()))
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     /**
