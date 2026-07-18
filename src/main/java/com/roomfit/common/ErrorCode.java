@@ -29,6 +29,7 @@ public enum ErrorCode {
     ROOM_COPY_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "샘플 방만 복제할 수 있습니다."),
     CLIENT_ID_REQUIRED(HttpStatus.BAD_REQUEST, "X-RoomFit-Client-Id 헤더가 필요합니다."),
     INVALID_CLIENT_ID(HttpStatus.BAD_REQUEST, "X-RoomFit-Client-Id는 UUID 형식이어야 합니다."),
+    PAIRING_CODE_NOT_FOUND(HttpStatus.NOT_FOUND, "유효하지 않거나 만료된 코드입니다."),
     ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 배치입니다."),
     LAYOUT_NOT_CONFIRMED(HttpStatus.CONFLICT, "확정된 배치만 편집 Draft로 복제할 수 있습니다."),
     FURNITURE_ADDITION_FAILED(HttpStatus.UNPROCESSABLE_ENTITY, "선택한 추가 가구를 안전하게 배치할 수 없습니다."),
