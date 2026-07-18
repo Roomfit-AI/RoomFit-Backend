@@ -26,7 +26,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.ArrayList;
 import java.util.List;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "roomfit.llm.feedback.enabled=false",
+        "roomfit.llm.api-key=",
+        "roomfit.llm.base-url=",
+        "roomfit.llm.model="
+})
 @AutoConfigureMockMvc
 @Transactional
 class LayoutFeedbackControllerTest {
