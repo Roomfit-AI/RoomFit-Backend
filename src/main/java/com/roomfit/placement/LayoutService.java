@@ -187,15 +187,9 @@ public class LayoutService {
             throw new CustomException(ErrorCode.ROOM_CONTEXT_MISMATCH);
         }
 
-        Set<String> activeTypes = layout.getFurniture().stream()
-                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
-                .map(item -> GeneratedFurnitureCatalog.get().normalizeType(item.getType()))
-                .collect(Collectors.toSet());
         List<String> requestedTypes = context.getRequiredItems().stream()
                 .map(GeneratedFurnitureCatalog.get()::normalizeType)
                 .filter(type -> type != null && !type.isBlank())
-                .distinct()
-                .filter(type -> !activeTypes.contains(type))
                 .toList();
 
         List<FeedbackOperation> operations = new ArrayList<>();

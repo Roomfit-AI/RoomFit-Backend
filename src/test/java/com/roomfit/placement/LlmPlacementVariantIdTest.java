@@ -69,7 +69,7 @@ class LlmPlacementVariantIdTest {
                 ignored -> existingResponseJson("product-a", "desk-compact"),
                 new ValidationService(), productService, new ObjectMapper());
 
-        PlacementResult result = service.recommend(contextWithoutProducts(), roomWithExistingDesk());
+        PlacementResult result = service.recommend(contextWithoutRequestedItems(), roomWithExistingDesk());
 
         Furniture furniture = result.getRecommendedFurniture().getFirst();
         assertExistingCatalogMetadata(furniture);
@@ -77,6 +77,32 @@ class LlmPlacementVariantIdTest {
         assertThat(furniture.getPosition().getZ()).isEqualTo(2.0);
         assertThat(furniture.getRotation()).isEqualTo(90);
         verify(productService, never()).findByProductId(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void recommend_requiresNewDeskInAdditionToPreservedExistingDesk() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        LlmPlacementService service = new LlmPlacementService(
+                ignored -> """
+                        { "furniture": [
+                        %s,
+                        {"id":"desk-new-1","type":"desk","label":"새 책상","width":1.0,"depth":0.5,"height":0.7,
+                         "position":{"x":3.0,"z":3.0},"rotation":0,"status":"RECOMMENDED","styleTags":[]}
+                        ] }
+                        """.formatted(existingFurnitureJson("product-a", "desk-compact", "EXISTING")),
+                new ValidationService(), productService, new ObjectMapper());
+
+        PlacementResult result = service.recommend(contextWithoutProducts("desk"), roomWithExistingDesk());
+
+        assertThat(result.getRecommendedFurniture()).hasSize(2);
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> item.getId().equals("desk-1"))
+                .singleElement().satisfies(this::assertExistingCatalogMetadata);
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> item.getId().equals("desk-new-1"))
+                .singleElement().satisfies(item -> {
+                    assertThat(item.getType()).isEqualTo("desk");
+                    assertThat(item.getStatus()).isEqualTo(FurnitureStatus.RECOMMENDED);
+                });
     }
 
     @Test
@@ -236,6 +262,11 @@ class LlmPlacementVariantIdTest {
     private AgentContext contextWithoutProducts(String type) {
         return new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
                 List.of(type), List.of(), List.of(1L), List.of(), List.of("minimal"));
+    }
+
+    private AgentContext contextWithoutRequestedItems() {
+        return new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
+                List.of(), List.of(), List.of(1L), List.of(), List.of("minimal"));
     }
 
     private Room room() {

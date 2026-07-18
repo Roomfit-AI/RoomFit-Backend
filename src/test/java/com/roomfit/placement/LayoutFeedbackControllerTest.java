@@ -280,6 +280,15 @@ class LayoutFeedbackControllerTest {
                 .getContentAsString();
 
         Integer layoutId = JsonPath.read(layoutResponse, "$.data.layoutId");
+        removeNewRecommendedFurniture(layoutId.longValue());
         return layoutId.longValue();
+    }
+
+    private void removeNewRecommendedFurniture(Long layoutId) {
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        layout.setFurniture(new java.util.ArrayList<>(layout.getFurniture().stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.RECOMMENDED)
+                .toList()));
+        layoutRepository.save(layout);
     }
 }

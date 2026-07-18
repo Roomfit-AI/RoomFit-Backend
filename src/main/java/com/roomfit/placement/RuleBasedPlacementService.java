@@ -12,7 +12,6 @@ import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -77,11 +76,6 @@ public class RuleBasedPlacementService implements PlacementService {
                         Function.identity(),
                         (first, ignored) -> first));
 
-        Map<String, Integer> existingTypeCounts = new HashMap<>();
-        recommended.stream()
-                .map(furniture -> GeneratedFurnitureCatalog.get().normalizeType(furniture.getType()))
-                .forEach(type -> existingTypeCounts.merge(type, 1, Integer::sum));
-
         List<String> requestedItems = new ArrayList<>(context.getRequiredItems());
         requestedItems.addAll(context.getOptionalItems());
         List<UnplacedFurniture> unplaced = new ArrayList<>();
@@ -91,13 +85,6 @@ public class RuleBasedPlacementService implements PlacementService {
             String canonicalItemType = GeneratedFurnitureCatalog.get().normalizeType(itemType);
             if (canonicalItemType == null || !supportedType(canonicalItemType)) {
                 unplaced.add(unplaced(index, itemType, null, "UNSUPPORTED_FURNITURE_TYPE"));
-                continue;
-            }
-            int existingCount = existingTypeCounts.getOrDefault(canonicalItemType, 0);
-            if (existingCount > 0) {
-                // Existing active furniture already fulfils one request instance without mutating Room.
-                existingTypeCounts.put(canonicalItemType, existingCount - 1);
-                placedCount++;
                 continue;
             }
             PlacementAttempt attempt = tryAddFurniture(room, recommended, context, canonicalItemType,

@@ -66,7 +66,7 @@ public class LlmPlacementService implements PlacementService {
         JsonNode root = parseJson(llmClient.complete(prompt));
         List<Furniture> candidate = toFurnitureList(root, activeExisting);
 
-        verifyRequestedTypeCounts(context, candidate);
+        verifyRequestedTypeCounts(context, activeExisting, candidate);
 
         if (candidate.isEmpty()) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
@@ -377,7 +377,17 @@ public class LlmPlacementService implements PlacementService {
         return canonical || EXPLICIT_LEGACY_TYPES.contains(normalized) ? normalized : null;
     }
 
-    private void verifyRequestedTypeCounts(AgentContext context, List<Furniture> candidate) {
+    private void verifyRequestedTypeCounts(AgentContext context, List<Furniture> existing,
+                                           List<Furniture> candidate) {
+        Set<String> existingIds = existing.stream().map(Furniture::getId).collect(Collectors.toSet());
+        long preservedExistingCount = candidate.stream()
+                .map(Furniture::getId)
+                .filter(existingIds::contains)
+                .count();
+        if (preservedExistingCount != existingIds.size()) {
+            throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+        }
+
         Map<String, Long> requestedCounts = new LinkedHashMap<>();
         List<String> requested = new ArrayList<>(context.getRequiredItems());
         requested.addAll(context.getOptionalItems());
@@ -391,6 +401,7 @@ public class LlmPlacementService implements PlacementService {
 
         Map<String, Long> candidateCounts = candidate.stream()
                 .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> !existingIds.contains(item.getId()))
                 .map(item -> canonicalOrLegacyType(item.getType()))
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.groupingBy(type -> type, LinkedHashMap::new, Collectors.counting()));
