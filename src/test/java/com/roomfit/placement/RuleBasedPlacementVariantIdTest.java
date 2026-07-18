@@ -96,10 +96,12 @@ class RuleBasedPlacementVariantIdTest {
     }
 
     @Test
-    void recommend_skipsProductRecommendation_whenTypeAlreadyPlacedInRoom() {
+    void recommend_addsRequestedDeskWhenDeskAlreadyPlacedInRoom() {
         MockProductService productService = mock(MockProductService.class);
         when(productService.findByProductIds(List.of())).thenReturn(List.of());
         ProductRecommendationService productRecommendationService = mock(ProductRecommendationService.class);
+        when(productRecommendationService.recommend(eq("desk"), any(AgentContext.class), any(Room.class)))
+                .thenReturn(Optional.of(product("desk-corner")));
 
         Furniture existingDesk = new Furniture("existing-desk", "desk", "기존 책상", 1.2, 0.6, 0.72,
                 new Position(2.0, 1.0), 0, FurnitureStatus.EXISTING);
@@ -111,9 +113,69 @@ class RuleBasedPlacementVariantIdTest {
         PlacementResult result = new RuleBasedPlacementService(productService, productRecommendationService)
                 .recommend(context, room);
 
-        assertThat(result.getRecommendedFurniture()).hasSize(1);
-        assertThat(result.getRecommendedFurniture().getFirst().getId()).isEqualTo("existing-desk");
-        verify(productRecommendationService, never()).recommend(any(), any(), any());
+        assertThat(result.getRecommendedFurniture()).hasSize(2);
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> item.getId().equals("existing-desk"))
+                .singleElement().satisfies(item -> {
+                    assertThat(item.getType()).isEqualTo("desk");
+                    assertThat(item.getProductId()).isNull();
+                    assertThat(item.getVariantId()).isNull();
+                });
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> !item.getId().equals("existing-desk"))
+                .singleElement().extracting(Furniture::getType).isEqualTo("desk");
+        verify(productRecommendationService).recommend(eq("desk"), any(), any());
+    }
+
+    @Test
+    void recommend_addsEveryRequestedDeskBeyondTwoExistingDesks() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        ProductRecommendationService recommendations = mock(ProductRecommendationService.class);
+        when(recommendations.recommend(eq("desk"), any(AgentContext.class), any(Room.class)))
+                .thenReturn(Optional.of(product("desk-compact")));
+        Room room = new Room(null, 8.0, 8.0, 2.4, "meter", List.of(), List.of(
+                existingDesk("existing-desk-1", 1.0, 1.0), existingDesk("existing-desk-2", 1.0, 3.0)));
+        AgentContext context = new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
+                List.of("desk", "desk"), List.of(), List.of(1L), List.of(), List.of("minimal"));
+
+        PlacementResult result = new RuleBasedPlacementService(productService, recommendations).recommend(context, room);
+
+        assertThat(result.getRecommendedFurniture()).hasSize(4);
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> item.getId().startsWith("existing-desk"))
+                .hasSize(2);
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> "desk".equals(item.getType())
+                && !item.getId().startsWith("existing-desk")).hasSize(2);
+    }
+
+    @Test
+    void recommend_doesNotSkipRequestedBookshelfWhenBookshelfAlreadyExists() {
+        MockProduct bookshelf = new MockProduct("bookshelf-low-01", "bookshelf-low", "bookshelf", "낮은 책장", null,
+                0.8, 0.35, 1.2, (Integer) null, List.of("minimal"), null, null,
+                new RequiredClearance(0.4, 0.1));
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of("bookshelf-low-01"))).thenReturn(List.of(bookshelf));
+        Furniture existing = new Furniture("existing-bookshelf", "bookshelf", "기존 책장", 0.8, 0.35, 1.2,
+                new Position(1.0, 1.0), 0, FurnitureStatus.EXISTING,
+                "original-bookshelf", List.of("walnut"), "bookshelf-low");
+        Room room = new Room(null, 8.0, 8.0, 2.4, "meter", List.of(), List.of(existing));
+        AgentContext context = new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
+                List.of("bookshelf"), List.of(), List.of(1L), List.of("bookshelf-low-01"), List.of("minimal"));
+
+        PlacementResult result = new RuleBasedPlacementService(productService, mock(ProductRecommendationService.class))
+                .recommend(context, room);
+
+        assertThat(result.getRecommendedFurniture()).hasSize(2);
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> item.getId().equals("existing-bookshelf"))
+                .singleElement().satisfies(item -> {
+                    assertThat(item.getProductId()).isEqualTo("original-bookshelf");
+                    assertThat(item.getVariantId()).isEqualTo("bookshelf-low");
+                });
+        assertThat(result.getRecommendedFurniture()).filteredOn(item -> !item.getId().equals("existing-bookshelf"))
+                .singleElement().extracting(Furniture::getType).isEqualTo("bookshelf");
+    }
+
+    private Furniture existingDesk(String id, double x, double z) {
+        return new Furniture(id, "desk", "기존 책상", 1.2, 0.6, 0.72,
+                new Position(x, z), 0, FurnitureStatus.EXISTING);
     }
 
     private AgentContext context() {

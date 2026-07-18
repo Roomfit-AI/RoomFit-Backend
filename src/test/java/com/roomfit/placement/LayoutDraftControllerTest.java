@@ -223,7 +223,10 @@ class LayoutDraftControllerTest {
                 .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true));
 
         Layout withAddition = layoutRepository.findById(draftId).orElseThrow();
-        assertThat(withAddition.getFurniture()).hasSize(managedFurnitureCount + 1);
+        assertThat(withAddition.getFurniture()).hasSize(managedFurnitureCount + 2);
+        assertThat(withAddition.getFurniture().stream().filter(item -> "desk".equals(item.getType())
+                && !managedById.containsKey(item.getId()))).singleElement()
+                .satisfies(item -> assertThat(item.getStatus()).isEqualTo(com.roomfit.room.FurnitureStatus.RECOMMENDED));
         assertThat(withAddition.getFurniture().stream().filter(item -> "mood_lamp".equals(item.getType())))
                 .singleElement()
                 .satisfies(item -> {
@@ -256,7 +259,7 @@ class LayoutDraftControllerTest {
                                 { "layoutId": %d, "feedback": "책상 더 크게" }
                                 """.formatted(draftId)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.sourceLayoutId").value(draftId))
+                .andExpect(jsonPath("$.data.sourceLayoutId").value(sourceId))
                 .andReturn().getResponse().getContentAsString();
         Long feedbackLayoutId = ((Number) JsonPath.read(feedbackResponse, "$.data.layoutId")).longValue();
 

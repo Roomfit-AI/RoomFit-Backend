@@ -38,7 +38,7 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
                 new Position(3.0, 1.05), 0, FurnitureStatus.EXISTING);
         Furniture chair = new Furniture("chair-1", "chair", "우드 의자", 0.55, 0.55, 0.82,
                 new Position(3.0, 1.85), 180, FurnitureStatus.EXISTING);
-        Furniture wardrobe = new Furniture("wardrobe-1", "storage", "우드 옷장", 1.2, 0.65, 2.1,
+        Furniture wardrobe = new Furniture("wardrobe-1", "wardrobe", "우드 옷장", 1.2, 0.65, 2.1,
                 new Position(5.0, 3.85), 180, FurnitureStatus.EXISTING);
 
         Room sampleRoom = new Room(null, 5.8, 5.4, 2.7, "meter",

@@ -46,14 +46,23 @@ class LayoutVariantIdLifecycleControllerTest {
     private LayoutRepository layoutRepository;
 
     @Test
-    void updateFeedbackConfirmAndRoomRead_preserveVariantId() throws Exception {
+    void updateMoveFeedbackConfirmAndRoomRead_preserveAllBackendFurnitureFields() throws Exception {
         Layout layout = createLayout("desk-corner");
 
         String updateResponse = mockMvc.perform(put("/api/layouts/{layoutId}", layout.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateBody()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].id").value("desk-variant-1"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].type").value("desk"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].label").value("책상"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].width").value(1.2))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].depth").value(0.6))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].height").value(0.73))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].status").value("USER_MODIFIED"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].productId").value("desk-product"))
                 .andExpect(jsonPath("$.data.recommendedFurniture[0].variantId").value("desk-corner"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].styleTags[0]").value("minimal"))
                 .andReturn().getResponse().getContentAsString();
 
         Integer updatedLayoutId = JsonPath.read(updateResponse, "$.data.layoutId");
@@ -62,11 +71,20 @@ class LayoutVariantIdLifecycleControllerTest {
                         .content("""
                                 {
                                   "layoutId": %d,
-                                  "feedback": "책상을 조금 더 넓게 쓰고 싶어"
+                                  "feedback": "방이 넓어 보이게"
                                 }
                                 """.formatted(updatedLayoutId)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].id").value("desk-variant-1"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].type").value("desk"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].label").value("책상"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].width").value(1.2))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].depth").value(0.6))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].height").value(0.73))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].status").value("USER_MODIFIED"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].productId").value("desk-product"))
                 .andExpect(jsonPath("$.data.recommendedFurniture[0].variantId").value("desk-corner"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].styleTags[0]").value("minimal"))
                 .andReturn().getResponse().getContentAsString();
 
         Integer feedbackLayoutId = JsonPath.read(feedbackResponse, "$.data.layoutId");
@@ -76,7 +94,16 @@ class LayoutVariantIdLifecycleControllerTest {
 
         mockMvc.perform(get("/api/rooms/{roomId}", layout.getRoomId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.furniture[*].variantId").value(hasItems("desk-corner")));
+                .andExpect(jsonPath("$.data.furniture[0].id").value("desk-variant-1"))
+                .andExpect(jsonPath("$.data.furniture[0].type").value("desk"))
+                .andExpect(jsonPath("$.data.furniture[0].label").value("책상"))
+                .andExpect(jsonPath("$.data.furniture[0].width").value(1.2))
+                .andExpect(jsonPath("$.data.furniture[0].depth").value(0.6))
+                .andExpect(jsonPath("$.data.furniture[0].height").value(0.73))
+                .andExpect(jsonPath("$.data.furniture[0].status").value("USER_MODIFIED"))
+                .andExpect(jsonPath("$.data.furniture[0].productId").value("desk-product"))
+                .andExpect(jsonPath("$.data.furniture[0].variantId").value("desk-corner"))
+                .andExpect(jsonPath("$.data.furniture[0].styleTags[0]").value("minimal"));
     }
 
     @Test
