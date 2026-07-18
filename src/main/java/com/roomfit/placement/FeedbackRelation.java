@@ -8,5 +8,9 @@ public enum FeedbackRelation {
     NEAR_WINDOW,
     NEAR_WALL,
     AWAY_FROM_DOOR,
-    CENTER
+    CENTER,
+    NEXT_TO,
+    LEFT_OF,
+    RIGHT_OF,
+    IN_CORNER
 }

@@ -1,11 +1,14 @@
 package com.roomfit.placement;
 
+import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
+import com.roomfit.room.Opening;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -19,108 +22,221 @@ import java.util.Set;
 @Service
 public class DeterministicFeedbackExecutor {
 
+    private static final int MAX_ADD_VALIDATIONS = 24;
+    private static final int MAX_SWAP_VALIDATIONS = 24;
+    private static final double METRIC_TOLERANCE = 1.0e-9;
+
     private final ValidationService validationService;
     private final MockProductRepository productRepository;
+    private final RenderableProductCatalog renderableCatalog;
+    private final ScoreService scoreService;
     private final FeedbackPlanValidator planValidator;
+    private final FeedbackPlacementCandidateGenerator candidateGenerator;
 
-    public DeterministicFeedbackExecutor(ValidationService validationService, MockProductRepository productRepository) {
+    @Autowired
+    public DeterministicFeedbackExecutor(ValidationService validationService,
+                                         MockProductRepository productRepository,
+                                         RenderableProductCatalog renderableCatalog,
+                                         ScoreService scoreService) {
         this.validationService = validationService;
         this.productRepository = productRepository;
+        this.renderableCatalog = renderableCatalog;
+        this.scoreService = scoreService;
         this.planValidator = new FeedbackPlanValidator();
+        this.candidateGenerator = new FeedbackPlacementCandidateGenerator();
+    }
+
+    DeterministicFeedbackExecutor(ValidationService validationService, MockProductRepository productRepository) {
+        this(validationService, productRepository, new RenderableProductCatalog(productRepository.findAll()), new ScoreService());
+    }
+
+    DeterministicFeedbackExecutor(ValidationService validationService,
+                                  MockProductRepository productRepository,
+                                  RenderableProductCatalog renderableCatalog,
+                                  ScoreService scoreService,
+                                  FeedbackPlacementCandidateGenerator candidateGenerator) {
+        this.validationService = validationService;
+        this.productRepository = productRepository;
+        this.renderableCatalog = renderableCatalog;
+        this.scoreService = scoreService;
+        this.planValidator = new FeedbackPlanValidator();
+        this.candidateGenerator = candidateGenerator;
     }
 
     public FeedbackExecution execute(FeedbackPlan plan, Room room, List<Furniture> original) {
+        return execute(plan, room, original, null);
+    }
+
+    public FeedbackExecution execute(FeedbackPlan plan, Room room, List<Furniture> original, AgentContext context) {
         planValidator.validate(plan);
         List<String> requested = plan.operations().stream().map(operation -> operation.type().name()).toList();
         if (plan.needsClarification()) {
-            return noChange(original, plan, requested, "NEEDS_CLARIFICATION", plan.clarification().question());
+            return noChange(original, plan, requested, "NEEDS_CLARIFICATION",
+                    plan.clarification().question(), List.of());
         }
         if (plan.operations().isEmpty()) {
-            return noChange(original, plan, requested, "UNSUPPORTED_OPERATION", "이번 피드백에서는 요청한 작업을 지원하지 않습니다.");
+            return noChange(original, plan, requested, "UNSUPPORTED_OPERATION",
+                    "이번 피드백에서는 요청한 작업을 지원하지 않습니다.", List.of());
         }
-        List<Furniture> candidate = new ArrayList<>(original);
+
+        List<Furniture> working = new ArrayList<>(original);
         List<String> applied = new ArrayList<>();
+        List<FeedbackOperationExecution> operationResults = new ArrayList<>();
         Set<String> appliedOperationIds = new HashSet<>();
-        String noChangeReason = null;
+        String lastFailureReason = null;
+
         for (FeedbackOperation operation : plan.operations()) {
             if (!appliedOperationIds.containsAll(operation.dependsOn())) {
-                noChangeReason = "DEPENDENCY_NOT_APPLIED";
+                lastFailureReason = "DEPENDENCY_NOT_APPLIED";
+                operationResults.add(FeedbackOperationExecution.skipped(operation, lastFailureReason));
                 continue;
             }
-            TargetResolution resolution = resolveTarget(operation.target(), candidate);
-            if (resolution.status() == TargetResolutionStatus.AMBIGUOUS) {
-                noChangeReason = "NEEDS_CLARIFICATION";
+
+            OperationAttempt attempt = applyOperation(operation, room, working, context);
+            if (!attempt.applied()) {
+                lastFailureReason = attempt.reasonCode();
+                operationResults.add(FeedbackOperationExecution.failed(operation, attempt.reasonCode()));
                 continue;
             }
-            if (resolution.status() == TargetResolutionStatus.NOT_FOUND) {
-                noChangeReason = "TARGET_FURNITURE_NOT_FOUND";
-                continue;
-            }
-            int targetIndex = resolution.index();
-            OperationAttempt attempt = switch (operation.type()) {
-                case MOVE -> OperationAttempt.applied(move(room, candidate, targetIndex, operation));
-                case ROTATE -> OperationAttempt.applied(rotate(room, candidate, targetIndex, operation));
-                case REPLACE_PRODUCT -> replace(room, candidate, targetIndex, operation.constraints());
-                case ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE, CHANGE_MATERIAL, CHANGE_COLOR_TONE ->
-                        OperationAttempt.notApplied("UNSUPPORTED_OPERATION");
-            };
-            if (attempt.furniture().isEmpty()) {
-                noChangeReason = attempt.noChangeReason();
-                continue;
-            }
-            candidate.set(targetIndex, attempt.furniture().get());
+
+            working = new ArrayList<>(attempt.snapshot());
             applied.add(operation.type().name());
             appliedOperationIds.add(operation.operationId());
+            operationResults.add(FeedbackOperationExecution.applied(operation, attempt.affectedFurnitureId()));
         }
 
         if (applied.isEmpty()) {
-            String summary = summaryFor(noChangeReason);
-            return noChange(original, plan, requested, noChangeReason == null ? "NO_CHANGE" : noChangeReason, summary);
+            String reason = lastFailureReason == null ? "NO_CHANGE" : lastFailureReason;
+            return noChange(original, plan, requested, reason, summaryFor(reason), operationResults);
         }
-        return new FeedbackExecution(candidate, new FeedbackResult(true, plan.source(), plan.fallbackUsed(),
-                "요청한 배치 변경을 적용했습니다.", requested, applied, null));
+        return new FeedbackExecution(working,
+                new FeedbackResult(true, plan.source(), plan.fallbackUsed(),
+                        "적용 가능한 배치 변경을 반영했습니다.", requested, applied, null),
+                operationResults);
     }
 
-    private TargetResolution resolveTarget(FeedbackTargetSelector target, List<Furniture> furniture) {
-        if (!target.furnitureId().isBlank()) {
-            for (int i = 0; i < furniture.size(); i++) {
-                if (target.furnitureId().equals(furniture.get(i).getId())
-                        && furniture.get(i).getStatus() != FurnitureStatus.DELETED) {
-                    return TargetResolution.resolved(i);
+    private OperationAttempt applyOperation(FeedbackOperation operation, Room room,
+                                            List<Furniture> working, AgentContext context) {
+        if (operation.type() == FeedbackOperationType.ADD_FURNITURE) {
+            return add(room, working, operation, context);
+        }
+
+        TargetResolution resolution = resolveTarget(operation.target(), working, room);
+        if (resolution.status() != TargetResolutionStatus.RESOLVED) {
+            return OperationAttempt.failed(targetFailureReason(resolution.status(), false));
+        }
+        int targetIndex = resolution.index();
+
+        return switch (operation.type()) {
+            case MOVE -> move(room, working, targetIndex, operation);
+            case ROTATE -> rotate(room, working, targetIndex, operation);
+            case REPLACE_PRODUCT -> replace(room, working, targetIndex, operation.constraints());
+            case REMOVE_FURNITURE -> remove(working, targetIndex);
+            case SWAP_FURNITURE -> swap(room, working, targetIndex,
+                    operation.replacementRequirements(), context);
+            case ADD_FURNITURE -> throw new IllegalStateException("ADD is handled before target resolution");
+            case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> OperationAttempt.failed("UNSUPPORTED_OPERATION");
+        };
+    }
+
+    private OperationAttempt add(Room room, List<Furniture> base, FeedbackOperation operation, AgentContext context) {
+        Furniture reference = null;
+        if (operation.referenceTarget() != null) {
+            TargetResolution referenceResolution = resolveTarget(operation.referenceTarget(), base, room);
+            if (referenceResolution.status() != TargetResolutionStatus.RESOLVED) {
+                return OperationAttempt.failed(targetFailureReason(referenceResolution.status(), true));
+            }
+            reference = base.get(referenceResolution.index());
+        }
+
+        List<MockProduct> products = renderableCatalog.findCandidates(operation.productRequirements(), null);
+        if (products.isEmpty()) {
+            return OperationAttempt.failed("NO_RENDERABLE_PRODUCT");
+        }
+
+        String furnitureId = generateFurnitureId(operation.productRequirements().furnitureType(), base);
+        List<CandidateEvaluation> validCandidates = new ArrayList<>();
+        int validations = 0;
+        int globalOrder = 0;
+        for (MockProduct product : products) {
+            List<FeedbackPlacementCandidateGenerator.PlacementCandidate> placements =
+                    candidateGenerator.forAdd(room, product, operation.placement(), reference);
+            for (FeedbackPlacementCandidateGenerator.PlacementCandidate placement : placements) {
+                if (validations++ == MAX_ADD_VALIDATIONS) break;
+                Furniture added = furnitureFromProduct(furnitureId, product, placement.position(),
+                        placement.rotation(), FurnitureStatus.RECOMMENDED);
+                List<Furniture> snapshot = appended(base, added);
+                ValidationResult validation = validationService.validate(room, snapshot);
+                if (hardValid(validation)) {
+                    validCandidates.add(new CandidateEvaluation(snapshot, furnitureId, product.getProductId(),
+                            score(context, snapshot, validation),
+                            distanceFromReference(placement.position(), reference, room), globalOrder));
                 }
+                globalOrder++;
             }
-            return TargetResolution.notFound();
+            if (validations >= MAX_ADD_VALIDATIONS) break;
         }
 
-        List<Integer> matches = new ArrayList<>();
-        String labelKeyword = target.labelKeyword().toLowerCase(Locale.ROOT);
-        for (int i = 0; i < furniture.size(); i++) {
-            Furniture item = furniture.get(i);
-            if (item.getStatus() == FurnitureStatus.DELETED) {
-                continue;
-            }
-            if (!target.furnitureType().isBlank() && !target.furnitureType().equals(item.getType())) {
-                continue;
-            }
-            String label = item.getLabel() == null ? "" : item.getLabel().toLowerCase(Locale.ROOT);
-            if (!labelKeyword.isBlank() && !label.contains(labelKeyword)) {
-                continue;
-            }
-            matches.add(i);
-        }
-        if (matches.isEmpty()) return TargetResolution.notFound();
-        if (matches.size() > 1) return TargetResolution.ambiguous();
-        return TargetResolution.resolved(matches.getFirst());
+        return bestCandidate(validCandidates)
+                .map(candidate -> OperationAttempt.applied(candidate.snapshot(), candidate.affectedFurnitureId()))
+                .orElseGet(() -> OperationAttempt.failed("NO_VALID_ADD_PLACEMENT"));
     }
 
-    private Optional<Furniture> move(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
-        Furniture current = base.get(index);
-        List<Position> positions = movePositions(room, current, operation);
-        for (Position position : positions) {
-            Furniture updated = copy(current, position, current.getRotation());
-            if (!samePosition(current, updated) && valid(room, replace(base, index, updated))) return Optional.of(updated);
+    private OperationAttempt remove(List<Furniture> base, int targetIndex) {
+        String removedId = base.get(targetIndex).getId();
+        List<Furniture> snapshot = new ArrayList<>(base);
+        snapshot.remove(targetIndex);
+        return OperationAttempt.applied(snapshot, removedId);
+    }
+
+    private OperationAttempt swap(Room room, List<Furniture> base, int targetIndex,
+                                  FeedbackProductRequirements requirements, AgentContext context) {
+        Furniture current = base.get(targetIndex);
+        RenderableProductCatalog.FurnitureSize referenceSize = new RenderableProductCatalog.FurnitureSize(
+                current.getWidth(), current.getDepth(), current.getHeight());
+        List<MockProduct> products = renderableCatalog.findCandidates(requirements, referenceSize).stream()
+                .filter(product -> !product.getProductId().equals(current.getProductId()))
+                .toList();
+        if (products.isEmpty()) {
+            return OperationAttempt.failed("NO_RENDERABLE_PRODUCT");
         }
-        return Optional.empty();
+
+        List<CandidateEvaluation> validCandidates = new ArrayList<>();
+        int validations = 0;
+        int globalOrder = 0;
+        for (MockProduct product : products) {
+            for (FeedbackPlacementCandidateGenerator.PlacementCandidate placement
+                    : candidateGenerator.forSwap(room, current, product)) {
+                if (validations++ == MAX_SWAP_VALIDATIONS) break;
+                Furniture swapped = furnitureFromProduct(current.getId(), product, placement.position(),
+                        placement.rotation(), current.getStatus());
+                List<Furniture> snapshot = replace(base, targetIndex, swapped);
+                ValidationResult validation = validationService.validate(room, snapshot);
+                if (hardValid(validation)) {
+                    validCandidates.add(new CandidateEvaluation(snapshot, current.getId(), product.getProductId(),
+                            score(context, snapshot, validation),
+                            distance(current.getPosition(), placement.position()), globalOrder));
+                }
+                globalOrder++;
+            }
+            if (validations >= MAX_SWAP_VALIDATIONS) break;
+        }
+
+        return bestCandidate(validCandidates)
+                .map(candidate -> OperationAttempt.applied(candidate.snapshot(), candidate.affectedFurnitureId()))
+                .orElseGet(() -> OperationAttempt.failed("NO_VALID_SWAP_PLACEMENT"));
+    }
+
+    private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
+        Furniture current = base.get(index);
+        for (Position position : movePositions(room, current, operation)) {
+            Furniture updated = copy(current, position, current.getRotation());
+            List<Furniture> snapshot = replace(base, index, updated);
+            if (!samePosition(current, updated) && valid(room, snapshot)) {
+                return OperationAttempt.applied(snapshot, current.getId());
+            }
+        }
+        return OperationAttempt.failed("NO_VALID_MOVE_PLACEMENT");
     }
 
     private List<Position> movePositions(Room room, Furniture item, FeedbackOperation operation) {
@@ -137,31 +253,39 @@ public class DeterministicFeedbackExecutor {
             case CENTER -> new Position(room.getWidth() / 2.0, room.getDepth() / 2.0);
             case NEAR_WALL -> new Position(room.getWidth() - footprint.effectiveWidth() / 2.0, z);
             case NEAR_WINDOW -> new Position(x, room.getDepth() - footprint.effectiveDepth() / 2.0);
-            case AWAY_FROM_DOOR -> new Position(x, Math.min(room.getDepth() - footprint.effectiveDepth() / 2.0, z + distance));
+            case AWAY_FROM_DOOR -> new Position(x,
+                    Math.min(room.getDepth() - footprint.effectiveDepth() / 2.0, z + distance));
+            case NEXT_TO, LEFT_OF, RIGHT_OF, IN_CORNER ->
+                    throw new IllegalArgumentException("Unsupported MOVE relation: " + placement.relation());
         };
         return List.of(delta, clamp(room, delta, footprint));
     }
 
-    private Optional<Furniture> rotate(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
+    private OperationAttempt rotate(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
         Furniture current = base.get(index);
         for (double rotation : FeedbackPlacementPolicy.rotationCandidates(
                 current.getRotation(), operation.placement().orientation())) {
             if (rotation == FeedbackPlacementPolicy.normalize(current.getRotation())) continue;
             Furniture updated = copy(current, current.getPosition(), rotation);
-            if (valid(room, replace(base, index, updated))) return Optional.of(updated);
+            List<Furniture> snapshot = replace(base, index, updated);
+            if (valid(room, snapshot)) {
+                return OperationAttempt.applied(snapshot, current.getId());
+            }
         }
-        return Optional.empty();
+        return OperationAttempt.failed("NO_VALID_ROTATION");
     }
 
-    private OperationAttempt replace(Room room, List<Furniture> base, int index, FeedbackReplaceConstraints constraints) {
+    private OperationAttempt replace(Room room, List<Furniture> base, int index,
+                                     FeedbackReplaceConstraints constraints) {
         Furniture current = base.get(index);
         if (!validReplaceConstraints(current, constraints)) {
-            return OperationAttempt.notApplied("INVALID_REPLACE_CONSTRAINTS");
+            return OperationAttempt.failed("INVALID_REPLACE_CONSTRAINTS");
         }
         if (currentProductMatches(current, constraints)) {
-            return OperationAttempt.notApplied("CURRENT_PRODUCT_ALREADY_MATCHES");
+            return OperationAttempt.failed("CURRENT_PRODUCT_ALREADY_MATCHES");
         }
         List<MockProduct> products = productRepository.findAll().stream()
+                .filter(renderableCatalog::isRenderable)
                 .filter(product -> current.getType().equals(product.getType()))
                 .filter(product -> !product.getProductId().equals(current.getProductId()))
                 .filter(product -> !constraints.largerThanCurrent() || product.getWidth() > current.getWidth())
@@ -172,15 +296,122 @@ public class DeterministicFeedbackExecutor {
                 .sorted(productComparator(constraints.storagePreferred()))
                 .toList();
         if (products.isEmpty()) {
-            return OperationAttempt.notApplied(constraints.largerThanCurrent()
+            return OperationAttempt.failed(constraints.largerThanCurrent()
                     ? "NO_LARGER_PRODUCT_AVAILABLE" : "NO_MATCHING_PRODUCT");
         }
-        Optional<Furniture> placed = products.stream()
-                .map(product -> replacement(room, base, index, current, product))
-                .flatMap(Optional::stream)
-                .findFirst();
-        return placed.map(OperationAttempt::applied)
-                .orElseGet(() -> OperationAttempt.notApplied("NO_VALID_PRODUCT_PLACEMENT"));
+        for (MockProduct product : products) {
+            Optional<Furniture> placed = replacement(room, base, index, current, product);
+            if (placed.isPresent()) {
+                return OperationAttempt.applied(replace(base, index, placed.get()), current.getId());
+            }
+        }
+        return OperationAttempt.failed("NO_VALID_PRODUCT_PLACEMENT");
+    }
+
+    private TargetResolution resolveTarget(FeedbackTargetSelector target, List<Furniture> furniture, Room room) {
+        if (!target.furnitureId().isBlank()) {
+            for (int i = 0; i < furniture.size(); i++) {
+                if (target.furnitureId().equals(furniture.get(i).getId()) && active(furniture.get(i))) {
+                    return TargetResolution.resolved(i);
+                }
+            }
+            return TargetResolution.notFound();
+        }
+
+        List<Integer> matches = new ArrayList<>();
+        String labelKeyword = target.labelKeyword().toLowerCase(Locale.ROOT);
+        for (int i = 0; i < furniture.size(); i++) {
+            Furniture item = furniture.get(i);
+            if (!active(item)) continue;
+            if (!target.furnitureType().isBlank() && !target.furnitureType().equals(item.getType())) continue;
+            String label = item.getLabel() == null ? "" : item.getLabel().toLowerCase(Locale.ROOT);
+            if (!labelKeyword.isBlank() && !label.contains(labelKeyword)) continue;
+            matches.add(i);
+        }
+        if (matches.isEmpty()) return TargetResolution.notFound();
+
+        if (target.locationHint() != null) {
+            return resolveByLocationHint(target.locationHint(), matches, furniture, room);
+        }
+        if (target.ordinal() != null) {
+            List<Integer> ordered = matches.stream()
+                    .sorted(Comparator.comparingDouble((Integer index) -> furniture.get(index).getPosition().getX())
+                            .thenComparingDouble(index -> furniture.get(index).getPosition().getZ())
+                            .thenComparing(index -> furniture.get(index).getId()))
+                    .toList();
+            int ordinalIndex = target.ordinal() - 1;
+            return ordinalIndex < ordered.size()
+                    ? TargetResolution.resolved(ordered.get(ordinalIndex)) : TargetResolution.notFound();
+        }
+        if (matches.size() > 1) return TargetResolution.ambiguous();
+        return TargetResolution.resolved(matches.getFirst());
+    }
+
+    private TargetResolution resolveByLocationHint(FeedbackLocationHint hint, List<Integer> matches,
+                                                    List<Furniture> furniture, Room room) {
+        if (hint == FeedbackLocationHint.NEAR_WINDOW
+                && room.getOpenings().stream().noneMatch(opening -> "window".equals(opening.getType()))) {
+            return TargetResolution.unsupportedSelector();
+        }
+        boolean maximum = hint == FeedbackLocationHint.LARGEST;
+        double selectedMetric = maximum ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
+        List<Integer> selected = new ArrayList<>();
+        for (Integer index : matches) {
+            double metric = locationMetric(hint, furniture.get(index), room);
+            boolean better = maximum ? metric > selectedMetric + METRIC_TOLERANCE
+                    : metric < selectedMetric - METRIC_TOLERANCE;
+            if (better) {
+                selectedMetric = metric;
+                selected.clear();
+                selected.add(index);
+            } else if (Math.abs(metric - selectedMetric) <= METRIC_TOLERANCE) {
+                selected.add(index);
+            }
+        }
+        return selected.size() == 1 ? TargetResolution.resolved(selected.getFirst()) : TargetResolution.ambiguous();
+    }
+
+    private double locationMetric(FeedbackLocationHint hint, Furniture item, Room room) {
+        return switch (hint) {
+            case CENTER -> distance(item.getPosition(), new Position(room.getWidth() / 2.0, room.getDepth() / 2.0));
+            case LARGEST, SMALLEST -> item.getWidth() * item.getDepth() * item.getHeight();
+            case NEAR_WINDOW -> room.getOpenings().stream()
+                    .filter(opening -> "window".equals(opening.getType()))
+                    .map(opening -> openingPosition(opening, room))
+                    .mapToDouble(position -> distance(item.getPosition(), position))
+                    .min()
+                    .orElse(Double.POSITIVE_INFINITY);
+        };
+    }
+
+    private Position openingPosition(Opening opening, Room room) {
+        double center = opening.getOffset() + opening.getWidth() / 2.0;
+        return switch (opening.getWall()) {
+            case "north" -> new Position(center, room.getDepth());
+            case "south" -> new Position(center, 0);
+            case "east" -> new Position(room.getWidth(), center);
+            case "west" -> new Position(0, center);
+            default -> new Position(0, 0);
+        };
+    }
+
+    private String targetFailureReason(TargetResolutionStatus status, boolean reference) {
+        return switch (status) {
+            case NOT_FOUND -> reference ? "REFERENCE_TARGET_NOT_FOUND" : "TARGET_NOT_FOUND";
+            case AMBIGUOUS -> reference ? "AMBIGUOUS_REFERENCE_TARGET" : "AMBIGUOUS_TARGET";
+            case UNSUPPORTED_SELECTOR -> reference
+                    ? "UNSUPPORTED_REFERENCE_LOCATION_HINT" : "UNSUPPORTED_LOCATION_HINT";
+            case RESOLVED -> throw new IllegalArgumentException("Resolved target has no failure reason");
+        };
+    }
+
+    private Optional<CandidateEvaluation> bestCandidate(List<CandidateEvaluation> candidates) {
+        return candidates.stream().min(
+                Comparator.comparingInt(CandidateEvaluation::score).reversed()
+                        .thenComparingDouble(CandidateEvaluation::movementDistance)
+                        .thenComparing(CandidateEvaluation::productId)
+                        .thenComparingInt(CandidateEvaluation::order)
+        );
     }
 
     private boolean validReplaceConstraints(Furniture current, FeedbackReplaceConstraints constraints) {
@@ -196,9 +427,7 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean currentProductMatches(Furniture current, FeedbackReplaceConstraints constraints) {
-        if (current.getProductId() == null || constraints.largerThanCurrent()) {
-            return false;
-        }
+        if (current.getProductId() == null || constraints.largerThanCurrent()) return false;
         return productRepository.findById(current.getProductId())
                 .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
                 .filter(product -> product.getStyleTags().containsAll(constraints.requiredStyleTags()))
@@ -214,17 +443,14 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean hasStorage(MockProduct product) {
-        // STORAGE lifestyleTag alone is not sufficient: desk-corner also uses that tag for
-        // recommendation scoring, but it is not a storage-desk replacement.  The catalog's
-        // dedicated storage metadata is represented by the storage variant.
         return product.getVariantId() != null && product.getVariantId().contains("storage");
     }
 
-    private Optional<Furniture> replacement(Room room, List<Furniture> base, int index, Furniture current, MockProduct product) {
+    private Optional<Furniture> replacement(Room room, List<Furniture> base, int index,
+                                            Furniture current, MockProduct product) {
         for (double rotation : replacementRotations(current.getRotation())) {
-            Furniture prototype = new Furniture(current.getId(), product.getType(), product.getName(), product.getWidth(), product.getDepth(),
-                    product.getHeight(), current.getPosition(), rotation, current.getStatus(), product.getProductId(),
-                    product.getStyleTags(), product.getVariantId());
+            Furniture prototype = furnitureFromProduct(current.getId(), product, current.getPosition(),
+                    rotation, current.getStatus());
             for (Position position : replacementPositions(room, current.getPosition(), prototype)) {
                 Furniture moved = copy(prototype, position, rotation);
                 if (valid(room, replace(base, index, moved))) return Optional.of(moved);
@@ -251,52 +477,93 @@ public class DeterministicFeedbackExecutor {
                 new Position(halfWidth, currentZ), new Position(room.getWidth() - halfWidth, currentZ),
                 new Position(currentX, halfDepth), new Position(currentX, room.getDepth() - halfDepth)
         );
-        return positions.stream().map(position -> clamp(room, position, footprint)).distinct().toList();
+        return distinctPositions(positions.stream().map(position -> clamp(room, position, footprint)).toList());
     }
 
-    private String summaryFor(String noChangeReason) {
-        if ("NO_LARGER_PRODUCT_AVAILABLE".equals(noChangeReason)) {
-            return "현재 책상이 사용 가능한 제품 중 가장 넓어 기존 배치를 유지했습니다.";
-        }
-        if ("NO_VALID_PRODUCT_PLACEMENT".equals(noChangeReason)) {
-            return "수납형 책상을 배치할 수 있는 유효한 위치를 찾지 못했습니다.";
-        }
-        if ("NO_MATCHING_PRODUCT".equals(noChangeReason)) {
-            return "요청 조건에 맞는 대체 제품을 찾지 못했습니다.";
-        }
-        if ("CURRENT_PRODUCT_ALREADY_MATCHES".equals(noChangeReason)) {
-            return "현재 제품이 이미 요청 조건을 만족해 기존 배치를 유지했습니다.";
-        }
-        if ("INVALID_REPLACE_CONSTRAINTS".equals(noChangeReason)) {
-            return "제품 교체 조건을 안전하게 해석하지 못해 기존 배치를 유지했습니다.";
-        }
-        if ("UNSUPPORTED_OPERATION".equals(noChangeReason)) {
-            return "이번 피드백에서는 요청한 작업을 지원하지 않습니다.";
-        }
-        if ("NEEDS_CLARIFICATION".equals(noChangeReason)) {
-            return "변경할 가구를 하나로 특정할 수 없어 추가 설명이 필요합니다.";
-        }
-        if ("TARGET_FURNITURE_NOT_FOUND".equals(noChangeReason)) {
-            return "요청한 가구를 현재 배치에서 찾을 수 없습니다.";
-        }
-        if ("DEPENDENCY_NOT_APPLIED".equals(noChangeReason)) {
-            return "앞선 변경이 적용되지 않아 이어지는 변경을 실행하지 않았습니다.";
-        }
-        return "요청을 안전하게 적용할 수 없어 기존 배치를 유지했습니다.";
+    private Furniture furnitureFromProduct(String id, MockProduct product, Position position,
+                                           double rotation, FurnitureStatus status) {
+        return new Furniture(id, product.getType(), product.getName(), product.getWidth(), product.getDepth(),
+                product.getHeight(), position, rotation, status, product.getProductId(),
+                product.getStyleTags(), product.getVariantId());
     }
 
-    private FeedbackExecution noChange(List<Furniture> original, FeedbackPlan plan, List<String> requested, String reason, String summary) {
-        return new FeedbackExecution(original, new FeedbackResult(false, plan.source(), plan.fallbackUsed(), summary, requested, List.of(), reason));
+    private String generateFurnitureId(String type, List<Furniture> furniture) {
+        String prefix = type.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-|-$", "");
+        if (prefix.isBlank()) prefix = "furniture";
+        Set<String> existingIds = furniture.stream().map(Furniture::getId).collect(java.util.stream.Collectors.toSet());
+        int sequence = 1;
+        while (existingIds.contains(prefix + "-feedback-" + sequence)) sequence++;
+        return prefix + "-feedback-" + sequence;
+    }
+
+    private int score(AgentContext context, List<Furniture> furniture, ValidationResult validation) {
+        return context == null ? 0 : scoreService.calculate(context, furniture, validation).getTotalScore();
+    }
+
+    private double distanceFromReference(Position position, Furniture reference, Room room) {
+        Position origin = reference == null
+                ? new Position(room.getWidth() / 2.0, room.getDepth() / 2.0)
+                : reference.getPosition();
+        return distance(origin, position);
+    }
+
+    private double distance(Position first, Position second) {
+        double x = first.getX() - second.getX();
+        double z = first.getZ() - second.getZ();
+        return Math.sqrt(x * x + z * z);
+    }
+
+    private String summaryFor(String reason) {
+        return switch (reason) {
+            case "NO_LARGER_PRODUCT_AVAILABLE" -> "현재 가구가 사용 가능한 제품 중 가장 넓어 기존 배치를 유지했습니다.";
+            case "NO_VALID_PRODUCT_PLACEMENT" -> "수납형 책상을 배치할 수 있는 유효한 위치를 찾지 못했습니다.";
+            case "NO_MATCHING_PRODUCT", "NO_RENDERABLE_PRODUCT" -> "안전하게 렌더링할 수 있는 조건 일치 제품을 찾지 못했습니다.";
+            case "CURRENT_PRODUCT_ALREADY_MATCHES" -> "현재 제품이 이미 요청 조건을 만족해 기존 배치를 유지했습니다.";
+            case "INVALID_REPLACE_CONSTRAINTS" -> "제품 교체 조건을 안전하게 해석하지 못해 기존 배치를 유지했습니다.";
+            case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾지 못했습니다.";
+            case "NO_VALID_SWAP_PLACEMENT" -> "교체 가구를 놓을 유효한 위치를 찾지 못했습니다.";
+            case "AMBIGUOUS_TARGET", "AMBIGUOUS_REFERENCE_TARGET", "NEEDS_CLARIFICATION" ->
+                    "변경할 가구를 하나로 특정할 수 없어 추가 설명이 필요합니다.";
+            case "TARGET_NOT_FOUND", "REFERENCE_TARGET_NOT_FOUND" -> "요청한 가구를 현재 배치에서 찾을 수 없습니다.";
+            case "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT" ->
+                    "현재 방 정보로 위치 표현을 안전하게 판별할 수 없습니다.";
+            case "DEPENDENCY_NOT_APPLIED" -> "앞선 변경이 적용되지 않아 이어지는 변경을 실행하지 않았습니다.";
+            case "UNSUPPORTED_OPERATION" -> "이번 피드백에서는 요청한 작업을 지원하지 않습니다.";
+            default -> "요청을 안전하게 적용할 수 없어 기존 배치를 유지했습니다.";
+        };
+    }
+
+    private FeedbackExecution noChange(List<Furniture> original, FeedbackPlan plan, List<String> requested,
+                                       String reason, String summary,
+                                       List<FeedbackOperationExecution> operationResults) {
+        return new FeedbackExecution(original,
+                new FeedbackResult(false, plan.source(), plan.fallbackUsed(), summary, requested, List.of(), reason),
+                operationResults);
+    }
+
+    private boolean active(Furniture furniture) {
+        return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 
     private boolean valid(Room room, List<Furniture> furniture) {
-        ValidationResult result = validationService.validate(room, furniture);
-        return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance() && result.isWindowClearance() && result.isPathSecured();
+        return hardValid(validationService.validate(room, furniture));
+    }
+
+    private boolean hardValid(ValidationResult result) {
+        return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
+                && result.isWindowClearance() && result.isPathSecured();
     }
 
     private List<Furniture> replace(List<Furniture> furniture, int index, Furniture updated) {
         List<Furniture> copy = new ArrayList<>(furniture);
         copy.set(index, updated);
+        return copy;
+    }
+
+    private List<Furniture> appended(List<Furniture> furniture, Furniture added) {
+        List<Furniture> copy = new ArrayList<>(furniture);
+        copy.add(added);
         return copy;
     }
 
@@ -306,34 +573,59 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean samePosition(Furniture first, Furniture second) {
-        return first.getPosition().getX() == second.getPosition().getX() && first.getPosition().getZ() == second.getPosition().getZ();
+        return first.getPosition().getX() == second.getPosition().getX()
+                && first.getPosition().getZ() == second.getPosition().getZ();
     }
 
     private Position clamp(Room room, Position position, FurnitureFootprint footprint) {
-        double x = Math.max(footprint.effectiveWidth() / 2.0, Math.min(room.getWidth() - footprint.effectiveWidth() / 2.0, position.getX()));
-        double z = Math.max(footprint.effectiveDepth() / 2.0, Math.min(room.getDepth() - footprint.effectiveDepth() / 2.0, position.getZ()));
+        double x = Math.max(footprint.effectiveWidth() / 2.0,
+                Math.min(room.getWidth() - footprint.effectiveWidth() / 2.0, position.getX()));
+        double z = Math.max(footprint.effectiveDepth() / 2.0,
+                Math.min(room.getDepth() - footprint.effectiveDepth() / 2.0, position.getZ()));
         return new Position(x, z);
     }
 
-    private record OperationAttempt(Optional<Furniture> furniture, String noChangeReason) {
-        private static OperationAttempt applied(Optional<Furniture> furniture) {
-            return furniture.map(value -> new OperationAttempt(Optional.of(value), null))
-                    .orElseGet(() -> notApplied("OPERATION_NOT_APPLIED"));
+    private List<Position> distinctPositions(List<Position> positions) {
+        List<Position> distinct = new ArrayList<>();
+        for (Position position : positions) {
+            boolean duplicate = distinct.stream().anyMatch(existing ->
+                    Math.abs(existing.getX() - position.getX()) < METRIC_TOLERANCE
+                            && Math.abs(existing.getZ() - position.getZ()) < METRIC_TOLERANCE);
+            if (!duplicate) distinct.add(position);
+        }
+        return List.copyOf(distinct);
+    }
+
+    private record CandidateEvaluation(
+            List<Furniture> snapshot,
+            String affectedFurnitureId,
+            String productId,
+            int score,
+            double movementDistance,
+            int order
+    ) {
+    }
+
+    private record OperationAttempt(
+            boolean applied,
+            List<Furniture> snapshot,
+            String affectedFurnitureId,
+            String reasonCode
+    ) {
+        private static OperationAttempt applied(List<Furniture> snapshot, String affectedFurnitureId) {
+            return new OperationAttempt(true, List.copyOf(snapshot), affectedFurnitureId, null);
         }
 
-        private static OperationAttempt applied(Furniture furniture) {
-            return new OperationAttempt(Optional.of(furniture), null);
-        }
-
-        private static OperationAttempt notApplied(String noChangeReason) {
-            return new OperationAttempt(Optional.empty(), noChangeReason);
+        private static OperationAttempt failed(String reasonCode) {
+            return new OperationAttempt(false, List.of(), null, reasonCode);
         }
     }
 
     private enum TargetResolutionStatus {
         RESOLVED,
         NOT_FOUND,
-        AMBIGUOUS
+        AMBIGUOUS,
+        UNSUPPORTED_SELECTOR
     }
 
     private record TargetResolution(TargetResolutionStatus status, int index) {
@@ -347,6 +639,10 @@ public class DeterministicFeedbackExecutor {
 
         private static TargetResolution ambiguous() {
             return new TargetResolution(TargetResolutionStatus.AMBIGUOUS, -1);
+        }
+
+        private static TargetResolution unsupportedSelector() {
+            return new TargetResolution(TargetResolutionStatus.UNSUPPORTED_SELECTOR, -1);
         }
     }
 }

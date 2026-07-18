@@ -119,7 +119,7 @@ class DeterministicFeedbackExecutorV2Test {
                 room(6, 6), before);
 
         assertThat(execution.result().applied()).isFalse();
-        assertThat(execution.result().noChangeReason()).isEqualTo("NEEDS_CLARIFICATION");
+        assertThat(execution.result().noChangeReason()).isEqualTo("AMBIGUOUS_TARGET");
         assertThat(execution.furniture()).containsExactlyElementsOf(before);
     }
 

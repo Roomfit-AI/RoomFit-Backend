@@ -12,6 +12,16 @@ import java.util.Set;
 public class FeedbackPlanValidator {
 
     private static final int MAX_OPERATIONS = 4;
+    private static final Set<FeedbackRelation> MOVE_RELATIONS = Set.of(
+            FeedbackRelation.LEFT, FeedbackRelation.RIGHT, FeedbackRelation.FORWARD,
+            FeedbackRelation.BACKWARD, FeedbackRelation.NEAR_WINDOW, FeedbackRelation.NEAR_WALL,
+            FeedbackRelation.AWAY_FROM_DOOR, FeedbackRelation.CENTER
+    );
+    private static final Set<FeedbackRelation> ADD_RELATIONS = Set.of(
+            FeedbackRelation.NEXT_TO, FeedbackRelation.LEFT_OF, FeedbackRelation.RIGHT_OF,
+            FeedbackRelation.NEAR_WALL, FeedbackRelation.NEAR_WINDOW,
+            FeedbackRelation.IN_CORNER, FeedbackRelation.CENTER
+    );
     private static final Set<String> FORBIDDEN_PROVIDER_FIELDS = Set.of(
             "x", "z", "coordinates", "position", "distancemeters", "rotation", "rotationdegrees",
             "angle", "angledegrees", "score", "totalscore", "scoresummary", "validation", "validationresult",
@@ -53,29 +63,99 @@ public class FeedbackPlanValidator {
     private void validateOperation(FeedbackOperation operation) {
         require(operation.type() != null);
         require(operation.target() != null && !operation.target().isEmpty());
+        validateTarget(operation.target());
+        if (operation.referenceTarget() != null) {
+            require(!operation.referenceTarget().isEmpty());
+            validateTarget(operation.referenceTarget());
+        }
         switch (operation.type()) {
             case MOVE -> {
                 require(operation.placement() != null);
-                require(operation.placement().relation() != null);
+                require(MOVE_RELATIONS.contains(operation.placement().relation()));
                 require(operation.placement().magnitude() != null);
                 require(operation.placement().orientation() == null);
+                require(operation.placement().side() == null);
                 require(operation.constraints() == null);
+                require(operation.referenceTarget() == null);
+                require(operation.productRequirements() == null);
+                require(operation.replacementRequirements() == null);
             }
             case ROTATE -> {
                 require(operation.placement() != null);
                 require(operation.placement().orientation() != null);
                 require(operation.placement().relation() == null);
                 require(operation.placement().magnitude() == null);
+                require(operation.placement().side() == null);
                 require(operation.constraints() == null);
+                require(operation.referenceTarget() == null);
+                require(operation.productRequirements() == null);
+                require(operation.replacementRequirements() == null);
             }
             case REPLACE_PRODUCT -> {
                 require(operation.placement() == null);
                 require(hasSelectionConstraint(operation.constraints()));
+                require(operation.referenceTarget() == null);
+                require(operation.productRequirements() == null);
+                require(operation.replacementRequirements() == null);
                 String targetType = operation.target().furnitureType();
                 String constraintType = operation.constraints().furnitureType();
                 require(targetType.isBlank() || constraintType.isBlank() || targetType.equals(constraintType));
             }
-            case ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE, CHANGE_MATERIAL, CHANGE_COLOR_TONE -> invalid();
+            case ADD_FURNITURE -> {
+                require(operation.constraints() == null);
+                require(operation.replacementRequirements() == null);
+                require(operation.productRequirements() != null);
+                validateProductRequirements(operation.productRequirements());
+                require(operation.target().furnitureId().isBlank());
+                require(!operation.target().furnitureType().isBlank());
+                require(operation.target().furnitureType().equals(operation.productRequirements().furnitureType()));
+                require(operation.placement() != null && ADD_RELATIONS.contains(operation.placement().relation()));
+                require(operation.placement().magnitude() == null && operation.placement().orientation() == null);
+                boolean requiresReference = operation.placement().relation() == FeedbackRelation.NEXT_TO
+                        || operation.placement().relation() == FeedbackRelation.LEFT_OF
+                        || operation.placement().relation() == FeedbackRelation.RIGHT_OF;
+                require(!requiresReference || operation.referenceTarget() != null);
+                require(operation.placement().relation() == FeedbackRelation.NEXT_TO
+                        || operation.placement().side() == null);
+            }
+            case REMOVE_FURNITURE -> {
+                require(operation.referenceTarget() == null);
+                require(operation.placement() == null);
+                require(operation.constraints() == null);
+                require(operation.productRequirements() == null);
+                require(operation.replacementRequirements() == null);
+            }
+            case SWAP_FURNITURE -> {
+                require(operation.referenceTarget() == null);
+                require(operation.placement() == null);
+                require(operation.constraints() == null);
+                require(operation.productRequirements() == null);
+                require(operation.replacementRequirements() != null);
+                validateProductRequirements(operation.replacementRequirements());
+                String targetType = operation.target().furnitureType();
+                String replacementType = operation.replacementRequirements().furnitureType();
+                require(targetType.isBlank() || !targetType.equals(replacementType));
+            }
+            case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> invalid();
+        }
+    }
+
+    private void validateTarget(FeedbackTargetSelector target) {
+        require(target.ordinal() == null || target.ordinal() > 0);
+        require(target.locationHint() == null || target.furnitureId().isBlank());
+        require(target.ordinal() == null || target.furnitureId().isBlank());
+        require(target.locationHint() == null || target.ordinal() == null);
+        require((target.locationHint() == null && target.ordinal() == null)
+                || !target.furnitureType().isBlank());
+    }
+
+    private void validateProductRequirements(FeedbackProductRequirements requirements) {
+        require(!requirements.furnitureType().isBlank());
+        require(requirements.sizePreference() != null);
+        Set<String> keywords = new HashSet<>();
+        for (String keyword : requirements.styleKeywords()) {
+            require(keyword != null && !keyword.isBlank());
+            require(keywords.add(keyword));
         }
     }
 
@@ -98,7 +178,10 @@ public class FeedbackPlanValidator {
             Iterator<String> names = node.fieldNames();
             while (names.hasNext()) {
                 String fieldName = names.next();
-                require(!FORBIDDEN_PROVIDER_FIELDS.contains(fieldName.toLowerCase(Locale.ROOT)));
+                String normalizedFieldName = fieldName.toLowerCase(Locale.ROOT)
+                        .replace("_", "")
+                        .replace("-", "");
+                require(!FORBIDDEN_PROVIDER_FIELDS.contains(normalizedFieldName));
                 rejectForbiddenFields(node.get(fieldName));
             }
             return;

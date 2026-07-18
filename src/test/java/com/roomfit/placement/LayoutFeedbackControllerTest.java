@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -137,6 +138,56 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
                 .andExpect(jsonPath("$.error.code").value("LAYOUT_NOT_FOUND"));
+    }
+
+    @Test
+    void feedback_removeFurniturePersistsArrayRemovalThroughConfirmAndRoomRead() throws Exception {
+        Long layoutId = createLayout();
+
+        String feedbackResponse = mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "의자를 빼줘"
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'chair')]").value(hasSize(0)))
+                .andExpect(jsonPath("$.data.feedbackResult.operationsApplied").value(hasItems("REMOVE_FURNITURE")))
+                .andReturn().getResponse().getContentAsString();
+
+        Integer feedbackLayoutId = JsonPath.read(feedbackResponse, "$.data.layoutId");
+        mockMvc.perform(post("/api/layouts/{layoutId}/confirm", feedbackLayoutId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmed").value(true));
+
+        mockMvc.perform(get("/api/rooms/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.furniture[?(@.type == 'chair')]").value(hasSize(0)));
+    }
+
+    @Test
+    void feedback_addFurnitureKeepsExistingResponseShapeAndUsesCatalogMetadata() throws Exception {
+        Long layoutId = createLayout();
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "구석에 조명을 하나 추가해줘"
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /lamp-feedback-.*/)]").value(hasSize(1)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /lamp-feedback-.*/)].productId")
+                        .value(hasItems("lamp-01")))
+                .andExpect(jsonPath("$.data.interpretedIntent.operations").value(hasItems("ADD_FURNITURE")))
+                .andExpect(jsonPath("$.data.feedbackResult.applied").value(true));
     }
 
     private Long createLayout() throws Exception {

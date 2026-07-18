@@ -13,6 +13,7 @@ import com.roomfit.room.RoomRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -134,10 +135,11 @@ public class LayoutService {
                 .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
 
         FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context);
-        FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture());
+        FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
-            responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(), execution.furniture());
+            responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
+                    new ArrayList<>(execution.furniture()));
             layoutRepository.save(responseLayout);
         }
 

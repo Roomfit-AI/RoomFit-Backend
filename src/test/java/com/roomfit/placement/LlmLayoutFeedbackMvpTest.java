@@ -32,7 +32,8 @@ class LlmLayoutFeedbackMvpTest {
         LlmFeedbackPlanInterpreter interpreter = interpreter(prompt -> {
             calls.incrementAndGet();
             assertThat(prompt).contains("Never output x, z, coordinates, position, distanceMeters");
-            assertThat(prompt).contains("The only executable operation types are MOVE, ROTATE, and REPLACE_PRODUCT");
+            assertThat(prompt).contains("The only executable operation types are MOVE, ROTATE, REPLACE_PRODUCT");
+            assertThat(prompt).contains("ADD_FURNITURE, REMOVE_FURNITURE, and SWAP_FURNITURE");
             return planJson("desk-1", "desk", """
                     {"type":"MOVE","placement":{"relation":"RIGHT","magnitude":"MEDIUM"}}
                     """);

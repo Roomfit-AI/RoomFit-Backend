@@ -105,14 +105,14 @@ public class LayoutController {
 
     @PostMapping("/feedback")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "사용자 피드백 기반 재추천", description = "사용자의 자연어 피드백을 바탕으로 기존 배치를 조정하거나 재추천합니다. MVP에서는 제한적인 규칙 기반 피드백을 지원합니다.")
+    @Operation(summary = "사용자 피드백 기반 재추천", description = "자연어 피드백을 의미 기반 Plan으로 해석하고 MOVE, ROTATE, REPLACE_PRODUCT, ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE를 결정론적으로 검증·실행합니다. LLM은 좌표나 제품 ID를 생성하지 않습니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "피드백 기반 재추천 성공"),
             @ApiResponse(responseCode = "400", description = "UNSUPPORTED_FEEDBACK_INTENT"),
             @ApiResponse(responseCode = "404", description = "LAYOUT_NOT_FOUND, CONTEXT_NOT_FOUND, ROOM_NOT_FOUND")
     })
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            description = "지원 피드백: 책상 더 크게, 수납 늘려줘, 방이 넓어 보이게",
+            description = "배치 이동/회전/제품 교체와 가구 추가/제거/타입 교체 피드백. 모호하거나 지원하지 않는 요청은 실행하지 않습니다.",
             required = true,
             content = @Content(examples = @ExampleObject(name = "Larger desk feedback", value = """
                     {

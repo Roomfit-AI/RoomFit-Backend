@@ -62,6 +62,94 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void parsesAddWithReferenceAndProductRequirements() {
+        FeedbackPlan plan = interpret("침대 옆에 작은 협탁을 추가해줘", """
+                {
+                  "version":"2.0",
+                  "requestKind":"DIRECT",
+                  "operations":[{
+                    "operationId":"op-1",
+                    "type":"ADD_FURNITURE",
+                    "target":{"furnitureType":"nightstand"},
+                    "referenceTarget":{"furnitureType":"bed"},
+                    "placement":{"relation":"NEXT_TO","side":"RIGHT"},
+                    "productRequirements":{"furnitureType":"nightstand","sizePreference":"SMALL","storagePreferred":false,"styleKeywords":[]},
+                    "dependsOn":[]
+                  }],
+                  "goals":[],"clarification":null,"reason":"add nightstand"
+                }
+                """);
+
+        FeedbackOperation operation = plan.operations().getFirst();
+        assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE);
+        assertThat(operation.referenceTarget().furnitureType()).isEqualTo("bed");
+        assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.NEXT_TO);
+        assertThat(operation.placement().side()).isEqualTo(FeedbackSide.RIGHT);
+        assertThat(operation.productRequirements().sizePreference()).isEqualTo(FeedbackSizePreference.SMALL);
+    }
+
+    @Test
+    void parsesRemoveWithLocationHint() {
+        FeedbackPlan plan = interpret("가운데 의자를 빼줘", """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"REMOVE_FURNITURE",
+                  "target":{"furnitureType":"chair","locationHint":"CENTER"},"dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"remove center chair"}
+                """);
+
+        assertThat(plan.operations().getFirst().target().locationHint()).isEqualTo(FeedbackLocationHint.CENTER);
+    }
+
+    @Test
+    void parsesSwapWithoutCatalogIdentifiers() {
+        FeedbackPlan plan = interpret("책장 대신 행거를 넣어줘", """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"SWAP_FURNITURE",
+                  "target":{"furnitureType":"bookshelf"},
+                  "replacementRequirements":{"furnitureType":"hanger","sizePreference":"SIMILAR","styleKeywords":[]},
+                  "dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"swap furniture"}
+                """);
+
+        FeedbackProductRequirements requirements = plan.operations().getFirst().replacementRequirements();
+        assertThat(requirements.furnitureType()).isEqualTo("hanger");
+        assertThat(requirements.sizePreference()).isEqualTo(FeedbackSizePreference.SIMILAR);
+    }
+
+    @Test
+    void parsesMoveAndAddComposite() {
+        FeedbackPlan plan = interpret("책상을 옮기고 조명을 구석에 추가해줘", """
+                {"version":"2.0","requestKind":"COMPOSITE","operations":[
+                  {"operationId":"op-1","type":"MOVE","target":{"furnitureType":"desk"},
+                   "placement":{"relation":"RIGHT","magnitude":"SMALL"},"dependsOn":[]},
+                  {"operationId":"op-2","type":"ADD_FURNITURE","target":{"furnitureType":"lamp"},
+                   "placement":{"relation":"IN_CORNER"},
+                   "productRequirements":{"furnitureType":"lamp","sizePreference":"ANY","styleKeywords":[]},
+                   "dependsOn":["op-1"]}
+                ],"goals":[],"clarification":null,"reason":"move and add"}
+                """);
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ADD_FURNITURE);
+    }
+
+    @Test
+    void parsesRemoveAndAddComposite() {
+        FeedbackPlan plan = interpret("의자를 빼고 조명을 추가해줘", """
+                {"version":"2.0","requestKind":"COMPOSITE","operations":[
+                  {"operationId":"op-1","type":"REMOVE_FURNITURE","target":{"furnitureType":"chair"},"dependsOn":[]},
+                  {"operationId":"op-2","type":"ADD_FURNITURE","target":{"furnitureType":"lamp"},
+                   "placement":{"relation":"NEAR_WALL"},
+                   "productRequirements":{"furnitureType":"lamp","sizePreference":"ANY","styleKeywords":[]},
+                   "dependsOn":["op-1"]}
+                ],"goals":[],"clarification":null,"reason":"remove and add"}
+                """);
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REMOVE_FURNITURE, FeedbackOperationType.ADD_FURNITURE);
+    }
+
+    @Test
     void parsesMoveAndRotateCompositeWithValidatedDependency() {
         FeedbackPlan plan = interpret("책상을 오른쪽으로 옮기고 돌려줘", """
                 {
@@ -152,7 +240,7 @@ class LlmFeedbackPlanInterpreterV2Test {
     @ValueSource(strings = {
             "x", "z", "coordinates", "position", "distanceMeters", "rotation",
             "rotationDegrees", "score", "validationResult", "weight", "objectiveWeight",
-            "productId", "variantId"
+            "productId", "variantId", "product_id", "variant_id", "distance_meters"
     })
     void rejectsForbiddenProviderFields(String forbiddenField) {
         String response = directOperation("""
@@ -165,12 +253,12 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void unsupportedOperationUsesRuleBasedFallbackWithoutSecondLlmCall() {
+    void unsupportedMaterialOperationUsesRuleBasedFallbackWithoutSecondLlmCall() {
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
         LlmFeedbackPlanInterpreter primary = new LlmFeedbackPlanInterpreter(prompt -> {
             calls.incrementAndGet();
             return directOperation("""
-                    "type":"ADD_FURNITURE"
+                    "type":"CHANGE_MATERIAL"
                     """);
         }, objectMapper);
         FallbackFeedbackPlanInterpreter interpreter = new FallbackFeedbackPlanInterpreter(

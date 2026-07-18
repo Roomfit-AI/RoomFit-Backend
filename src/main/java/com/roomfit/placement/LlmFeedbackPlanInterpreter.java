@@ -79,8 +79,11 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     text(item, "operationId"),
                     type,
                     target,
+                    parseTargetOrNull(item.path("referenceTarget")),
                     parsePlacement(item.path("placement")),
                     parseConstraints(item.path("constraints"), target.furnitureType(), feedback),
+                    parseProductRequirements(item.path("productRequirements"), target.furnitureType()),
+                    parseProductRequirements(item.path("replacementRequirements"), ""),
                     stringList(item.path("dependsOn"))
             ));
         }
@@ -94,8 +97,17 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return new FeedbackTargetSelector(
                 text(node, "furnitureId"),
                 text(node, "furnitureType"),
-                text(node, "labelKeyword")
+                text(node, "labelKeyword"),
+                optionalEnum(FeedbackLocationHint.class, text(node, "locationHint")),
+                optionalInteger(node, "ordinal")
         );
+    }
+
+    private FeedbackTargetSelector parseTargetOrNull(JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        return parseTarget(node);
     }
 
     private FeedbackPlacement parsePlacement(JsonNode node) {
@@ -108,7 +120,28 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return new FeedbackPlacement(
                 optionalEnum(FeedbackRelation.class, text(node, "relation")),
                 optionalEnum(FeedbackMagnitude.class, text(node, "magnitude")),
-                optionalEnum(FeedbackOrientation.class, text(node, "orientation"))
+                optionalEnum(FeedbackOrientation.class, text(node, "orientation")),
+                optionalEnum(FeedbackSide.class, text(node, "side"))
+        );
+    }
+
+    private FeedbackProductRequirements parseProductRequirements(JsonNode node, String defaultFurnitureType) {
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (!node.isObject()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        String furnitureType = text(node, "furnitureType");
+        if (furnitureType.isBlank()) {
+            furnitureType = defaultFurnitureType;
+        }
+        return new FeedbackProductRequirements(
+                furnitureType,
+                optionalEnum(FeedbackSizePreference.class, text(node, "sizePreference")),
+                node.path("storagePreferred").asBoolean(false)
+                        || node.path("storageRequired").asBoolean(false),
+                stringList(node.path("styleKeywords"))
         );
     }
 
@@ -197,20 +230,35 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         try {
             return """
                     Interpret Korean room-layout feedback into Plan v2 JSON only.
-                    The only executable operation types are MOVE, ROTATE, and REPLACE_PRODUCT.
+                    The only executable operation types are MOVE, ROTATE, REPLACE_PRODUCT,
+                    ADD_FURNITURE, REMOVE_FURNITURE, and SWAP_FURNITURE.
                     Use requestKind DIRECT for exactly one operation, COMPOSITE for two to four operations,
                     or CLARIFICATION with no operations when the target or request is ambiguous.
                     Each operation must have a unique operationId, a target selector, and dependsOn containing only earlier operationIds.
-                    Target fields are furnitureId, furnitureType, and labelKeyword. Use only the fields needed to identify one item.
+                    Target and referenceTarget fields are furnitureId, furnitureType, labelKeyword, locationHint,
+                    and ordinal. Use only the fields needed to identify one item. locationHint may be NEAR_WINDOW,
+                    CENTER, LARGEST, or SMALLEST. ordinal is one-based.
                     MOVE uses placement.relation from LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW,
                     AWAY_FROM_DOOR, CENTER and placement.magnitude from SMALL, MEDIUM, LARGE.
                     ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
                     REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
                     requiredStyleTags, requiredLifestyleTags, and storagePreferred.
+                    ADD_FURNITURE describes the new type in target.furnitureType, uses productRequirements with
+                    furnitureType, sizePreference (SMALL, LARGE, SIMILAR, ANY), storagePreferred, and styleKeywords,
+                    and uses placement.relation from NEXT_TO, LEFT_OF, RIGHT_OF, NEAR_WALL, NEAR_WINDOW,
+                    IN_CORNER, CENTER. NEXT_TO may use placement.side LEFT, RIGHT, FRONT, or BACK.
+                    NEXT_TO, LEFT_OF, and RIGHT_OF require referenceTarget.
+                    REMOVE_FURNITURE selects one existing target and has no placement or product requirements.
+                    SWAP_FURNITURE selects one existing target and uses replacementRequirements with the same
+                    product requirement fields. SWAP may change furnitureType; REPLACE_PRODUCT may not.
                     Never output x, z, coordinates, position, distanceMeters, rotation, rotationDegrees, score,
                     validationResult, weight, objectiveWeight, productId, or variantId.
-                    Do not output ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE, CHANGE_MATERIAL,
-                    CHANGE_COLOR_TONE, ABSTRACT goals, coordinates, angles, scores, or validation decisions.
+                    Do not output CHANGE_MATERIAL, CHANGE_COLOR_TONE, ABSTRACT goals, coordinates, angles,
+                    scores, product identifiers, variant identifiers, or validation decisions.
+                    Interpret add/place/insert expressions as ADD_FURNITURE, remove/take-out/delete expressions as
+                    REMOVE_FURNITURE, and instead/replace/change-to expressions as SWAP_FURNITURE when the type changes.
+                    Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
+                    or reference cannot be identified safely, return CLARIFICATION instead of guessing.
                     Return exactly this shape and no markdown or explanation:
                     {"version":"2.0","requestKind":"DIRECT","operations":[{"operationId":"op-1","type":"MOVE","target":{"furnitureId":"desk-1","furnitureType":"desk","labelKeyword":""},"placement":{"relation":"RIGHT","magnitude":"MEDIUM"},"constraints":null,"dependsOn":[]}],"goals":[],"clarification":null,"reason":"..."}
                     For CLARIFICATION, return operations=[], goals=[], and clarification={"question":"..."}.
@@ -227,8 +275,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return Map.of("id", item.getId(), "type", item.getType(), "label", item.getLabel(),
                 "width", item.getWidth(), "depth", item.getDepth(), "height", item.getHeight(),
                 "position", Map.of("x", item.getPosition().getX(), "z", item.getPosition().getZ()),
-                "rotation", item.getRotation(), "productId", item.getProductId() == null ? "" : item.getProductId(),
-                "variantId", item.getVariantId() == null ? "" : item.getVariantId());
+                "rotation", item.getRotation());
     }
 
     private Map<String, Object> opening(Opening opening) {
@@ -241,6 +288,17 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private Double optionalNumber(JsonNode node, String field) {
         return node.path(field).isNumber() ? node.path(field).asDouble() : null;
+    }
+
+    private Integer optionalInteger(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        if (!value.isIntegralNumber() || !value.canConvertToInt()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        return value.asInt();
     }
 
     private List<String> stringList(JsonNode node) {
