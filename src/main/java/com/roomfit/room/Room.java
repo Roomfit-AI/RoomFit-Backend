@@ -60,6 +60,12 @@ public class Room {
     // Null is kept for samples and rows created before anonymous client
     // isolation was introduced. New client-owned uploads store a UUID scope.
     private String clientScope;
+    @Enumerated(EnumType.STRING)
+    private RoomImportStatus importStatus;
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "room_import_warnings", joinColumns = @JoinColumn(name = "room_id"))
+    @OrderColumn(name = "warning_order")
+    private List<RoomImportWarning> importWarnings = new ArrayList<>();
 
     protected Room() {
         // JPA/JSON 역직렬화용
@@ -161,4 +167,13 @@ public class Room {
     public String getClientScope() {
         return clientScope;
     }
+
+    public void setImportMetadata(RoomImportStatus importStatus, List<RoomImportWarning> warnings) {
+        this.importStatus = importStatus;
+        this.importWarnings = new ArrayList<>(warnings);
+    }
+
+    public RoomImportStatus getImportStatus() { return importStatus; }
+    public List<RoomImportWarning> getImportWarnings() { return List.copyOf(importWarnings); }
+
 }

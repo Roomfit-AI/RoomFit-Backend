@@ -151,7 +151,9 @@ public final class FurnitureBoundary {
             double dz = wall.getEnd().getZ() - wall.getStart().getZ();
             double centerX = (wall.getStart().getX() + wall.getEnd().getX()) / 2.0;
             double centerZ = (wall.getStart().getZ() + wall.getEnd().getZ()) / 2.0;
-            double thickness = wall.getThickness() > 0 ? wall.getThickness() : DEFAULT_WALL_THICKNESS_METERS;
+            // A scan's explicit zero thickness is geometry, not an omitted
+            // value. The fallback thickness applies only when walls are absent.
+            double thickness = wall.getThickness();
             double tolerance = Math.max(thickness, 0.25);
             if (Math.abs(dz) >= Math.abs(dx)) {
                 if (Math.abs(centerX) <= tolerance) {

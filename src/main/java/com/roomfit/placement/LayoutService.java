@@ -245,7 +245,7 @@ public class LayoutService {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
         Room room = roomAccessService.findWritableRoom(layout.getRoomId());
-        if (!validationService.validate(room, layout.getFurniture()).isBoundaryValid()) {
+        if (!isHardValid(validationService.validate(room, layout.getFurniture()))) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
         layout.confirm();

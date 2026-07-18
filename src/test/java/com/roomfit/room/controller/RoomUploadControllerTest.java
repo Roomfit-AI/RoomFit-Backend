@@ -177,7 +177,7 @@ class RoomUploadControllerTest {
     }
 
     @Test
-    void uploadRoom_withFurnitureOutsideRoom_returnsInvalidFurniturePosition() throws Exception {
+    void uploadRoom_withFurnitureOutsideRoom_repositionsItDuringRoomPlanImport() throws Exception {
         mockMvc.perform(post("/api/rooms/upload")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -202,14 +202,13 @@ class RoomUploadControllerTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.data").value(nullValue()))
-                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.importStatus").value("ACCEPTED_WITH_WARNINGS"))
+                .andExpect(jsonPath("$.data.importWarnings[*].code", hasItems("FURNITURE_REPOSITIONED")));
     }
 
     @Test
-    void uploadRoom_withRotatedCornerOutsideRoom_returnsInvalidFurniturePosition() throws Exception {
+    void uploadRoom_withRotatedCornerOutsideRoom_repositionsItDuringRoomPlanImport() throws Exception {
         mockMvc.perform(post("/api/rooms/upload")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -232,8 +231,8 @@ class RoomUploadControllerTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.importStatus").value("ACCEPTED_WITH_WARNINGS"))
+                .andExpect(jsonPath("$.data.importWarnings[*].code", hasItems("FURNITURE_REPOSITIONED")));
     }
 }

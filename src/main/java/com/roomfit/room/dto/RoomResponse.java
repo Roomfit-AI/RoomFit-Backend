@@ -2,7 +2,10 @@ package com.roomfit.room.dto;
 
 import com.roomfit.room.Furniture;
 import com.roomfit.room.Opening;
+import com.roomfit.room.Position;
 import com.roomfit.room.Room;
+import com.roomfit.room.RoomImportStatus;
+import com.roomfit.room.RoomImportWarning;
 import com.roomfit.room.RoomSource;
 import com.roomfit.room.Wall;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -31,9 +34,12 @@ public class RoomResponse {
     private final LocalDateTime createdAt;
     @Schema(description = "iOS 앱이 스캔 완료 시점에 찍은 방 미리보기 스냅샷(Base64 인코딩 JPEG). 샘플 방이거나 이 필드가 추가되기 전에 업로드된 방은 null입니다.")
     private final String thumbnailBase64;
+    private final RoomImportStatus importStatus;
+    private final List<ImportWarningResponse> importWarnings;
 
     private RoomResponse(Long roomId, String name, RoomDimension room, List<Wall> walls, List<Opening> openings,
-                          List<Furniture> furniture, RoomSource source, LocalDateTime createdAt, String thumbnailBase64) {
+                          List<Furniture> furniture, RoomSource source, LocalDateTime createdAt, String thumbnailBase64,
+                          RoomImportStatus importStatus, List<ImportWarningResponse> importWarnings) {
         this.roomId = roomId;
         this.name = name;
         this.room = room;
@@ -43,12 +49,15 @@ public class RoomResponse {
         this.source = source;
         this.createdAt = createdAt;
         this.thumbnailBase64 = thumbnailBase64;
+        this.importStatus = importStatus;
+        this.importWarnings = importWarnings;
     }
 
     public static RoomResponse from(Room room) {
         RoomDimension dimension = new RoomDimension(room.getWidth(), room.getDepth(), room.getHeight(), room.getUnit());
         return new RoomResponse(room.getId(), room.getName(), dimension, room.getWalls(), room.getOpenings(),
-                room.getFurniture(), room.getSource(), room.getCreatedAt(), room.getThumbnailBase64());
+                room.getFurniture(), room.getSource(), room.getCreatedAt(), room.getThumbnailBase64(), room.getImportStatus(),
+                room.getImportWarnings().stream().map(ImportWarningResponse::from).toList());
     }
 
     public Long getRoomId() {
@@ -85,6 +94,54 @@ public class RoomResponse {
 
     public String getThumbnailBase64() {
         return thumbnailBase64;
+    }
+
+    public RoomImportStatus getImportStatus() { return importStatus; }
+    public List<ImportWarningResponse> getImportWarnings() { return importWarnings; }
+
+    public static class ImportWarningResponse {
+        private final String code;
+        private final String entityId;
+        private final String furnitureType;
+        private final String message;
+        private final Double adjustmentMeters;
+        private final Position originalPosition;
+        private final Position normalizedPosition;
+        private final Double originalRotation;
+        private final Double normalizedRotation;
+
+        private ImportWarningResponse(String code, String entityId, String furnitureType, String message, Double adjustmentMeters,
+                                      Position originalPosition, Position normalizedPosition,
+                                      Double originalRotation, Double normalizedRotation) {
+            this.code = code;
+            this.entityId = entityId;
+            this.furnitureType = furnitureType;
+            this.message = message;
+            this.adjustmentMeters = adjustmentMeters;
+            this.originalPosition = originalPosition;
+            this.normalizedPosition = normalizedPosition;
+            this.originalRotation = originalRotation;
+            this.normalizedRotation = normalizedRotation;
+        }
+
+        private static ImportWarningResponse from(RoomImportWarning warning) {
+            Position original = warning.getOriginalX() == null ? null
+                    : new Position(warning.getOriginalX(), warning.getOriginalZ());
+            Position normalized = warning.getNormalizedX() == null ? null
+                    : new Position(warning.getNormalizedX(), warning.getNormalizedZ());
+            return new ImportWarningResponse(warning.getCode(), warning.getEntityId(), warning.getFurnitureType(), warning.getMessage(),
+                    warning.getAdjustmentMeters(), original, normalized, warning.getOriginalRotation(), warning.getNormalizedRotation());
+        }
+
+        public String getCode() { return code; }
+        public String getEntityId() { return entityId; }
+        public String getFurnitureType() { return furnitureType; }
+        public String getMessage() { return message; }
+        public Double getAdjustmentMeters() { return adjustmentMeters; }
+        public Position getOriginalPosition() { return originalPosition; }
+        public Position getNormalizedPosition() { return normalizedPosition; }
+        public Double getOriginalRotation() { return originalRotation; }
+        public Double getNormalizedRotation() { return normalizedRotation; }
     }
 
     @Schema(description = "방 크기. width/depth/height는 meter 단위입니다.")

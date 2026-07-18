@@ -134,6 +134,11 @@ POST /api/rooms/upload
 RoomPlan iOS App에서 생성한 방 JSON을 백엔드에 저장하고 roomId를 발급받습니다.
 응답의 name은 백엔드가 부여하는 방 표시 이름입니다.
 프론트는 name을 고정 문자열로 가정하지 말고 응답값을 그대로 표시해야 합니다.
+스캔 오차가 있으면 백엔드는 업로드 단계에서만 기존 strict validator를 사용해
+가구를 안전한 위치로 재배치하거나 제외할 수 있습니다. 이 경우 additive
+`importStatus`와 `importWarnings`를 반환합니다. 기존 앱은 이 필드를 무시해도 됩니다.
+UUID client isolation을 사용하는 앱은 `X-RoomFit-Client-Id` header를 함께 보내야 하며,
+현재 RoomPlan은 header가 없으면 legacy scope로 업로드됩니다.
 
 Request
 {

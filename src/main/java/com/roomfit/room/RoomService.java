@@ -3,6 +3,7 @@ package com.roomfit.room;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.client.ClientScope;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.dto.FurnitureUpdateRequest;
 import com.roomfit.room.dto.RoomResponse;
 import com.roomfit.room.dto.RoomUploadRequest;
@@ -20,10 +21,13 @@ public class RoomService {
 
     private final RoomRepository roomRepository;
     private final RoomAccessService roomAccessService;
+    private final RoomPlanImportValidator roomPlanImportValidator;
 
-    public RoomService(RoomRepository roomRepository, RoomAccessService roomAccessService) {
+    public RoomService(RoomRepository roomRepository, RoomAccessService roomAccessService,
+                       RoomPlanImportValidator roomPlanImportValidator) {
         this.roomRepository = roomRepository;
         this.roomAccessService = roomAccessService;
+        this.roomPlanImportValidator = roomPlanImportValidator;
     }
 
     public RoomResponse getRoom(Long roomId) {
@@ -82,7 +86,8 @@ public class RoomService {
         Room room = new Room(null, name, roomData.getWidth(), roomData.getDepth(), roomData.getHeight(),
                 unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now(),
                 request.getThumbnailBase64(), scope.enabled() ? scope.id() : null);
-        validateFurnitureWithinRoom(room);
+        validateUniqueIds(room);
+        roomPlanImportValidator.validateAndNormalize(room);
 
         return RoomResponse.from(roomRepository.save(room));
     }
@@ -156,12 +161,17 @@ public class RoomService {
     private Wall toWall(RoomUploadRequest.WallData wall) {
         if (wall == null || isBlank(wall.getId()) || wall.getStart() == null || wall.getEnd() == null
                 || wall.getStart().getX() == null || wall.getStart().getZ() == null
-                || wall.getEnd().getX() == null || wall.getEnd().getZ() == null) {
+                || wall.getEnd().getX() == null || wall.getEnd().getZ() == null
+                || !finite(wall.getStart().getX()) || !finite(wall.getStart().getZ())
+                || !finite(wall.getEnd().getX()) || !finite(wall.getEnd().getZ())) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
 
         double height = wall.getHeight() == null ? 0 : wall.getHeight();
         double thickness = wall.getThickness() == null ? 0 : wall.getThickness();
+        if (!finite(height) || !finite(thickness) || height < 0 || thickness < 0) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
 
         return new Wall(wall.getId(),
                 new Position(wall.getStart().getX(), wall.getStart().getZ()),
@@ -185,8 +195,17 @@ public class RoomService {
         if (furniture == null || isBlank(furniture.getId()) || isBlank(furniture.getType())
                 || !positive(furniture.getWidth()) || !positive(furniture.getDepth()) || !positive(furniture.getHeight())
                 || furniture.getPosition() == null || furniture.getPosition().getX() == null
-                || furniture.getPosition().getZ() == null) {
+                || furniture.getPosition().getZ() == null || !finite(furniture.getPosition().getX())
+                || !finite(furniture.getPosition().getZ()) || !finite(furniture.getRotation() == null ? 0 : furniture.getRotation())) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+
+        String canonicalType = GeneratedFurnitureCatalog.get().normalizeType(furniture.getType());
+        boolean supportedType = GeneratedFurnitureCatalog.get().products().stream()
+                .map(com.roomfit.product.domain.MockProduct::getType)
+                .anyMatch(canonicalType::equals) || "storage".equals(canonicalType);
+        if (!supportedType) {
+            throw new CustomException(ErrorCode.INVALID_FURNITURE_TYPE);
         }
 
         FurnitureStatus status = parseStatus(defaultIfBlank(furniture.getStatus(), FurnitureStatus.EXISTING.name()));
@@ -243,11 +262,29 @@ public class RoomService {
     }
 
     private boolean positive(Double value) {
-        return value != null && value > 0;
+        return value != null && Double.isFinite(value) && value > 0;
     }
 
     private boolean nonNegative(Double value) {
-        return value != null && value >= 0;
+        return value != null && Double.isFinite(value) && value >= 0;
+    }
+
+    private boolean finite(Double value) {
+        return value != null && Double.isFinite(value);
+    }
+
+    private void validateUniqueIds(Room room) {
+        Set<String> ids = new java.util.HashSet<>();
+        for (Wall wall : room.getWalls()) {
+            if (!ids.add("wall:" + wall.getId())) throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        for (Opening opening : room.getOpenings()) {
+            if (!ids.add("opening:" + opening.getId())) throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        Set<String> furnitureIds = new java.util.HashSet<>();
+        for (Furniture furniture : room.getFurniture()) {
+            if (!furnitureIds.add(furniture.getId())) throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
     }
 
     private String defaultIfBlank(String value, String fallback) {
