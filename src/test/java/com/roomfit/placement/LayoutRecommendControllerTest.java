@@ -1,5 +1,8 @@
 package com.roomfit.placement;
 
+import com.roomfit.room.Room;
+import com.roomfit.room.RoomRepository;
+import com.roomfit.room.RoomSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -8,6 +11,9 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +36,9 @@ class LayoutRecommendControllerTest {
 
     @Autowired
     private LayoutRepository layoutRepository;
+
+    @Autowired
+    private RoomRepository roomRepository;
 
     @Test
     void recommend_returnsLayoutWithScoreSummaryAndValidationResult() throws Exception {
@@ -144,16 +153,17 @@ class LayoutRecommendControllerTest {
     @Test
     void recommend_withContextFromAnotherRoom_returnsRoomContextMismatchWithoutCreatingLayout() throws Exception {
         long contextId = createDeskContext(1);
+        long otherRoomId = createCollectorStudio();
         long layoutsBefore = layoutRepository.count();
 
         mockMvc.perform(post("/api/layouts/recommend")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "roomId": 2,
+                                  "roomId": %d,
                                   "contextId": %d
                                 }
-                                """.formatted(contextId)))
+                                """.formatted(otherRoomId, contextId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
@@ -165,11 +175,12 @@ class LayoutRecommendControllerTest {
 
     @Test
     void recommend_forCollectorStudio_returnsStudioRecommendationOnly() throws Exception {
+        long collectorRoomId = createCollectorStudio();
         String contextResponse = mockMvc.perform(post("/api/agent/context")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "roomId": 2,
+                                  "roomId": %d,
                                   "lifestyleGoal": "RELAX_FOCUSED",
                                   "designStyle": ["MODERN"],
                                   "requiredItems": ["bed", "desk", "chair"],
@@ -177,7 +188,7 @@ class LayoutRecommendControllerTest {
                                   "selectedImageIds": [1, 3],
                                   "selectedProductIds": ["desk-01", "chair-01", "lamp-01"]
                                 }
-                                """))
+                                """.formatted(collectorRoomId)))
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
@@ -189,10 +200,10 @@ class LayoutRecommendControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "roomId": 2,
+                                  "roomId": %d,
                                   "contextId": %s
                                 }
-                                """.formatted(contextId)))
+                                """.formatted(collectorRoomId, contextId)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.recommendedFurniture.length()").value(13))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-bed')].status").value(hasItems("RECOMMENDED")))
@@ -204,6 +215,12 @@ class LayoutRecommendControllerTest {
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].position.z").value(hasItems(org.hamcrest.Matchers.closeTo(5.2321, 0.001))))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].rotation").value(hasItems(225.0)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'bed-3')]").isEmpty());
+    }
+
+    private long createCollectorStudio() {
+        Room room = new Room(null, "샘플룸2", 6.4, 5.8, 2.8, "meter",
+                List.of(), List.of(), List.of(), RoomSource.ROOMPLAN, LocalDateTime.now(), null);
+        return roomRepository.save(room).getId();
     }
 
     private long createDeskContext(long roomId) throws Exception {

@@ -1,5 +1,6 @@
 package com.roomfit.room.controller;
 
+import com.roomfit.client.ClientScopeService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -27,7 +28,7 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.error").value(nullValue()))
                 .andExpect(jsonPath("$.data", notNullValue()))
-                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].roomId").value(1))
                 .andExpect(jsonPath("$.data[0].room.width").value(5.8))
                 .andExpect(jsonPath("$.data[0].room.depth").value(5.4))
@@ -35,14 +36,12 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.data[0].room.unit").value("meter"))
                 .andExpect(jsonPath("$.data[0].openings[*].type").value(hasItems("door", "window")))
                 .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].rotation").value(hasItems(180.0)))
-                .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")))
-                .andExpect(jsonPath("$.data[1].roomId").value(2))
-                .andExpect(jsonPath("$.data[1].name").value("샘플룸2"))
-                .andExpect(jsonPath("$.data[1].room.width").value(6.4))
-                .andExpect(jsonPath("$.data[1].room.depth").value(5.8))
-                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'bed-3')]").isNotEmpty())
-                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'desk-3')]").isNotEmpty())
-                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'wardrobe-3')]").isNotEmpty())
-                .andExpect(jsonPath("$.data[1].furniture[?(@.id == 'studio-bed')]").isEmpty());
+                .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")));
+
+        mockMvc.perform(get("/api/rooms/samples")
+                        .header(ClientScopeService.HEADER_NAME, "11111111-1111-4111-8111-111111111111"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("Sample Room"));
     }
 }

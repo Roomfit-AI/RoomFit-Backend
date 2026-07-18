@@ -3,7 +3,6 @@ package com.roomfit.room;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -11,6 +10,8 @@ import java.util.List;
  */
 @Component
 public class RoomSampleDataInitializer implements CommandLineRunner {
+
+    static final String CANONICAL_SAMPLE_NAME = "Sample Room";
 
     private final RoomRepository roomRepository;
 
@@ -20,10 +21,11 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // 이제 실제 DB에 영속화되므로, 이 시더가 매 재시작마다 실행돼도 샘플 방이
-        // 중복 적재되지 않도록 이미 SAMPLE 방이 있으면 건너뛴다 (in-memory 시절에는
-        // 항상 비어있어 무해했지만, DB 도입 후에는 재시작마다 행이 쌓이는 버그가 됨).
-        if (!roomRepository.findBySourceOrderByIdAsc(RoomSource.SAMPLE).isEmpty()) {
+        // 이름과 geometry를 canonical key로 사용한다. SAMPLE 행이 하나라도 있다는
+        // 이유로 건너뛰면 legacy sample만 남은 DB에서 canonical sample이 복구되지
+        // 않는다. 반대로 canonical이 이미 있으면 재시작해도 새 행을 만들지 않는다.
+        if (roomRepository.findBySourceOrderByIdAsc(RoomSource.SAMPLE).stream()
+                .anyMatch(RoomSampleDataInitializer::isCanonicalSample)) {
             return;
         }
 
@@ -42,26 +44,13 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
         Room sampleRoom = new Room(null, 5.8, 5.4, 2.7, "meter",
                 List.of(door, window), List.of(bed, desk, chair, wardrobe));
 
-        roomRepository.save(sampleRoom); // roomId = 1 로 발급됨
+        roomRepository.save(sampleRoom);
+    }
 
-        Opening studioDoor = new Opening("studio-door", "door", "south", 5.7, 0.8, 2.1, null);
-        Opening studioWindow = new Opening("studio-window", "window", "north", 1.7, 2.4, 1.45, 0.72);
-
-        List<Furniture> studioFurniture = List.of(
-                new Furniture("bed-3", "bed", "우드 침대", 1.45, 2.1, 0.48,
-                        new Position(1.35, 1.55), 0, FurnitureStatus.EXISTING),
-                new Furniture("desk-3", "desk", "우드 책상", 1.35, 0.6, 0.72,
-                        new Position(3.0, 1.05), 0, FurnitureStatus.EXISTING),
-                new Furniture("chair-3", "chair", "우드 의자", 0.55, 0.55, 0.82,
-                        new Position(3.0, 1.85), 180, FurnitureStatus.EXISTING),
-                new Furniture("wardrobe-3", "storage", "우드 옷장", 1.2, 0.65, 2.1,
-                        new Position(5.3, 3.85), 180, FurnitureStatus.EXISTING)
-        );
-
-        Room studioRoom = new Room(null, "샘플룸2", 6.4, 5.8, 2.8, "meter",
-                List.of(), List.of(studioDoor, studioWindow), studioFurniture,
-                RoomSource.SAMPLE, LocalDateTime.now(), null);
-
-        roomRepository.save(studioRoom); // roomId = 2 로 발급됨
+    static boolean isCanonicalSample(Room room) {
+        return room.getSource() == RoomSource.SAMPLE
+                && CANONICAL_SAMPLE_NAME.equals(room.getName())
+                && Double.compare(room.getWidth(), 5.8) == 0
+                && Double.compare(room.getDepth(), 5.4) == 0;
     }
 }
