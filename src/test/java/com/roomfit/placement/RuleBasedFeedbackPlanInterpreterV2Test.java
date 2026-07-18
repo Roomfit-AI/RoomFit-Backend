@@ -51,6 +51,34 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void normalizesLightingAndTableTermsToCatalogTypes() {
+        FeedbackOperation lighting = interpret("구석에 조명을 추가해줘").operations().getFirst();
+        FeedbackOperation table = interpret("작은 테이블을 추가해줘").operations().getFirst();
+
+        assertThat(lighting.target().furnitureType()).isEqualTo("mood_lamp");
+        assertThat(lighting.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
+        assertThat(table.target().furnitureType()).isEqualTo("multi_table");
+        assertThat(table.productRequirements().sizePreference()).isEqualTo(FeedbackSizePreference.SMALL);
+    }
+
+    @Test
+    void parsesSameTypeSmallerSofaAsCatalogSwap() {
+        FeedbackOperation operation = interpret("작은 소파로 바꿔줘").operations().getFirst();
+
+        assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+        assertThat(operation.target().furnitureType()).isEqualTo("sofa");
+        assertThat(operation.replacementRequirements().furnitureType()).isEqualTo("sofa");
+        assertThat(operation.replacementRequirements().sizePreference()).isEqualTo(FeedbackSizePreference.SMALL);
+    }
+
+    @Test
+    void keepsGenericStorageSeparateFromBookshelfHangerAndWardrobe() {
+        FeedbackOperation operation = interpret("수납장을 하나 더 추가해줘").operations().getFirst();
+
+        assertThat(operation.target().furnitureType()).isEqualTo("storage");
+    }
+
+    @Test
     void preservesAmbiguousExistingDeskClarificationPolicy() {
         List<Furniture> twoDesks = List.of(
                 furniture("desk-1", "desk", 1, 1),

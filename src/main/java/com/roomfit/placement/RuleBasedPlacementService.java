@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
 import com.roomfit.product.service.ProductRecommendationService;
@@ -65,26 +66,33 @@ public class RuleBasedPlacementService implements PlacementService {
         // AgentContext는 selectedProductIds만 영속화한다 — 전체 MockProduct는
         // 여기서 다시 조회한다(AgentContext.java 참고).
         Map<String, MockProduct> selectedProductByType = mockProductService.findByProductIds(context.getSelectedProductIds()).stream()
-                .collect(Collectors.toMap(MockProduct::getType, Function.identity(), (first, ignored) -> first));
+                .collect(Collectors.toMap(
+                        product -> GeneratedFurnitureCatalog.get().normalizeType(product.getType()),
+                        Function.identity(),
+                        (first, ignored) -> first));
 
         Set<String> placedTypes = recommended.stream()
-                .map(Furniture::getType)
+                .map(furniture -> GeneratedFurnitureCatalog.get().normalizeType(furniture.getType()))
                 .collect(Collectors.toSet());
 
         for (String itemType : context.getRequiredItems()) {
-            if (placedTypes.contains(itemType)) {
+            String canonicalItemType = GeneratedFurnitureCatalog.get().normalizeType(itemType);
+            if (placedTypes.contains(canonicalItemType)) {
                 continue;
             }
-            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(itemType))
-                    .ifPresent(furniture -> placedTypes.add(furniture.getType()));
+            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(canonicalItemType))
+                    .ifPresent(furniture -> placedTypes.add(
+                            GeneratedFurnitureCatalog.get().normalizeType(furniture.getType())));
         }
 
         for (String itemType : context.getOptionalItems()) {
-            if (placedTypes.contains(itemType)) {
+            String canonicalItemType = GeneratedFurnitureCatalog.get().normalizeType(itemType);
+            if (placedTypes.contains(canonicalItemType)) {
                 continue;
             }
-            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(itemType))
-                    .ifPresent(furniture -> placedTypes.add(furniture.getType()));
+            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(canonicalItemType))
+                    .ifPresent(furniture -> placedTypes.add(
+                            GeneratedFurnitureCatalog.get().normalizeType(furniture.getType())));
         }
 
         return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary());
@@ -173,7 +181,7 @@ public class RuleBasedPlacementService implements PlacementService {
     private Furniture createRecommendedFurniture(String itemType, FurnitureSpec spec, Position position) {
         return new Furniture(
                 itemType + "-rec-1",
-                itemType,
+                spec.type(),
                 spec.label(),
                 spec.width(),
                 spec.depth(),
@@ -303,23 +311,23 @@ public class RuleBasedPlacementService implements PlacementService {
         );
     }
 
-    private record FurnitureSpec(String label, double width, double depth, double height,
+    private record FurnitureSpec(String type, String label, double width, double depth, double height,
                                  String productId, List<String> styleTags, String variantId) {
 
         private static FurnitureSpec from(String itemType, MockProduct product) {
             if (product != null) {
-                return new FurnitureSpec(product.getName(), product.getWidth(), product.getDepth(),
+                return new FurnitureSpec(product.getType(), product.getName(), product.getWidth(), product.getDepth(),
                         product.getHeight(), product.getProductId(), product.getStyleTags(), product.getVariantId());
             }
 
             return switch (itemType) {
-                case "bed" -> new FurnitureSpec("bed", 1.1, 2.0, 0.45, null, List.of(), null);
-                case "desk" -> new FurnitureSpec("desk", 1.0, 0.6, 0.75, null, List.of(), null);
-                case "chair" -> new FurnitureSpec("chair", 0.45, 0.45, 0.8, null, List.of(), null);
-                case "storage" -> new FurnitureSpec("storage", 0.8, 0.4, 1.6, null, List.of(), null);
-                case "rug" -> new FurnitureSpec("rug", 1.2, 1.6, 0.02, null, List.of(), null);
-                case "lamp" -> new FurnitureSpec("lamp", 0.25, 0.25, 1.4, null, List.of(), null);
-                default -> new FurnitureSpec(itemType, 1.0, 0.6, 0.7, null, List.of(), null);
+                case "bed" -> new FurnitureSpec("bed", "bed", 1.1, 2.0, 0.45, null, List.of(), null);
+                case "desk" -> new FurnitureSpec("desk", "desk", 1.0, 0.6, 0.75, null, List.of(), null);
+                case "chair" -> new FurnitureSpec("chair", "chair", 0.45, 0.45, 0.8, null, List.of(), null);
+                case "storage" -> new FurnitureSpec("storage", "storage", 0.8, 0.4, 1.6, null, List.of(), null);
+                case "rug" -> new FurnitureSpec("rug", "rug", 1.2, 1.6, 0.02, null, List.of(), null);
+                case "lamp" -> new FurnitureSpec("lamp", "lamp", 0.25, 0.25, 1.4, null, List.of(), null);
+                default -> new FurnitureSpec(itemType, itemType, 1.0, 0.6, 0.7, null, List.of(), null);
             };
         }
     }

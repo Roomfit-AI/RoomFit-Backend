@@ -79,7 +79,7 @@ class ProductRecommendationServiceTest {
     void recommend_typeNotInCatalog_returnsEmpty() {
         AgentContext context = context(List.of(DesignStyle.MINIMAL), LifestyleGoal.STUDY_FOCUSED);
 
-        Optional<MockProduct> result = service.recommend("sofa", context, room(4.0, 4.0));
+        Optional<MockProduct> result = service.recommend("unsupported-type", context, room(4.0, 4.0));
 
         assertThat(result).isEmpty();
     }

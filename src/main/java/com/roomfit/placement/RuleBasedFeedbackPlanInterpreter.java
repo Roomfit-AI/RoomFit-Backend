@@ -36,6 +36,9 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             if (isClearSwapRequest(normalized) && mentions.size() >= 2) {
                 return direct(normalized, swapOperation(normalized, mentions));
             }
+            if (isClearSwapRequest(normalized) && mentions.size() == 1 && hasSizePreference(normalized)) {
+                return direct(normalized, sameTypeSwapOperation(normalized, mentions.getFirst().type()));
+            }
             if (containsAny(normalized, REMOVE_TERMS) && mentions.size() == 1) {
                 return direct(normalized, removeOperation(normalized, mentions.getFirst().type()));
             }
@@ -113,12 +116,18 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     private FeedbackOperation swapOperation(String feedback, List<FurnitureMention> mentions) {
         FurnitureMention source = mentions.getFirst();
         FurnitureMention replacement = mentions.getLast();
-        if (source.type().equals(replacement.type())) {
+        if (source.type().equals(replacement.type()) && !hasSizePreference(feedback)) {
             throw new AmbiguousRuleTargetException("교체할 기존 가구와 새 가구 종류를 구분해서 알려주세요.");
         }
         return new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
                 selector(source.type(), feedback), null, null, null, null,
                 requirements(replacement.type(), feedback), List.of());
+    }
+
+    private FeedbackOperation sameTypeSwapOperation(String feedback, String type) {
+        return new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
+                selector(type, feedback), null, null, null, null,
+                requirements(type, feedback), List.of());
     }
 
     private FeedbackTargetSelector selector(String type, String feedback) {
@@ -199,23 +208,46 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
                 && containsAny(feedback, List.of("넣어", "놓아", "배치", "추가"));
     }
 
+    private boolean hasSizePreference(String feedback) {
+        return containsAny(feedback, List.of("작은", "슬림", "큰", "넓은"));
+    }
+
     private static Map<String, String> furnitureTerms() {
         Map<String, String> terms = new LinkedHashMap<>();
+        terms.put("책상 의자", "desk_chair");
+        terms.put("책상의자", "desk_chair");
         terms.put("사이드 테이블", "side_table");
         terms.put("사이드테이블", "side_table");
-        terms.put("1인용 의자", "chair");
-        terms.put("서랍장", "storage");
+        terms.put("1인용 의자", "desk_chair");
+        terms.put("전신 거울", "full_length_mirror");
+        terms.put("전신거울", "full_length_mirror");
+        terms.put("미디어 콘솔", "media_console");
+        terms.put("미디어콘솔", "media_console");
+        terms.put("소파 베드", "sofa_bed");
+        terms.put("소파베드", "sofa_bed");
+        terms.put("서랍장", "drawer_chest");
         terms.put("수납장", "storage");
         terms.put("협탁", "nightstand");
         terms.put("책장", "bookshelf");
         terms.put("행거", "hanger");
-        terms.put("식탁", "table");
+        terms.put("파티션", "partition_shelf");
+        terms.put("식탁", "multi_table");
+        terms.put("테이블", "multi_table");
         terms.put("책상", "desk");
         terms.put("침대", "bed");
         terms.put("소파", "sofa");
-        terms.put("의자", "chair");
-        terms.put("조명", "lamp");
-        terms.put("램프", "lamp");
+        terms.put("의자", "desk_chair");
+        terms.put("조명", "mood_lamp");
+        terms.put("램프", "mood_lamp");
+        terms.put("스탠드", "mood_lamp");
+        terms.put("모니터", "monitor");
+        terms.put("블라인드", "curtain_blind");
+        terms.put("커튼", "curtain_blind");
+        terms.put("옷장", "wardrobe");
+        terms.put("거울", "full_length_mirror");
+        terms.put("화분", "plant");
+        terms.put("티비", "tv");
+        terms.put("TV", "tv");
         terms.put("러그", "rug");
         return Map.copyOf(terms);
     }

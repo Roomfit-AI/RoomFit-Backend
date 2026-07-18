@@ -2,6 +2,7 @@ package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.agent.domain.LifestyleGoal;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import org.springframework.stereotype.Service;
 
@@ -31,10 +32,10 @@ public class ScoreService {
         }
 
         Set<String> furnitureTypes = furniture.stream()
-                .map(Furniture::getType)
+                .map(item -> GeneratedFurnitureCatalog.get().normalizeType(item.getType()))
                 .collect(Collectors.toSet());
 
-        return furnitureTypes.containsAll(Set.of("desk", "chair", "lamp")) ? 95 : 80;
+        return furnitureTypes.containsAll(Set.of("desk", "desk_chair", "mood_lamp")) ? 95 : 80;
     }
 
     private int calculateStyleScore(AgentContext context, List<Furniture> furniture) {

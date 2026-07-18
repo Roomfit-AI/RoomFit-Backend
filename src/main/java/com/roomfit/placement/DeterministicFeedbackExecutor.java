@@ -286,7 +286,7 @@ public class DeterministicFeedbackExecutor {
         }
         List<MockProduct> products = productRepository.findAll().stream()
                 .filter(renderableCatalog::isRenderable)
-                .filter(product -> current.getType().equals(product.getType()))
+                .filter(product -> renderableCatalog.sameFurnitureType(current.getType(), product.getType()))
                 .filter(product -> !product.getProductId().equals(current.getProductId()))
                 .filter(product -> !constraints.largerThanCurrent() || product.getWidth() > current.getWidth())
                 .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
@@ -323,7 +323,8 @@ public class DeterministicFeedbackExecutor {
         for (int i = 0; i < furniture.size(); i++) {
             Furniture item = furniture.get(i);
             if (!active(item)) continue;
-            if (!target.furnitureType().isBlank() && !target.furnitureType().equals(item.getType())) continue;
+            if (!target.furnitureType().isBlank()
+                    && !renderableCatalog.sameFurnitureType(target.furnitureType(), item.getType())) continue;
             String label = item.getLabel() == null ? "" : item.getLabel().toLowerCase(Locale.ROOT);
             if (!labelKeyword.isBlank() && !label.contains(labelKeyword)) continue;
             matches.add(i);
@@ -418,7 +419,7 @@ public class DeterministicFeedbackExecutor {
         return constraints != null
                 && constraints.furnitureType() != null
                 && !constraints.furnitureType().isBlank()
-                && current.getType().equals(constraints.furnitureType())
+                && renderableCatalog.sameFurnitureType(current.getType(), constraints.furnitureType())
                 && (constraints.largerThanCurrent()
                 || constraints.minWidth() != null
                 || !constraints.requiredStyleTags().isEmpty()

@@ -4,6 +4,7 @@ import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.agent.domain.DesignStyle;
 import com.roomfit.agent.domain.LifestyleGoal;
 import com.roomfit.product.domain.MockProduct;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Room;
 import org.springframework.stereotype.Service;
@@ -26,10 +27,8 @@ import java.util.Set;
  * 2. 총점 동점이면 방에 실제로 들어갈 수 있는(치수+clearance) 후보를 우선
  * 3. 그래도 동점이면 Catalog 등록 순서상 첫 번째 (deterministic fallback)
  *
- * lifestyleTags는 지금 desk 4종(desk-compact-01/desk-storage-01/desk-corner-01/
- * desk-midcentury-glass-01)에만 Furniture Variant Registry의 공식 값이 채워져 있고
- * 나머지 Product는 빈 리스트다(전체 92종 Catalog 반영은 별도 작업) — lifestyleScore는
- * 그 경우 항상 0이 되어 사실상 styleScore만으로 결정된다. HOBBY_LEISURE처럼 대응되는
+ * JSON Variant Product에는 Furniture Catalog의 공식 lifestyleTags가 채워져 있고,
+ * 기존 legacy Product는 빈 리스트를 유지한다. HOBBY_LEISURE처럼 대응되는
  * LifestyleGoal이 없는 태그는 LifestyleGoal.toLifestyleTag()가 만들어내지 않으므로
  * 어떤 lifestyleGoal로도 매칭되지 않는다 — 근거 없는 매핑을 임의로 만들지 않는다.
  *
@@ -46,7 +45,7 @@ public class ProductRecommendationService {
 
     public Optional<MockProduct> recommend(String type, AgentContext context, Room room) {
         List<MockProduct> candidates = mockProductRepository.findAll().stream()
-                .filter(product -> type.equals(product.getType()))
+                .filter(product -> GeneratedFurnitureCatalog.get().sameType(type, product.getType()))
                 .toList();
 
         if (candidates.isEmpty()) {

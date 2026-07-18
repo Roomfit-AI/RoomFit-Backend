@@ -42,6 +42,26 @@ class RuleBasedPlacementVariantIdTest {
     }
 
     @Test
+    void recommend_matchesLegacyChairAliasToSelectedCanonicalChairProduct() {
+        MockProduct chair = new MockProduct("chair-basic-01", "chair-basic", "desk_chair", "기본 의자", null,
+                0.46, 0.54, 0.8, (Integer) null, List.of("minimal", "modern"), null, null,
+                new RequiredClearance(0.4, 0.1));
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of("chair-basic-01"))).thenReturn(List.of(chair));
+        AgentContext context = new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
+                List.of("chair"), List.of(), List.of(1L), List.of("chair-basic-01"), List.of("minimal"));
+
+        PlacementResult result = new RuleBasedPlacementService(productService, mock(ProductRecommendationService.class))
+                .recommend(context, room());
+
+        assertThat(result.getRecommendedFurniture()).hasSize(1);
+        Furniture furniture = result.getRecommendedFurniture().getFirst();
+        assertThat(furniture.getType()).isEqualTo("desk_chair");
+        assertThat(furniture.getProductId()).isEqualTo("chair-basic-01");
+        assertThat(furniture.getVariantId()).isEqualTo("chair-basic");
+    }
+
+    @Test
     void recommend_keepsNullVariantIdCompatible() {
         MockProduct product = product(null);
         MockProductService productService = mock(MockProductService.class);

@@ -98,6 +98,7 @@ class LlmFeedbackPlanInterpreterV2Test {
                 """);
 
         assertThat(plan.operations().getFirst().target().locationHint()).isEqualTo(FeedbackLocationHint.CENTER);
+        assertThat(plan.operations().getFirst().target().furnitureType()).isEqualTo("desk_chair");
     }
 
     @Test
@@ -131,6 +132,8 @@ class LlmFeedbackPlanInterpreterV2Test {
 
         assertThat(plan.operations()).extracting(FeedbackOperation::type)
                 .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ADD_FURNITURE);
+        assertThat(plan.operations().get(1).target().furnitureType()).isEqualTo("mood_lamp");
+        assertThat(plan.operations().get(1).productRequirements().furnitureType()).isEqualTo("mood_lamp");
     }
 
     @Test

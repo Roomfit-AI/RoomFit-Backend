@@ -69,10 +69,10 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void unsupportedFrontendVariantIsNeverAdded() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("chair-shell-01", "chair-midcentury-shell",
-                "chair", "의자", 0.5, 0.5, 0.8, List.of())));
+        DeterministicFeedbackExecutor executor = executor(List.of(product("future-chair-01", "future-chair",
+                "desk_chair", "의자", 0.5, 0.5, 0.8, List.of())));
 
-        FeedbackExecution execution = executor.execute(direct(addInCorner("op-1", "chair")), room(6, 6), List.of());
+        FeedbackExecution execution = executor.execute(direct(addInCorner("op-1", "desk_chair")), room(6, 6), List.of());
 
         assertThat(execution.result().applied()).isFalse();
         assertThat(execution.result().noChangeReason()).isEqualTo("NO_RENDERABLE_PRODUCT");
@@ -91,6 +91,49 @@ class DeterministicFurnitureCompositionExecutorTest {
         executor.execute(direct(addInCorner("op-1", "desk")), room(10, 10), List.of(blocker));
 
         assertThat(validation.calls).isLessThanOrEqualTo(24);
+    }
+
+    @Test
+    void productionCatalogAddsRepresentativeCanonicalVariants() {
+        MockProductRepository repository = new MockProductRepository();
+        DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
+                new ValidationService(), repository);
+
+        for (String type : List.of("nightstand", "mood_lamp", "multi_table")) {
+            FeedbackExecution execution = executor.execute(
+                    direct(addInCorner("op-1", type)), room(8, 8), List.of());
+
+            assertThat(execution.result().applied()).as(type).isTrue();
+            assertThat(execution.furniture()).as(type).hasSize(1);
+            Furniture added = execution.furniture().getFirst();
+            assertThat(added.getType()).as(type).isEqualTo(type);
+            assertThat(added.getProductId()).as(type).isNotBlank();
+            assertThat(added.getVariantId()).as(type).isNotBlank();
+        }
+    }
+
+    @Test
+    void productionCatalogSwapsSofaToTheSmallestRenderableVariant() {
+        MockProductRepository repository = new MockProductRepository();
+        DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
+                new ValidationService(), repository);
+        Furniture sofa = new Furniture("sofa-1", "sofa", "기존 소파", 2.18, 0.88, 0.88,
+                new Position(4, 3), 0, FurnitureStatus.EXISTING,
+                "sofa-classic-ektorp-01", List.of("classic", "natural"), "sofa-classic-ektorp");
+        FeedbackOperation operation = new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
+                new FeedbackTargetSelector("", "sofa", ""), null, null, null, null,
+                new FeedbackProductRequirements("sofa", FeedbackSizePreference.SMALL, false, List.of()),
+                List.of());
+
+        FeedbackExecution execution = executor.execute(direct(operation), room(8, 6), List.of(sofa));
+
+        Furniture swapped = execution.furniture().getFirst();
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(swapped.getId()).isEqualTo("sofa-1");
+        assertThat(swapped.getType()).isEqualTo("sofa");
+        assertThat(swapped.getProductId()).isEqualTo("sofa-single-01");
+        assertThat(swapped.getVariantId()).isEqualTo("sofa-single");
+        assertThat(swapped.getStatus()).isEqualTo(FurnitureStatus.EXISTING);
     }
 
     @Test
@@ -228,8 +271,7 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void swapBookshelfToHangerKeepsIdAndUsesCatalogMetadataAtOriginalPosition() {
-        MockProduct hanger = product("hanger-01", null, "hanger", "슬림 행거",
-                0.8, 0.4, 1.6, List.of("minimal", "storage"));
+        MockProduct hanger = new MockProductRepository().findById("hanger-basic-01").orElseThrow();
         DeterministicFeedbackExecutor executor = executor(List.of(hanger));
         Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 1.2, 0.4, 1.8,
                 new Position(3, 3), 0, FurnitureStatus.EXISTING,
@@ -241,13 +283,13 @@ class DeterministicFurnitureCompositionExecutorTest {
         Furniture swapped = execution.furniture().getFirst();
         assertThat(swapped.getId()).isEqualTo("bookshelf-1");
         assertThat(swapped.getType()).isEqualTo("hanger");
-        assertThat(swapped.getLabel()).isEqualTo("슬림 행거");
-        assertThat(swapped.getProductId()).isEqualTo("hanger-01");
-        assertThat(swapped.getVariantId()).isNull();
-        assertThat(swapped.getStyleTags()).containsExactly("minimal", "storage");
-        assertThat(swapped.getWidth()).isEqualTo(0.8);
-        assertThat(swapped.getDepth()).isEqualTo(0.4);
-        assertThat(swapped.getHeight()).isEqualTo(1.6);
+        assertThat(swapped.getLabel()).isEqualTo("기본 스탠드형 행거");
+        assertThat(swapped.getProductId()).isEqualTo("hanger-basic-01");
+        assertThat(swapped.getVariantId()).isEqualTo("hanger-basic");
+        assertThat(swapped.getStyleTags()).containsExactly("minimal", "modern");
+        assertThat(swapped.getWidth()).isEqualTo(1.11);
+        assertThat(swapped.getDepth()).isEqualTo(0.51);
+        assertThat(swapped.getHeight()).isEqualTo(1.75);
         assertThat(swapped.getPosition().getX()).isEqualTo(3);
         assertThat(swapped.getPosition().getZ()).isEqualTo(3);
         assertThat(swapped.getStatus()).isEqualTo(FurnitureStatus.EXISTING);
@@ -256,7 +298,7 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void swapSearchesAlternativePositionWhenOriginalPositionCollides() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-01", null, "hanger", "행거",
+        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
                 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
         Furniture blocker = furniture("blocker", "chair", "의자", 0.4, 0.4, 0.8, 3, 3, 0);
@@ -272,7 +314,7 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void allInvalidSwapCandidatesKeepOriginalFurniture() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-01", null, "hanger", "행거",
+        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
                 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
         Furniture blocker = furniture("blocker", "bed", "방 전체", 6, 6, 1, 3, 3, 0);
@@ -288,7 +330,7 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void operationAfterSwapCanTargetThePreservedFurnitureId() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-01", null, "hanger", "행거",
+        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
                 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 2, 2, 0);
         FeedbackOperation swap = swap("op-1", "bookshelf", "hanger");

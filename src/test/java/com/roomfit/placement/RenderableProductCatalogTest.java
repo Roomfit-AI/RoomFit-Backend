@@ -1,17 +1,10 @@
 package com.roomfit.placement;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.domain.RequiredClearance;
 import com.roomfit.product.repository.MockProductRepository;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -30,13 +23,14 @@ class RenderableProductCatalogTest {
         assertThat(deskCandidates).hasSize(RenderableProductCatalog.MAX_PRODUCT_CANDIDATES);
         assertThat(deskCandidates).allMatch(product -> product.getVariantId() == null
                 || catalog.supportedVariantIds().contains(product.getVariantId()));
-        assertThat(catalog.supportedVariantIds()).containsExactlyInAnyOrder(
-                "desk-compact", "desk-storage", "desk-corner", "desk-midcentury-glass");
+        assertThat(catalog.supportedVariantIds()).hasSize(93).contains(
+                "desk-compact", "chair-midcentury-shell", "bookshelf-high", "hanger-basic",
+                "nightstand-open", "sofa-single", "lamp-floor");
     }
 
     @Test
     void unsupportedFrontendVariantIsExcludedFromCandidates() {
-        MockProduct unsupported = product("chair-shell-01", "chair-midcentury-shell", "chair", 0.5, 0.5, 0.8);
+        MockProduct unsupported = product("future-chair-01", "future-chair", "desk_chair", 0.5, 0.5, 0.8);
         RenderableProductCatalog catalog = new RenderableProductCatalog(List.of(unsupported));
 
         assertThat(catalog.findCandidates(requirements("chair"), null)).isEmpty();
@@ -68,33 +62,15 @@ class RenderableProductCatalogTest {
     }
 
     @Test
-    void parsesAllAvailableIncomingVariantDocumentsAndAuditsIdsAndDimensions() throws IOException {
-        Path incoming = Path.of("..", "_incoming", "roomfit-furniture-json", "furniture");
-        Assumptions.assumeTrue(Files.isDirectory(incoming), "workspace incoming catalog is not available");
-        ObjectMapper objectMapper = new ObjectMapper();
-        Set<String> variantIds = new HashSet<>();
-        JsonNode materials = objectMapper.readTree(incoming.resolveSibling("materials.json").toFile());
+    void renderCapabilityDistinguishesGeneratedLegacyAndUnsupportedProducts() {
+        RenderableProductCatalog catalog = new RenderableProductCatalog(new MockProductRepository());
+        MockProduct variant = new MockProductRepository().findById("lamp-floor-01").orElseThrow();
+        MockProduct legacy = new MockProductRepository().findById("lamp-01").orElseThrow();
+        MockProduct unsupported = product("future-01", "future-variant", "lamp", 0.2, 0.2, 1.0);
 
-        assertThat(materials.path("schemaVersion").asText()).isEqualTo("1.0");
-        assertThat(materials.path("materials").isObject()).isTrue();
-        assertThat(materials.path("materials").size()).isPositive();
-
-        List<Path> documents;
-        try (var paths = Files.list(incoming)) {
-            documents = paths.filter(path -> path.getFileName().toString().endsWith(".json")).sorted().toList();
-        }
-
-        assertThat(documents).hasSize(93);
-        for (Path document : documents) {
-            JsonNode root = objectMapper.readTree(document.toFile());
-            String variantId = root.path("variantId").asText();
-            assertThat(variantId).as(document.toString()).isNotBlank();
-            assertThat(variantIds.add(variantId)).as("duplicate variantId %s", variantId).isTrue();
-            assertThat(root.path("furnitureTypeCode").asText()).as(variantId).isNotBlank();
-            assertThat(root.path("dimensions").path("width").asDouble()).as(variantId).isPositive();
-            assertThat(root.path("dimensions").path("depth").asDouble()).as(variantId).isPositive();
-            assertThat(root.path("dimensions").path("height").asDouble()).as(variantId).isPositive();
-        }
+        assertThat(catalog.renderCapability(variant)).isEqualTo(RenderableProductCatalog.RenderCapability.VARIANT_JSON);
+        assertThat(catalog.renderCapability(legacy)).isEqualTo(RenderableProductCatalog.RenderCapability.LEGACY_RENDERER);
+        assertThat(catalog.renderCapability(unsupported)).isEqualTo(RenderableProductCatalog.RenderCapability.UNSUPPORTED);
     }
 
     private FeedbackProductRequirements requirements(String type) {

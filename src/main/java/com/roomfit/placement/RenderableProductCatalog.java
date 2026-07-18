@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.product.domain.MockProduct;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.repository.MockProductRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -17,31 +18,32 @@ public class RenderableProductCatalog {
 
     public static final int MAX_PRODUCT_CANDIDATES = 4;
 
-    private static final Set<String> WEB_VARIANT_IDS = Set.of(
-            "desk-compact", "desk-storage", "desk-corner", "desk-midcentury-glass"
-    );
     private static final Set<String> WEB_LEGACY_TYPES = Set.of(
-            "bed", "desk", "chair", "storage", "rug", "lamp",
-            "cabinet", "lighting", "sofa", "table", "shelf", "tvStand", "wardrobe",
-            "bookshelf", "hanger"
+            "bed", "desk", "chair", "storage", "rug", "lamp"
     );
 
     private final List<MockProduct> products;
+    private final GeneratedFurnitureCatalog generatedCatalog;
 
     @Autowired
     public RenderableProductCatalog(MockProductRepository repository) {
-        this(repository.findAll());
+        this(repository.findAll(), GeneratedFurnitureCatalog.get());
     }
 
     RenderableProductCatalog(List<MockProduct> products) {
+        this(products, GeneratedFurnitureCatalog.get());
+    }
+
+    private RenderableProductCatalog(List<MockProduct> products, GeneratedFurnitureCatalog generatedCatalog) {
         this.products = List.copyOf(products);
+        this.generatedCatalog = generatedCatalog;
         validateCatalog(this.products);
     }
 
     public List<MockProduct> findCandidates(FeedbackProductRequirements requirements, FurnitureSize referenceSize) {
         List<MockProduct> candidates = products.stream()
                 .filter(this::isRenderable)
-                .filter(product -> requirements.furnitureType().equals(product.getType()))
+                .filter(product -> sameFurnitureType(requirements.furnitureType(), product.getType()))
                 .filter(product -> !requirements.storagePreferred() || hasStorage(product))
                 .filter(product -> containsStyleKeywords(product, requirements.styleKeywords()))
                 .sorted(productComparator(requirements.sizePreference(), referenceSize))
@@ -52,13 +54,27 @@ public class RenderableProductCatalog {
 
     public boolean isRenderable(MockProduct product) {
         if (product.getVariantId() != null) {
-            return WEB_VARIANT_IDS.contains(product.getVariantId());
+            return generatedCatalog.variantIds().contains(product.getVariantId());
         }
         return WEB_LEGACY_TYPES.contains(product.getType());
     }
 
     public Set<String> supportedVariantIds() {
-        return WEB_VARIANT_IDS;
+        return generatedCatalog.variantIds();
+    }
+
+    public RenderCapability renderCapability(MockProduct product) {
+        if (product.getVariantId() != null && generatedCatalog.variantIds().contains(product.getVariantId())) {
+            return RenderCapability.VARIANT_JSON;
+        }
+        if (product.getVariantId() == null && WEB_LEGACY_TYPES.contains(product.getType())) {
+            return RenderCapability.LEGACY_RENDERER;
+        }
+        return RenderCapability.UNSUPPORTED;
+    }
+
+    public boolean sameFurnitureType(String first, String second) {
+        return generatedCatalog.sameType(first, second);
     }
 
     private Comparator<MockProduct> productComparator(FeedbackSizePreference preference, FurnitureSize referenceSize) {
@@ -139,5 +155,11 @@ public class RenderableProductCatalog {
     }
 
     public record FurnitureSize(double width, double depth, double height) {
+    }
+
+    public enum RenderCapability {
+        VARIANT_JSON,
+        LEGACY_RENDERER,
+        UNSUPPORTED
     }
 }

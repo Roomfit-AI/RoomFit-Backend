@@ -183,9 +183,14 @@ class LayoutFeedbackControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /lamp-feedback-.*/)]").value(hasSize(1)))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /lamp-feedback-.*/)].productId")
-                        .value(hasItems("lamp-01")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /mood-lamp-feedback-.*/)]")
+                        .value(hasSize(1)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /mood-lamp-feedback-.*/)].type")
+                        .value(hasItems("mood_lamp")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /mood-lamp-feedback-.*/)].productId")
+                        .value(hasItems("lamp-floor-01")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id =~ /mood-lamp-feedback-.*/)].variantId")
+                        .value(hasItems("lamp-floor")))
                 .andExpect(jsonPath("$.data.interpretedIntent.operations").value(hasItems("ADD_FURNITURE")))
                 .andExpect(jsonPath("$.data.feedbackResult.applied").value(true));
     }

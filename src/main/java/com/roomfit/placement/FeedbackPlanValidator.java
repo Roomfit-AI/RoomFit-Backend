@@ -132,9 +132,6 @@ public class FeedbackPlanValidator {
                 require(operation.productRequirements() == null);
                 require(operation.replacementRequirements() != null);
                 validateProductRequirements(operation.replacementRequirements());
-                String targetType = operation.target().furnitureType();
-                String replacementType = operation.replacementRequirements().furnitureType();
-                require(targetType.isBlank() || !targetType.equals(replacementType));
             }
             case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> invalid();
         }

@@ -22,7 +22,7 @@ public class Furniture {
 
     @Schema(description = "가구 ID", example = "desk-rec-1")
     private String id;
-    @Schema(description = "가구 타입", example = "desk", allowableValues = {"bed", "desk", "chair", "storage", "rug", "lamp"})
+    @Schema(description = "가구 타입. 기존 6종 alias와 JSON Catalog의 canonical type을 지원합니다.", example = "desk")
     private String type;      // bed, desk, chair, storage 등
     @Schema(description = "화면 표시 라벨", example = "화이트 미니멀 책상")
     private String label;

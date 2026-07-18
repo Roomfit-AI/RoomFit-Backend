@@ -7,6 +7,7 @@ import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.llm.LlmClient;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
@@ -96,7 +97,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
         return new FeedbackTargetSelector(
                 text(node, "furnitureId"),
-                text(node, "furnitureType"),
+                normalizeFurnitureType(text(node, "furnitureType")),
                 text(node, "labelKeyword"),
                 optionalEnum(FeedbackLocationHint.class, text(node, "locationHint")),
                 optionalInteger(node, "ordinal")
@@ -136,6 +137,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (furnitureType.isBlank()) {
             furnitureType = defaultFurnitureType;
         }
+        furnitureType = normalizeFurnitureType(furnitureType);
         return new FeedbackProductRequirements(
                 furnitureType,
                 optionalEnum(FeedbackSizePreference.class, text(node, "sizePreference")),
@@ -166,6 +168,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (furnitureType.isBlank()) {
             furnitureType = targetFurnitureType;
         }
+        furnitureType = normalizeFurnitureType(furnitureType);
         boolean largerThanCurrent = node.path("largerThanCurrent").asBoolean(false);
         Double minWidth = optionalNumber(node, "minWidth");
         if (minWidth != null && (minWidth <= 0 || minWidth > 10)) {
@@ -251,6 +254,10 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     REMOVE_FURNITURE selects one existing target and has no placement or product requirements.
                     SWAP_FURNITURE selects one existing target and uses replacementRequirements with the same
                     product requirement fields. SWAP may change furnitureType; REPLACE_PRODUCT may not.
+                    Use canonical furniture types bed, bookshelf, curtain_blind, desk, desk_chair, drawer_chest,
+                    full_length_mirror, hanger, media_console, monitor, mood_lamp, multi_table, nightstand,
+                    partition_shelf, plant, rug, side_table, sofa, sofa_bed, tv, and wardrobe. Treat lamp and
+                    lighting as mood_lamp, chair as desk_chair, table as multi_table, and bedside table as nightstand.
                     Never output x, z, coordinates, position, distanceMeters, rotation, rotationDegrees, score,
                     validationResult, weight, objectiveWeight, productId, or variantId.
                     Do not output CHANGE_MATERIAL, CHANGE_COLOR_TONE, ABSTRACT goals, coordinates, angles,
@@ -284,6 +291,13 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private String text(JsonNode node, String field) {
         return node.path(field).isTextual() ? node.path(field).asText().trim() : "";
+    }
+
+    private String normalizeFurnitureType(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return GeneratedFurnitureCatalog.get().normalizeType(value);
     }
 
     private Double optionalNumber(JsonNode node, String field) {
