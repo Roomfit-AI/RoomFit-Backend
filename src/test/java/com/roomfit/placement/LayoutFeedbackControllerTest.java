@@ -73,7 +73,10 @@ class LayoutFeedbackControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.data.recommendedFurniture[*].type").value(hasItems("storage")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')].productId")
+                        .value(hasItems("desk-storage-01")))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.type == 'desk')].variantId")
+                        .value(hasItems("desk-storage")))
                 .andExpect(jsonPath("$.data.interpretedIntent.storagePriority").value("HIGH"));
     }
 

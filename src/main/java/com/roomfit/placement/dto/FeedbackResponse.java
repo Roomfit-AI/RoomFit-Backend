@@ -1,6 +1,7 @@
 package com.roomfit.placement.dto;
 
 import com.roomfit.placement.Layout;
+import com.roomfit.placement.FeedbackResult;
 import com.roomfit.placement.RecommendationStatus;
 import com.roomfit.placement.ScoreSummary;
 import com.roomfit.placement.ValidationResult;
@@ -25,22 +26,32 @@ public class FeedbackResponse {
     private final ValidationResult validationResult;
     @Schema(description = "피드백 문장을 해석한 내부 의도. 프론트 디버깅/표시에 사용할 수 있습니다.")
     private final Map<String, Object> interpretedIntent;
+    @Schema(description = "피드백 적용 결과. 실제 변경이 없을 때 이유를 포함합니다.")
+    private final FeedbackResult feedbackResult;
 
     private FeedbackResponse(Long layoutId, RecommendationStatus status, List<Furniture> recommendedFurniture,
                               ScoreSummary scoreSummary, ValidationResult validationResult,
-                              Map<String, Object> interpretedIntent) {
+                              Map<String, Object> interpretedIntent, FeedbackResult feedbackResult) {
         this.layoutId = layoutId;
         this.status = status;
         this.recommendedFurniture = recommendedFurniture;
         this.scoreSummary = scoreSummary;
         this.validationResult = validationResult;
         this.interpretedIntent = interpretedIntent;
+        this.feedbackResult = feedbackResult;
     }
 
     public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
                                        ValidationResult validationResult, Map<String, Object> interpretedIntent) {
         return new FeedbackResponse(layout.getId(), status, layout.getFurniture(),
-                scoreSummary, validationResult, interpretedIntent);
+                scoreSummary, validationResult, interpretedIntent, null);
+    }
+
+    public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
+                                      ValidationResult validationResult, Map<String, Object> interpretedIntent,
+                                      FeedbackResult feedbackResult) {
+        return new FeedbackResponse(layout.getId(), status, layout.getFurniture(),
+                scoreSummary, validationResult, interpretedIntent, feedbackResult);
     }
 
     public Long getLayoutId() {
@@ -65,5 +76,9 @@ public class FeedbackResponse {
 
     public Map<String, Object> getInterpretedIntent() {
         return interpretedIntent;
+    }
+
+    public FeedbackResult getFeedbackResult() {
+        return feedbackResult;
     }
 }
