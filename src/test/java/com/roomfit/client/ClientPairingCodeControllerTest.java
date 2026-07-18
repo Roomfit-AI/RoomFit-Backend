@@ -8,6 +8,17 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,6 +50,43 @@ class ClientPairingCodeControllerTest {
         assertThat(codeA1).isEqualTo(codeA2);
         assertThat(codeA1).isNotEqualTo(codeB);
         assertThat(codeA1).hasSize(8);
+    }
+
+    // 실제로 앱에서 재현된 버그: 같은(아직 코드가 없는) clientId로 거의 동시에
+    // 두 요청이 들어오면(화면 재진입 등으로 fetch가 겹치는 경우), "조회 후 없으면
+    // 생성"이 원자적이지 않아 하나는 client_id unique 제약 위반으로 500이 났었다.
+    // 지금은 그 경합을 잡아 먼저 이긴 쪽 코드를 재사용하므로 둘 다 200과 같은
+    // 코드를 받아야 한다.
+    @Test
+    void issueOrGetCode_underConcurrentFirstRequests_neverFailsAndConvergesOnOneCode() throws Exception {
+        String brandNewClientId = "0c1c4a96-7f5b-48b7-9a01-555555555555";
+        int concurrency = 8;
+        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+        CountDownLatch startLine = new CountDownLatch(1);
+
+        try {
+            Callable<String> task = () -> {
+                startLine.await();
+                return issueCode(brandNewClientId);
+            };
+            List<Future<String>> futures = IntStream.range(0, concurrency)
+                    .mapToObj(ignored -> executor.submit(task))
+                    .collect(Collectors.toList());
+
+            // 전부 제출을 마친 뒤에야 동시에 풀어준다 — invokeAll처럼 제출 시점에
+            // 이미 실행이 끝나버려 "동시성"이 사라지는 걸 피하기 위해 submit +
+            // 래치 조합을 쓴다.
+            startLine.countDown();
+
+            Set<String> distinctCodes = new HashSet<>();
+            for (Future<String> future : futures) {
+                distinctCodes.add(future.get());
+            }
+
+            assertThat(distinctCodes).hasSize(1);
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

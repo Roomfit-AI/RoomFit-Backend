@@ -2,11 +2,13 @@ package com.roomfit.client;
 
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.Optional;
 
 @Service
 public class ClientPairingCodeService {
@@ -27,26 +29,50 @@ public class ClientPairingCodeService {
     /**
      * 이미 이 clientId로 발급된 코드가 있으면 그대로 반환한다(멱등) — 앱이 매번
      * 새로 만들지 않고 같은 코드를 계속 보여줄 수 있게.
+     *
+     * "조회 후 없으면 생성"은 원자적이지 않다 — 같은 clientId로 거의 동시에 두
+     * 요청이 들어오면(화면이 재진입하며 fetch가 겹치는 경우 등) 둘 다 조회에서
+     * "없음"을 보고 둘 다 insert를 시도할 수 있다(재현 확인함: 동시 요청 2개 중
+     * 하나가 client_id unique 제약 위반으로 500). 이 메서드에 @Transactional을
+     * 걸지 않아 findByClientId/save가 각각 독립된 트랜잭션으로 실행되게 한다 —
+     * 그래야 save 실패가 그 트랜잭션만 롤백시키고, catch 블록의 재조회는 새
+     * 트랜잭션에서 깨끗하게 실행된다(같은 트랜잭션 안에서 잡으면 Hibernate
+     * 세션이 이미 무효화된 상태라 재조회도 같이 실패한다). 제약 위반이 나면
+     * 먼저 이긴 요청이 저장한 코드를 그대로 재사용한다.
      */
-    @Transactional
     public String issueOrGetCode() {
         String clientId = requireClientId();
-        return repository.findByClientId(clientId)
-                .map(ClientPairingCode::getCode)
-                .orElseGet(() -> repository.save(new ClientPairingCode(clientId, generateUniqueCode())).getCode());
+        Optional<String> existing = findCodeByClientId(clientId);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        try {
+            return saveNewCode(clientId);
+        } catch (DataIntegrityViolationException e) {
+            return findCodeByClientId(clientId).orElseThrow(() -> e);
+        }
     }
 
     /**
      * 기존 코드를 무효화하고 새 코드를 발급한다 — 예전 코드는 그 즉시 redeem이
-     * 안 된다(같은 row의 code 컬럼을 덮어쓰므로).
+     * 안 된다(같은 row의 code 컬럼을 덮어쓰므로). issueOrGetCode와 같은 이유로,
+     * 아직 코드가 없던 clientId에 재발급이 동시에 두 번 들어오는 드문 경우까지
+     * insert 경쟁 상태를 방어한다.
      */
-    @Transactional
     public String regenerateCode() {
         String clientId = requireClientId();
-        ClientPairingCode pairingCode = repository.findByClientId(clientId)
-                .orElseGet(() -> new ClientPairingCode(clientId, generateUniqueCode()));
-        pairingCode.rotateCode(generateUniqueCode());
-        return repository.save(pairingCode).getCode();
+        Optional<ClientPairingCode> existing = findByClientId(clientId);
+        if (existing.isPresent()) {
+            return rotateAndSave(existing.get());
+        }
+
+        try {
+            return saveNewCode(clientId);
+        } catch (DataIntegrityViolationException e) {
+            ClientPairingCode pairingCode = findByClientId(clientId).orElseThrow(() -> e);
+            return rotateAndSave(pairingCode);
+        }
     }
 
     /**
@@ -59,6 +85,28 @@ public class ClientPairingCodeService {
         return repository.findByCode(normalized)
                 .map(ClientPairingCode::getClientId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PAIRING_CODE_NOT_FOUND));
+    }
+
+    // 이 세 헬퍼는 일부러 @Transactional을 붙이지 않는다 — 같은 클래스 안에서
+    // this.xxx()로 호출되는 메서드에 붙이면 Spring AOP 프록시를 우회해 실제로는
+    // 아무 효과가 없다(자기 자신 호출은 프록시를 안 거치므로). 대신
+    // repository.save/findBy... 각각이 Spring Data JPA 자체적으로 이미 독립된
+    // 트랜잭션으로 실행되므로, 이 메서드들은 그 호출을 감싸는 순수 헬퍼일 뿐이다.
+    private Optional<ClientPairingCode> findByClientId(String clientId) {
+        return repository.findByClientId(clientId);
+    }
+
+    private Optional<String> findCodeByClientId(String clientId) {
+        return findByClientId(clientId).map(ClientPairingCode::getCode);
+    }
+
+    private String saveNewCode(String clientId) {
+        return repository.save(new ClientPairingCode(clientId, generateUniqueCode())).getCode();
+    }
+
+    private String rotateAndSave(ClientPairingCode pairingCode) {
+        pairingCode.rotateCode(generateUniqueCode());
+        return repository.save(pairingCode).getCode();
     }
 
     private String requireClientId() {
