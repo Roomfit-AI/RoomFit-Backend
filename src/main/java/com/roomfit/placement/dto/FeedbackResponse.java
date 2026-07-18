@@ -2,6 +2,7 @@ package com.roomfit.placement.dto;
 
 import com.roomfit.placement.Layout;
 import com.roomfit.placement.FeedbackResult;
+import com.roomfit.placement.FeedbackStatus;
 import com.roomfit.placement.RecommendationStatus;
 import com.roomfit.placement.ScoreSummary;
 import com.roomfit.placement.ValidationResult;
@@ -37,10 +38,20 @@ public class FeedbackResponse {
     private final Map<String, Object> interpretedIntent;
     @Schema(description = "피드백 적용 결과. 실제 변경이 없을 때 이유를 포함합니다.")
     private final FeedbackResult feedbackResult;
+    @Schema(description = "전체 피드백 실행 상태. 기존 status와 별개의 additive 필드입니다.")
+    private final FeedbackStatus feedbackStatus;
+    @Schema(description = "Plan 순서에 따른 Operation별 실행 결과")
+    private final List<FeedbackOperationResult> operationResults;
+    @Schema(description = "사용자 확인이 필요한 첫 번째 재질문 정보", nullable = true)
+    private final FeedbackClarificationResponse clarification;
+    @Schema(description = "사용자 확인이 필요한 모든 재질문 정보")
+    private final List<FeedbackClarificationResponse> clarifications;
 
     private FeedbackResponse(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
                              ValidationResult validationResult, Map<String, Object> interpretedIntent,
-                             FeedbackResult feedbackResult) {
+                             FeedbackResult feedbackResult, FeedbackStatus feedbackStatus,
+                             List<FeedbackOperationResult> operationResults,
+                             List<FeedbackClarificationResponse> clarifications) {
         this.layoutId = layout.getId();
         this.roomId = layout.getRoomId();
         this.sourceLayoutId = layout.getSourceLayoutId();
@@ -52,17 +63,32 @@ public class FeedbackResponse {
         this.validationResult = validationResult;
         this.interpretedIntent = interpretedIntent;
         this.feedbackResult = feedbackResult;
+        this.feedbackStatus = feedbackStatus;
+        this.operationResults = operationResults == null ? List.of() : List.copyOf(operationResults);
+        this.clarifications = clarifications == null ? List.of() : List.copyOf(clarifications);
+        this.clarification = this.clarifications.isEmpty() ? null : this.clarifications.getFirst();
     }
 
     public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
                                        ValidationResult validationResult, Map<String, Object> interpretedIntent) {
-        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent, null);
+        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent,
+                null, null, List.of(), List.of());
     }
 
     public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
                                       ValidationResult validationResult, Map<String, Object> interpretedIntent,
                                       FeedbackResult feedbackResult) {
-        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent, feedbackResult);
+        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent,
+                feedbackResult, null, List.of(), List.of());
+    }
+
+    public static FeedbackResponse of(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
+                                      ValidationResult validationResult, Map<String, Object> interpretedIntent,
+                                      FeedbackResult feedbackResult, FeedbackStatus feedbackStatus,
+                                      List<FeedbackOperationResult> operationResults,
+                                      List<FeedbackClarificationResponse> clarifications) {
+        return new FeedbackResponse(layout, status, scoreSummary, validationResult, interpretedIntent,
+                feedbackResult, feedbackStatus, operationResults, clarifications);
     }
 
     public Long getLayoutId() {
@@ -107,5 +133,21 @@ public class FeedbackResponse {
 
     public FeedbackResult getFeedbackResult() {
         return feedbackResult;
+    }
+
+    public FeedbackStatus getFeedbackStatus() {
+        return feedbackStatus;
+    }
+
+    public List<FeedbackOperationResult> getOperationResults() {
+        return operationResults;
+    }
+
+    public FeedbackClarificationResponse getClarification() {
+        return clarification;
+    }
+
+    public List<FeedbackClarificationResponse> getClarifications() {
+        return clarifications;
     }
 }

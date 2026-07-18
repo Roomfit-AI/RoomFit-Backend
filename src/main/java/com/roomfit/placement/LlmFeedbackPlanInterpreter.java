@@ -155,7 +155,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (!node.isObject()) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
-        return new FeedbackClarification(text(node, "question"));
+        return new FeedbackClarification(text(node, "question"),
+                normalizeFurnitureType(text(node, "targetFurnitureType")));
     }
 
     private FeedbackReplaceConstraints parseConstraints(JsonNode node, String targetFurnitureType, String feedback) {
@@ -272,7 +273,9 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     or reference cannot be identified safely, return CLARIFICATION instead of guessing.
                     Return exactly this shape and no markdown or explanation:
                     {"version":"2.0","requestKind":"DIRECT","operations":[{"operationId":"op-1","type":"MOVE","target":{"furnitureId":"desk-1","furnitureType":"desk","labelKeyword":""},"placement":{"relation":"RIGHT","magnitude":"MEDIUM"},"constraints":null,"dependsOn":[]}],"goals":[],"clarification":null,"reason":"..."}
-                    For CLARIFICATION, return operations=[], goals=[], and clarification={"question":"..."}.
+                    For CLARIFICATION, return operations=[], goals=[], and clarification={"question":"...",
+                    "targetFurnitureType":"canonical type when the ambiguous target type is known"}. The question
+                    is only explanatory; the backend constructs the final user-facing clarification response.
                     Existing room coordinates in the input are context only and must never be copied to the output.
                     Input:
                     %s

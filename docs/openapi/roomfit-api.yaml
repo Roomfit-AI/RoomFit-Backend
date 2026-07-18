@@ -447,7 +447,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 사용자 피드백 기반 재추천
-      description: 사용자의 자연어 피드백을 바탕으로 기존 배치를 조정하거나 재추천합니다. MVP에서는 제한적인 규칙 기반 피드백을 지원합니다.
+      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 일부 작업만 성공하면 성공한 변경만 새 snapshot으로 저장합니다.
       requestBody:
         required: true
         content:
@@ -1251,6 +1251,23 @@ components:
         status:
           type: string
           enum: [SUCCESS, FALLBACK]
+        feedbackStatus:
+          type: string
+          description: 전체 Plan 실행 상태. 기존 status와 별개입니다.
+          enum: [SUCCESS, PARTIAL_SUCCESS, FAILED, NEEDS_CLARIFICATION]
+        operationResults:
+          type: array
+          description: Plan operations와 동일한 순서의 실행 결과
+          items:
+            $ref: "#/components/schemas/FeedbackOperationResult"
+        clarification:
+          allOf:
+            - $ref: "#/components/schemas/FeedbackClarification"
+          nullable: true
+        clarifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedbackClarification"
         recommendedFurniture:
           type: array
           items:
@@ -1262,6 +1279,61 @@ components:
         interpretedIntent:
           type: object
           additionalProperties: true
+    FeedbackOperationResult:
+      type: object
+      required: [operationId, operationType, status, message]
+      properties:
+        operationId:
+          type: string
+        operationType:
+          type: string
+          enum: [MOVE, ROTATE, REPLACE_PRODUCT, ADD_FURNITURE, REMOVE_FURNITURE, SWAP_FURNITURE, CHANGE_MATERIAL, CHANGE_COLOR_TONE]
+        status:
+          type: string
+          enum: [APPLIED, FAILED, SKIPPED_DEPENDENCY, NEEDS_CLARIFICATION]
+        reasonCode:
+          type: string
+          nullable: true
+        message:
+          type: string
+        targetFurnitureId:
+          type: string
+          nullable: true
+        resultFurnitureId:
+          type: string
+          nullable: true
+        productId:
+          type: string
+          nullable: true
+        variantId:
+          type: string
+          nullable: true
+    FeedbackClarification:
+      type: object
+      required: [reasonCode, question, requiredField, candidates]
+      properties:
+        reasonCode:
+          type: string
+        question:
+          type: string
+        operationId:
+          type: string
+          nullable: true
+        requiredField:
+          type: string
+        candidates:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [furnitureId, type]
+            properties:
+              furnitureId:
+                type: string
+              type:
+                type: string
+              label:
+                type: string
     ConfirmCommonResponse:
       allOf:
         - $ref: "#/components/schemas/CommonResponse"
