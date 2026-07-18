@@ -1,32 +1,42 @@
 package com.roomfit.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.util.Arrays;
+
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    private static final String[] ALLOWED_ORIGINS = {
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:5174",
-            "http://localhost:5175",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:5174",
-            "http://127.0.0.1:5175"
-    };
+    static final String DEFAULT_ALLOWED_ORIGINS =
+            "http://localhost:5173,http://localhost:5174,http://localhost:5175";
+
+    private final String[] allowedOrigins;
+
+    public WebConfig(@Value("${CORS_ALLOWED_ORIGINS:" + DEFAULT_ALLOWED_ORIGINS + "}") String allowedOrigins) {
+        this.allowedOrigins = parseAllowedOrigins(allowedOrigins);
+    }
+
+    static String[] parseAllowedOrigins(String configuredOrigins) {
+        String origins = configuredOrigins == null || configuredOrigins.isBlank()
+                ? DEFAULT_ALLOWED_ORIGINS
+                : configuredOrigins;
+
+        return Arrays.stream(origins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .distinct()
+                .toArray(String[]::new);
+    }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-                // 배포 프론트 URL이 정해지면 allowedOrigins에 추가하세요.
-                .allowedOrigins(ALLOWED_ORIGINS)
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedOrigins(allowedOrigins)
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                // 현재 인증/쿠키 기반 기능이 없으므로 credentials는 허용하지 않습니다.
-                // 나중에 인증이 추가되면 allowCredentials 설정을 별도 검토하세요.
                 .allowCredentials(false)
                 .maxAge(3600);
     }
