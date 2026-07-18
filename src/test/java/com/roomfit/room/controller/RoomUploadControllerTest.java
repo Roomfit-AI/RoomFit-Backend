@@ -126,6 +126,38 @@ class RoomUploadControllerTest {
     }
 
     @Test
+    void uploadRoom_createsNewRoomWithoutMutatingAnExistingRoom() throws Exception {
+        String first = mockMvc.perform(post("/api/rooms/upload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Room A", "room": { "width": 3.1, "depth": 4.2, "height": 2.4 } }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Integer roomAId = JsonPath.read(first, "$.data.roomId");
+
+        String second = mockMvc.perform(post("/api/rooms/upload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "name": "Room B", "room": { "width": 5.2, "depth": 6.3, "height": 2.8 } }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Integer roomBId = JsonPath.read(second, "$.data.roomId");
+
+        org.assertj.core.api.Assertions.assertThat(roomBId).isNotEqualTo(roomAId);
+        mockMvc.perform(get("/api/rooms/{roomId}", roomAId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Room A"))
+                .andExpect(jsonPath("$.data.room.width").value(3.1))
+                .andExpect(jsonPath("$.data.room.depth").value(4.2));
+        mockMvc.perform(get("/api/rooms/{roomId}", roomBId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Room B"))
+                .andExpect(jsonPath("$.data.room.width").value(5.2));
+    }
+
+    @Test
     void uploadRoom_withInvalidRoomDimension_returnsInvalidRoomDimension() throws Exception {
         mockMvc.perform(post("/api/rooms/upload")
                         .contentType(MediaType.APPLICATION_JSON)

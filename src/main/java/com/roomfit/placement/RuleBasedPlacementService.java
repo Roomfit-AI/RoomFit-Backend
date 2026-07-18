@@ -12,6 +12,8 @@ import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,11 +44,19 @@ public class RuleBasedPlacementService implements PlacementService {
 
     private final MockProductService mockProductService;
     private final ProductRecommendationService productRecommendationService;
+    private final ValidationService validationService;
 
     public RuleBasedPlacementService(MockProductService mockProductService,
                                       ProductRecommendationService productRecommendationService) {
+        this(mockProductService, productRecommendationService, new ValidationService());
+    }
+
+    RuleBasedPlacementService(MockProductService mockProductService,
+                              ProductRecommendationService productRecommendationService,
+                              ValidationService validationService) {
         this.mockProductService = mockProductService;
         this.productRecommendationService = productRecommendationService;
+        this.validationService = validationService;
     }
 
     @Override
@@ -74,31 +84,48 @@ public class RuleBasedPlacementService implements PlacementService {
                         Function.identity(),
                         (first, ignored) -> first));
 
-        Set<String> placedTypes = recommended.stream()
+        Map<String, Integer> existingTypeCounts = new HashMap<>();
+        recommended.stream()
                 .map(furniture -> GeneratedFurnitureCatalog.get().normalizeType(furniture.getType()))
-                .collect(Collectors.toSet());
+                .forEach(type -> existingTypeCounts.merge(type, 1, Integer::sum));
 
-        for (String itemType : context.getRequiredItems()) {
+        List<String> requestedItems = new ArrayList<>(context.getRequiredItems());
+        requestedItems.addAll(context.getOptionalItems());
+        List<UnplacedFurniture> unplaced = new ArrayList<>();
+        int placedCount = 0;
+        for (int index = 0; index < requestedItems.size(); index++) {
+            String itemType = requestedItems.get(index);
             String canonicalItemType = GeneratedFurnitureCatalog.get().normalizeType(itemType);
-            if (placedTypes.contains(canonicalItemType)) {
+            if (canonicalItemType == null || !supportedType(canonicalItemType)) {
+                unplaced.add(unplaced(index, itemType, null, "UNSUPPORTED_FURNITURE_TYPE"));
                 continue;
             }
-            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(canonicalItemType))
-                    .ifPresent(furniture -> placedTypes.add(
-                            GeneratedFurnitureCatalog.get().normalizeType(furniture.getType())));
-        }
-
-        for (String itemType : context.getOptionalItems()) {
-            String canonicalItemType = GeneratedFurnitureCatalog.get().normalizeType(itemType);
-            if (placedTypes.contains(canonicalItemType)) {
+            int existingCount = existingTypeCounts.getOrDefault(canonicalItemType, 0);
+            if (existingCount > 0) {
+                // Existing active furniture already fulfils one request instance without mutating Room.
+                existingTypeCounts.put(canonicalItemType, existingCount - 1);
+                placedCount++;
                 continue;
             }
-            tryAddFurniture(room, recommended, context, itemType, selectedProductByType.get(canonicalItemType))
-                    .ifPresent(furniture -> placedTypes.add(
-                            GeneratedFurnitureCatalog.get().normalizeType(furniture.getType())));
+            PlacementAttempt attempt = tryAddFurniture(room, recommended, context, canonicalItemType,
+                    selectedProductByType.get(canonicalItemType));
+            if (attempt.furniture() != null) {
+                placedCount++;
+            } else {
+                unplaced.add(unplaced(index, canonicalItemType, attempt.product(), attempt.reasonCode()));
+            }
         }
-
-        return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary());
+        RecommendationExecutionStatus outcome = placedCount == requestedItems.size()
+                ? RecommendationExecutionStatus.SUCCESS
+                : placedCount == 0 ? RecommendationExecutionStatus.FAILED : RecommendationExecutionStatus.PARTIAL_SUCCESS;
+        String warningCode = unplaced.isEmpty() ? null : "INSUFFICIENT_ROOM_SPACE";
+        String message = outcome == RecommendationExecutionStatus.SUCCESS
+                ? "선택한 " + requestedItems.size() + "개 가구를 모두 배치했습니다."
+                : outcome == RecommendationExecutionStatus.PARTIAL_SUCCESS
+                ? "선택한 " + requestedItems.size() + "개 가구 중 " + placedCount + "개를 배치했습니다."
+                : "선택한 가구를 안전하게 배치할 공간을 찾지 못했습니다.";
+        return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary(),
+                requestedItems.size(), placedCount, unplaced, outcome, warningCode, message);
     }
 
     private List<Furniture> midCenturyCollectorRecommendation() {
@@ -163,32 +190,47 @@ public class RuleBasedPlacementService implements PlacementService {
         );
     }
 
-    private Optional<Furniture> tryAddFurniture(Room room, List<Furniture> placed, AgentContext context,
-                                                String itemType, MockProduct exactSelectedProduct) {
+    private PlacementAttempt tryAddFurniture(Room room, List<Furniture> placed, AgentContext context,
+                                             String itemType, MockProduct exactSelectedProduct) {
         // selectedProductIds에 이 타입의 정확한 선택이 있으면 그걸 그대로 쓴다(3번 우선순위 그대로 유지).
         // 없을 때만 ProductRecommendationService가 Catalog에서 하나를 고른다.
         MockProduct product = exactSelectedProduct != null
                 ? exactSelectedProduct
                 : productRecommendationService.recommend(itemType, context, room).orElse(null);
+        if (exactSelectedProduct == null && product != null && product.getVariantId() == null) {
+            // Preserve ProductRecommendationService's public legacy tie-break,
+            // but initial AI layouts use a generated equivalent when available
+            // so every canonical request carries renderer/footprint metadata.
+            product = GeneratedFurnitureCatalog.get().products().stream()
+                    .filter(candidate -> GeneratedFurnitureCatalog.get().sameType(itemType, candidate.getType()))
+                    .findFirst().orElse(product);
+        }
+        if (product == null) {
+            return new PlacementAttempt(null, null, "NO_RENDERABLE_PRODUCT");
+        }
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
+        String lastReason = "NO_VALID_PLACEMENT";
         for (Position position : candidatePositions(itemType, spec, room, placed)) {
-            Furniture prototype = createRecommendedFurniture(itemType, spec, position);
+            Furniture prototype = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec, position);
             Position safePosition = FurnitureBoundary.clamp(room, position, prototype).orElse(null);
             if (safePosition == null) {
+                lastReason = "NO_VALID_BOUNDARY_PLACEMENT";
                 continue;
             }
-            Furniture candidate = createRecommendedFurniture(itemType, spec, safePosition);
-            if (fitsInRoom(room, candidate) && doesNotCollide(placed, candidate)) {
+            Furniture candidate = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec, safePosition);
+            ValidationResult validation = validationService.validate(room, appended(placed, candidate));
+            if (isHardValid(validation)) {
                 placed.add(candidate);
-                return Optional.of(candidate);
+                return new PlacementAttempt(candidate, product, null);
             }
+            lastReason = validationReason(validation);
         }
-        return Optional.empty();
+        return new PlacementAttempt(null, product, lastReason);
     }
 
-    private Furniture createRecommendedFurniture(String itemType, FurnitureSpec spec, Position position) {
+    private Furniture createRecommendedFurniture(String id, FurnitureSpec spec, Position position) {
         return new Furniture(
-                itemType + "-rec-1",
+                id,
                 spec.type(),
                 spec.label(),
                 spec.width(),
@@ -205,15 +247,15 @@ public class RuleBasedPlacementService implements PlacementService {
 
     private List<Position> candidatePositions(String itemType, FurnitureSpec spec,
                                                Room room, List<Furniture> placed) {
-        return switch (itemType) {
+        List<Position> preferred = switch (itemType) {
             case "desk" -> List.of(
                     new Position(2.3, 1.0),
                     new Position(2.4, 1.4),
                     new Position(2.3, 2.0),
                     new Position(room.getWidth() - spec.width() / 2.0, 1.0)
             );
-            case "chair" -> chairCandidatePositions(spec, placed);
-            case "lamp" -> lampCandidatePositions(placed);
+            case "desk_chair" -> chairCandidatePositions(spec, placed);
+            case "mood_lamp" -> lampCandidatePositions(placed);
             case "storage" -> List.of(
                     new Position(2.7, 3.9),
                     new Position(0.6, 3.7),
@@ -235,6 +277,18 @@ public class RuleBasedPlacementService implements PlacementService {
                     new Position(0.8, 3.3)
             );
         };
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        List<Position> candidates = new ArrayList<>(preferred);
+        double halfWidth = spec.width() / 2.0 + FurnitureBoundary.WALL_CLEARANCE_METERS;
+        double halfDepth = spec.depth() / 2.0 + FurnitureBoundary.WALL_CLEARANCE_METERS;
+        for (int xIndex = 0; xIndex < 4; xIndex++) {
+            for (int zIndex = 0; zIndex < 4; zIndex++) {
+                double x = halfWidth + (room.getWidth() - 2 * halfWidth) * xIndex / 3.0;
+                double z = halfDepth + (room.getDepth() - 2 * halfDepth) * zIndex / 3.0;
+                candidates.add(new Position(x, z));
+            }
+        }
+        return candidates.stream().filter(position -> seen.add(position.getX() + ":" + position.getZ())).toList();
     }
 
     private List<Position> chairCandidatePositions(FurnitureSpec spec, List<Furniture> placed) {
@@ -274,7 +328,7 @@ public class RuleBasedPlacementService implements PlacementService {
 
     private Optional<Furniture> findPlacedByType(List<Furniture> placed, String type) {
         return placed.stream()
-                .filter(furniture -> type.equals(furniture.getType()))
+                .filter(furniture -> GeneratedFurnitureCatalog.get().sameType(type, furniture.getType()))
                 .findFirst();
     }
 
@@ -284,6 +338,57 @@ public class RuleBasedPlacementService implements PlacementService {
 
     private boolean fitsInRoom(Room room, Furniture candidate) {
         return FurnitureBoundary.isInside(room, candidate);
+    }
+
+    private boolean supportedType(String type) {
+        return "storage".equals(type) || GeneratedFurnitureCatalog.get().products().stream()
+                .anyMatch(product -> type.equals(product.getType()));
+    }
+
+    private List<Furniture> appended(List<Furniture> furniture, Furniture candidate) {
+        List<Furniture> snapshot = new ArrayList<>(furniture);
+        snapshot.add(candidate);
+        return snapshot;
+    }
+
+    private boolean isHardValid(ValidationResult result) {
+        return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
+                && result.isWindowClearance() && result.isPathSecured();
+    }
+
+    private String validationReason(ValidationResult result) {
+        if (!result.isBoundaryValid()) return "NO_VALID_BOUNDARY_PLACEMENT";
+        if (!result.isCollisionFree()) return "COLLISION_DETECTED";
+        if (!result.isDoorClearance()) return "DOOR_BLOCKED";
+        if (!result.isWindowClearance()) return "WINDOW_BLOCKED";
+        if (!result.isPathSecured()) return "MOVEMENT_PATH_BLOCKED";
+        return "NO_VALID_PLACEMENT";
+    }
+
+    private UnplacedFurniture unplaced(int index, String type, MockProduct product, String reasonCode) {
+        return new UnplacedFurniture(index, type, product == null ? null : product.getProductId(),
+                product == null ? null : product.getVariantId(), reasonCode, failureMessage(type, reasonCode));
+    }
+
+    private String failureMessage(String type, String reasonCode) {
+        return switch (reasonCode) {
+            case "UNSUPPORTED_FURNITURE_TYPE" -> "지원하지 않는 가구 유형입니다.";
+            case "NO_RENDERABLE_PRODUCT" -> "렌더링 가능한 " + type + " 제품을 찾을 수 없습니다.";
+            case "NO_VALID_BOUNDARY_PLACEMENT" -> type + "를 방 경계 안에 배치할 수 없습니다.";
+            case "COLLISION_DETECTED" -> type + "가 기존 가구와 충돌합니다.";
+            case "DOOR_BLOCKED" -> type + "가 문 앞 공간을 가립니다.";
+            case "WINDOW_BLOCKED" -> type + "가 창문 앞 공간을 가립니다.";
+            case "MOVEMENT_PATH_BLOCKED" -> type + "가 주요 이동 동선을 막습니다.";
+            default -> type + "를 안전하게 배치할 공간이 부족합니다.";
+        };
+    }
+
+    private String generateFurnitureId(String type, List<Furniture> furniture) {
+        String prefix = type + "-rec-";
+        int sequence = 1;
+        Set<String> ids = furniture.stream().map(Furniture::getId).collect(Collectors.toSet());
+        while (ids.contains(prefix + sequence)) sequence++;
+        return prefix + sequence;
     }
 
     private boolean doesNotCollide(List<Furniture> placed, Furniture candidate) {
@@ -345,6 +450,9 @@ public class RuleBasedPlacementService implements PlacementService {
                 default -> new FurnitureSpec(itemType, itemType, 1.0, 0.6, 0.7, null, List.of(), null);
             };
         }
+    }
+
+    private record PlacementAttempt(Furniture furniture, MockProduct product, String reasonCode) {
     }
 
     private record Rect(double minX, double maxX, double minZ, double maxZ) {

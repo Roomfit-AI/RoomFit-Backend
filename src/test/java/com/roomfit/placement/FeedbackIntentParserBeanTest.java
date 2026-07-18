@@ -13,7 +13,12 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "roomfit.llm.feedback.enabled=false",
+        "roomfit.llm.api-key=",
+        "roomfit.llm.base-url=",
+        "roomfit.llm.model="
+})
 class FeedbackIntentParserBeanTest {
 
     @Autowired

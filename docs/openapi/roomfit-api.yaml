@@ -1103,6 +1103,48 @@ components:
             - $ref: "#/components/schemas/ScoreSummary"
         validationResult:
           $ref: "#/components/schemas/ValidationResult"
+        recommendationStatus:
+          type: string
+          description: 요청 가구 인스턴스의 실제 배치 결과. 기존 status와 별개입니다.
+          enum: [SUCCESS, PARTIAL_SUCCESS, FAILED]
+        requestedFurnitureCount:
+          type: integer
+          minimum: 0
+        placedFurnitureCount:
+          type: integer
+          minimum: 0
+        unplacedFurniture:
+          type: array
+          description: 요청 순서에 따른 미배치 가구 결과
+          items:
+            $ref: "#/components/schemas/UnplacedFurniture"
+        warningCode:
+          type: string
+          nullable: true
+          example: INSUFFICIENT_ROOM_SPACE
+        message:
+          type: string
+          nullable: true
+    UnplacedFurniture:
+      type: object
+      required: [requestIndex, furnitureType, reasonCode, message]
+      properties:
+        requestIndex:
+          type: integer
+          minimum: 0
+        furnitureType:
+          type: string
+        productId:
+          type: string
+          nullable: true
+        variantId:
+          type: string
+          nullable: true
+        reasonCode:
+          type: string
+          enum: [UNSUPPORTED_FURNITURE_TYPE, NO_RENDERABLE_PRODUCT, NO_VALID_PLACEMENT, NO_VALID_BOUNDARY_PLACEMENT, COLLISION_DETECTED, DOOR_BLOCKED, WINDOW_BLOCKED, MOVEMENT_PATH_BLOCKED]
+        message:
+          type: string
     ScoreSummary:
       type: object
       description: 추천 점수 요약. validationResult, 생활 목표, 스타일 태그 일치도를 기반으로 계산됩니다.

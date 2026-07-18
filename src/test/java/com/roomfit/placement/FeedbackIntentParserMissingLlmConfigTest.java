@@ -8,7 +8,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = "roomfit.llm.feedback.enabled=true")
+@SpringBootTest(properties = {
+        "roomfit.llm.feedback.enabled=true",
+        "roomfit.llm.api-key=",
+        "roomfit.llm.base-url=",
+        "roomfit.llm.model="
+})
 class FeedbackIntentParserMissingLlmConfigTest {
 
     @Autowired

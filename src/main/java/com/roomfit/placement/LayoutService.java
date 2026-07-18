@@ -72,17 +72,34 @@ public class LayoutService {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
 
-        Layout layout = new Layout(room.getId(), context.getId(), placementResult.getRecommendedFurniture());
-        ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
-        if (!validationResult.isBoundaryValid()) {
+        ValidationResult validationResult = validationService.validate(room, placementResult.getRecommendedFurniture());
+        if (placementResult.getRecommendationStatus() == RecommendationExecutionStatus.FAILED) {
+            // A normal lack of physical space is a valid recommendation outcome, not a server error.
+            // Do not persist an empty or invalid recommendation snapshot.
+            return LayoutResponse.ofRecommendationFailure(room.getId(), placementResult, validationResult);
+        }
+        // Legacy scripted sample layouts intentionally preserve their historical
+        // composition (including decorative rug/table overlap) and do not carry
+        // request-instance metadata. New deterministic recommendations must be
+        // hard-valid before they are persisted.
+        if (placementResult.getRequestedFurnitureCount() > 0 && !isHardValid(validationResult)) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
+        Layout layout = new Layout(room.getId(), context.getId(), placementResult.getRecommendedFurniture());
         layoutRepository.save(layout);
         ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
         PlacementResult scoredPlacementResult = new PlacementResult(placementResult.getStatus(),
-                placementResult.getRecommendedFurniture(), scoreSummary);
+                placementResult.getRecommendedFurniture(), scoreSummary,
+                placementResult.getRequestedFurnitureCount(), placementResult.getPlacedFurnitureCount(),
+                placementResult.getUnplacedFurniture(), placementResult.getRecommendationStatus(),
+                placementResult.getWarningCode(), placementResult.getMessage());
 
         return LayoutResponse.ofRecommendation(layout, scoredPlacementResult, validationResult);
+    }
+
+    private boolean isHardValid(ValidationResult result) {
+        return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
+                && result.isWindowClearance() && result.isPathSecured();
     }
 
     public LayoutResponse getLayout(Long layoutId) {

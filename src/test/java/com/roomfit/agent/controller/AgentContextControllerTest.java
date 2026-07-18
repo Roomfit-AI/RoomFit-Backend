@@ -308,7 +308,7 @@ class AgentContextControllerTest {
                                   "roomId": 1,
                                   "lifestyleGoal": "STUDY_FOCUSED",
                                   "designStyle": ["MINIMAL"],
-                                  "requiredItems": ["sofa"],
+                                  "requiredItems": ["future_sofa"],
                                   "selectedImageIds": [1]
                                 }
                                 """))

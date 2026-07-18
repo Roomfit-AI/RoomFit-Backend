@@ -45,7 +45,10 @@ public class FallbackPlacementService implements PlacementService {
                     room.getId(), context.getId(), e.toString());
             PlacementResult fallback = ruleBasedService.recommend(context, room);
             return new PlacementResult(RecommendationStatus.FALLBACK,
-                    fallback.getRecommendedFurniture(), fallback.getScoreSummary());
+                    fallback.getRecommendedFurniture(), fallback.getScoreSummary(),
+                    fallback.getRequestedFurnitureCount(), fallback.getPlacedFurnitureCount(),
+                    fallback.getUnplacedFurniture(), fallback.getRecommendationStatus(),
+                    fallback.getWarningCode(), fallback.getMessage());
         }
     }
 

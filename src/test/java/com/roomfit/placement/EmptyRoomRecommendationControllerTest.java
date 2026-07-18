@@ -92,4 +92,51 @@ class EmptyRoomRecommendationControllerTest {
                 .andExpect(jsonPath("$.data.validationResult", notNullValue()))
                 .andExpect(jsonPath("$.error", nullValue()));
     }
+
+    @Test
+    void tooSmallRoom_returnsStructuredRecommendationFailureWithoutSavingLayout() throws Exception {
+        String roomResponse = mockMvc.perform(post("/api/rooms/upload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Tiny Room",
+                                  "room": { "width": 1.0, "depth": 1.0, "height": 2.4 },
+                                  "openings": [], "furniture": []
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long roomId = ((Number) JsonPath.read(roomResponse, "$.data.roomId")).longValue();
+
+        String contextResponse = mockMvc.perform(post("/api/agent/context")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "roomId": %d,
+                                  "lifestyleGoal": "STUDY_FOCUSED",
+                                  "designStyle": ["MINIMAL"],
+                                  "requiredItems": ["bed"],
+                                  "optionalItems": [],
+                                  "selectedImageIds": [1],
+                                  "selectedProductIds": []
+                                }
+                                """.formatted(roomId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long contextId = ((Number) JsonPath.read(contextResponse, "$.data.contextId")).longValue();
+
+        mockMvc.perform(post("/api/layouts/recommend")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                { "roomId": %d, "contextId": %d }
+                                """.formatted(roomId, contextId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.layoutId").value(nullValue()))
+                .andExpect(jsonPath("$.data.recommendationStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data.requestedFurnitureCount").value(1))
+                .andExpect(jsonPath("$.data.placedFurnitureCount").value(0))
+                .andExpect(jsonPath("$.data.unplacedFurniture[0].reasonCode").value("NO_VALID_BOUNDARY_PLACEMENT"))
+                .andExpect(jsonPath("$.data.warningCode").value("INSUFFICIENT_ROOM_SPACE"));
+    }
 }

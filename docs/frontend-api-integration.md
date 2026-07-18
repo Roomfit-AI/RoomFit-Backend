@@ -379,6 +379,12 @@ Response
   "data": {
     "layoutId": 1,
     "status": "SUCCESS",
+    "recommendationStatus": "SUCCESS",
+    "requestedFurnitureCount": 1,
+    "placedFurnitureCount": 1,
+    "unplacedFurniture": [],
+    "warningCode": null,
+    "message": "선택한 1개 가구를 모두 배치했습니다.",
     "recommendedFurniture": [
       {
         "id": "desk-rec-1",
@@ -425,6 +431,13 @@ Response
   },
   "error": null
 }
+
+추천 가능성 결과
+
+- `recommendationStatus`는 기존 `status`와 별개이며 `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED` 중 하나입니다.
+- 공간 부족 같은 정상 배치 실패는 HTTP 500이 아니라 201 응답의 `unplacedFurniture`로 반환됩니다.
+- `FAILED`이면 `layoutId`는 `null`이고 새 Layout snapshot을 저장하지 않습니다.
+- `unplacedFurniture`는 요청 순서를 보존하며 `reasonCode`, 선택된 `productId`/`variantId`(있을 경우), 결정론적 메시지를 포함합니다.
 9. 배치 검증
 POST /api/layouts/validate
 용도

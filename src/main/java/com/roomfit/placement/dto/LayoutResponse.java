@@ -3,6 +3,7 @@ package com.roomfit.placement.dto;
 import com.roomfit.placement.Layout;
 import com.roomfit.placement.PlacementResult;
 import com.roomfit.placement.RecommendationStatus;
+import com.roomfit.placement.RecommendationExecutionStatus;
 import com.roomfit.placement.ScoreSummary;
 import com.roomfit.placement.ValidationResult;
 import com.roomfit.room.Furniture;
@@ -32,34 +33,74 @@ public class LayoutResponse {
     private final ScoreSummary scoreSummary;
     @Schema(description = "최종 가구 배치 검증 결과")
     private final ValidationResult validationResult;
+    @Schema(description = "요청 가구별 실제 배치 결과. 기존 status와 별개의 additive 필드입니다.")
+    private final RecommendationExecutionStatus recommendationStatus;
+    private final int requestedFurnitureCount;
+    private final int placedFurnitureCount;
+    private final List<com.roomfit.placement.UnplacedFurniture> unplacedFurniture;
+    private final String warningCode;
+    private final String message;
 
     private LayoutResponse(Layout layout, RecommendationStatus status,
-                           ScoreSummary scoreSummary, ValidationResult validationResult) {
-        this.layoutId = layout.getId();
-        this.roomId = layout.getRoomId();
-        this.sourceLayoutId = layout.getSourceLayoutId();
-        this.confirmed = layout.isConfirmed();
-        this.confirmedAt = layout.getConfirmedAt();
+                           ScoreSummary scoreSummary, ValidationResult validationResult,
+                           PlacementResult placementResult) {
+        this.layoutId = layout == null ? null : layout.getId();
+        this.roomId = layout == null ? null : layout.getRoomId();
+        this.sourceLayoutId = layout == null ? null : layout.getSourceLayoutId();
+        this.confirmed = layout != null && layout.isConfirmed();
+        this.confirmedAt = layout == null ? null : layout.getConfirmedAt();
         this.status = status;
-        this.recommendedFurniture = layout.getFurniture();
+        this.recommendedFurniture = layout == null ? List.of() : layout.getFurniture();
         this.scoreSummary = scoreSummary;
         this.validationResult = validationResult;
+        this.recommendationStatus = placementResult == null ? RecommendationExecutionStatus.SUCCESS
+                : placementResult.getRecommendationStatus();
+        this.requestedFurnitureCount = placementResult == null ? 0 : placementResult.getRequestedFurnitureCount();
+        this.placedFurnitureCount = placementResult == null ? 0 : placementResult.getPlacedFurnitureCount();
+        this.unplacedFurniture = placementResult == null ? List.of() : placementResult.getUnplacedFurniture();
+        this.warningCode = placementResult == null ? null : placementResult.getWarningCode();
+        this.message = placementResult == null ? null : placementResult.getMessage();
     }
 
     public static LayoutResponse ofRecommendation(Layout layout, PlacementResult placementResult,
                                                    ValidationResult validationResult) {
         return new LayoutResponse(layout, placementResult.getStatus(),
-                placementResult.getScoreSummary(), validationResult);
+                placementResult.getScoreSummary(), validationResult, placementResult);
+    }
+
+    public static LayoutResponse ofRecommendationFailure(Long roomId, PlacementResult placementResult,
+                                                          ValidationResult validationResult) {
+        return new LayoutResponse(null, placementResult.getStatus(), placementResult.getScoreSummary(),
+                validationResult, placementResult, roomId);
     }
 
     public static LayoutResponse ofUpdate(Layout layout, RecommendationStatus status,
                                            ScoreSummary scoreSummary, ValidationResult validationResult) {
-        return new LayoutResponse(layout, status, scoreSummary, validationResult);
+        return new LayoutResponse(layout, status, scoreSummary, validationResult, null);
     }
 
     public static LayoutResponse ofSnapshot(Layout layout, ScoreSummary scoreSummary,
                                             ValidationResult validationResult) {
-        return new LayoutResponse(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
+        return new LayoutResponse(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult, null);
+    }
+
+    private LayoutResponse(Layout layout, RecommendationStatus status, ScoreSummary scoreSummary,
+                           ValidationResult validationResult, PlacementResult placementResult, Long roomId) {
+        this.layoutId = null;
+        this.roomId = roomId;
+        this.sourceLayoutId = null;
+        this.confirmed = false;
+        this.confirmedAt = null;
+        this.status = status;
+        this.recommendedFurniture = List.of();
+        this.scoreSummary = scoreSummary;
+        this.validationResult = validationResult;
+        this.recommendationStatus = placementResult.getRecommendationStatus();
+        this.requestedFurnitureCount = placementResult.getRequestedFurnitureCount();
+        this.placedFurnitureCount = placementResult.getPlacedFurnitureCount();
+        this.unplacedFurniture = placementResult.getUnplacedFurniture();
+        this.warningCode = placementResult.getWarningCode();
+        this.message = placementResult.getMessage();
     }
 
     public Long getLayoutId() {
@@ -97,4 +138,11 @@ public class LayoutResponse {
     public ValidationResult getValidationResult() {
         return validationResult;
     }
+
+    public RecommendationExecutionStatus getRecommendationStatus() { return recommendationStatus; }
+    public int getRequestedFurnitureCount() { return requestedFurnitureCount; }
+    public int getPlacedFurnitureCount() { return placedFurnitureCount; }
+    public List<com.roomfit.placement.UnplacedFurniture> getUnplacedFurniture() { return unplacedFurniture; }
+    public String getWarningCode() { return warningCode; }
+    public String getMessage() { return message; }
 }

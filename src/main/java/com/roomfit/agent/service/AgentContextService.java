@@ -10,6 +10,7 @@ import com.roomfit.agent.repository.AgentContextRepository;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.product.domain.MockProduct;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.service.MockProductService;
 import com.roomfit.room.RoomRepository;
 import com.roomfit.style.domain.StyleImage;
@@ -20,11 +21,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class AgentContextService {
-
-    private static final Set<String> FURNITURE_TYPES = Set.of("bed", "desk", "chair", "storage", "rug", "lamp");
 
     private final AgentContextRepository agentContextRepository;
     private final RoomRepository roomRepository;
@@ -118,12 +118,23 @@ public class AgentContextService {
     }
 
     private List<String> validateFurnitureTypes(List<String> furnitureTypes) {
+        Set<String> supportedTypes = GeneratedFurnitureCatalog.get().products().stream()
+                .map(MockProduct::getType)
+                .collect(Collectors.toSet());
+        // Kept for the established legacy storage renderer; all new catalog
+        // types are supplied dynamically above.
+        supportedTypes.add("storage");
+        List<String> normalized = new ArrayList<>();
         for (String furnitureType : furnitureTypes) {
-            if (!FURNITURE_TYPES.contains(furnitureType)) {
+            String canonicalType = GeneratedFurnitureCatalog.get().normalizeType(furnitureType);
+            if (canonicalType == null || !supportedTypes.contains(canonicalType)) {
                 throw new CustomException(ErrorCode.INVALID_FURNITURE_TYPE);
             }
+            // Preserve the public request value for compatibility (for example
+            // "chair"), while the placement engine normalizes it internally.
+            normalized.add(furnitureType.trim());
         }
-        return List.copyOf(furnitureTypes);
+        return List.copyOf(normalized);
     }
 
     private <T> List<T> nullToEmpty(List<T> values) {
