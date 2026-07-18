@@ -197,7 +197,7 @@ class LayoutRecommendControllerTest {
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-glass-shelf')].position.x").value(hasItems(4.45)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-blue-cabinet')].position.x").value(hasItems(5.55)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-rug')].position.x").value(hasItems(4.35)))
-                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].position.z").value(hasItems(5.25)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].position.z").value(hasItems(org.hamcrest.Matchers.closeTo(5.2321, 0.001))))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'studio-cane-chair')].rotation").value(hasItems(225.0)))
                 .andExpect(jsonPath("$.data.recommendedFurniture[?(@.id == 'bed-3')]").isEmpty());
     }

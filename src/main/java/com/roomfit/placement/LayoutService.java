@@ -6,6 +6,7 @@ import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.placement.dto.*;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
@@ -69,9 +70,11 @@ public class LayoutService {
         }
 
         Layout layout = new Layout(room.getId(), context.getId(), placementResult.getRecommendedFurniture());
-        layoutRepository.save(layout);
-
         ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
+        if (!validationResult.isBoundaryValid()) {
+            throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
+        }
+        layoutRepository.save(layout);
         ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
         PlacementResult scoredPlacementResult = new PlacementResult(placementResult.getStatus(),
                 placementResult.getRecommendedFurniture(), scoreSummary);
@@ -112,6 +115,11 @@ public class LayoutService {
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
+        Room room = roomRepository.findById(layout.getRoomId())
+                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
+        if (!validationService.validate(room, layout.getFurniture()).isBoundaryValid()) {
+            throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
+        }
         layout.confirm();
         layoutRepository.save(layout);
 
@@ -119,8 +127,6 @@ public class LayoutService {
         // (및 목록 재조회)가 여전히 확정 이전 가구 배치를 보여준다. Layout은
         // Room과 독립된 값 복사 스냅샷이라(Layout.java 참고) 여기서 명시적으로
         // 동기화해야 한다.
-        Room room = roomRepository.findById(layout.getRoomId())
-                .orElseThrow(() -> new CustomException(ErrorCode.ROOM_NOT_FOUND));
         room.setFurniture(layout.getFurniture());
         roomRepository.save(room);
 
@@ -238,13 +244,10 @@ public class LayoutService {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
 
-        double halfWidth = furniture.getWidth() / 2.0;
-        double halfDepth = furniture.getDepth() / 2.0;
-        double x = override.getPosition().getX();
-        double z = override.getPosition().getZ();
-
-        if (x - halfWidth < 0 || x + halfWidth > room.getWidth()
-                || z - halfDepth < 0 || z + halfDepth > room.getDepth()) {
+        FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(
+                furniture.getWidth(), furniture.getDepth(), override.getRotation(), furniture.getVariantId());
+        Position position = new Position(override.getPosition().getX(), override.getPosition().getZ());
+        if (!FurnitureBoundary.isInside(room, position, footprint)) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
     }
@@ -300,31 +303,16 @@ public class LayoutService {
 
         double width = Math.max(furniture.getWidth(), 1.4);
         Position position = clampPositionInsideRoom(room, furniture.getPosition(), width,
-                furniture.getDepth(), furniture.getRotation());
+                furniture.getDepth(), furniture.getRotation(), furniture.getVariantId());
 
         return copyFurniture(furniture, position, furniture.getRotation(), width,
                 furniture.getDepth(), furniture.getHeight(), furniture.getStatus());
     }
 
     private Position clampPositionInsideRoom(Room room, Position position, double width,
-                                             double depth, double rotation) {
-        FurnitureFootprint footprint = FurnitureFootprint.from(width, depth, rotation);
-        double minX = footprint.effectiveWidth() / 2.0;
-        double maxX = room.getWidth() - footprint.effectiveWidth() / 2.0;
-        double minZ = footprint.effectiveDepth() / 2.0;
-        double maxZ = room.getDepth() - footprint.effectiveDepth() / 2.0;
-
-        return new Position(
-                clamp(position.getX(), minX, maxX),
-                clamp(position.getZ(), minZ, maxZ)
-        );
-    }
-
-    private double clamp(double value, double min, double max) {
-        if (max < min) {
-            return (min + max) / 2.0;
-        }
-        return Math.max(min, Math.min(max, value));
+                                             double depth, double rotation, String variantId) {
+        FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(width, depth, rotation, variantId);
+        return FurnitureBoundary.clamp(room, position, footprint).orElse(position);
     }
 
     private List<Furniture> applyStoragePriority(List<Furniture> furniture) {

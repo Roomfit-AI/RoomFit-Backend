@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
@@ -65,9 +66,7 @@ public class ValidationService {
 
     private boolean checkBoundaryValid(Room room, List<Furniture> furniture, List<String> warnings) {
         for (Furniture item : furniture) {
-            Rect rect = Rect.from(item);
-            if (rect.minX() < 0 || rect.maxX() > room.getWidth()
-                    || rect.minZ() < 0 || rect.maxZ() > room.getDepth()) {
+            if (!FurnitureBoundary.isInside(room, item)) {
                 warnings.add("방 범위를 벗어난 가구가 있습니다.");
                 return false;
             }
@@ -139,14 +138,12 @@ public class ValidationService {
     private record Rect(double minX, double maxX, double minZ, double maxZ) {
 
         private static Rect from(Furniture furniture) {
-            FurnitureFootprint footprint = FurnitureFootprint.from(furniture);
-            double halfWidth = footprint.effectiveWidth() / 2.0;
-            double halfDepth = footprint.effectiveDepth() / 2.0;
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(furniture);
             return new Rect(
-                    furniture.getPosition().getX() - halfWidth,
-                    furniture.getPosition().getX() + halfWidth,
-                    furniture.getPosition().getZ() - halfDepth,
-                    furniture.getPosition().getZ() + halfDepth
+                    furniture.getPosition().getX() + footprint.minX(),
+                    furniture.getPosition().getX() + footprint.maxX(),
+                    furniture.getPosition().getZ() + footprint.minZ(),
+                    furniture.getPosition().getZ() + footprint.maxZ()
             );
         }
 

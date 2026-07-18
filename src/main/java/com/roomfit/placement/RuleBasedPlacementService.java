@@ -6,6 +6,7 @@ import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
 import com.roomfit.product.service.ProductRecommendationService;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
@@ -51,10 +52,12 @@ public class RuleBasedPlacementService implements PlacementService {
     @Override
     public PlacementResult recommend(AgentContext context, Room room) {
         if (COLLECTOR_ROOM_NAME.equals(room.getName())) {
-            return new PlacementResult(RecommendationStatus.SUCCESS, midCenturyCollectorRecommendation());
+            return new PlacementResult(RecommendationStatus.SUCCESS,
+                    clampScriptedRecommendation(room, midCenturyCollectorRecommendation()));
         }
         if (COLLECTOR_STUDIO_ROOM_NAME.equals(room.getName())) {
-            return new PlacementResult(RecommendationStatus.SUCCESS, midCenturyStudioRecommendation());
+            return new PlacementResult(RecommendationStatus.SUCCESS,
+                    clampScriptedRecommendation(room, midCenturyStudioRecommendation()));
         }
 
         List<Furniture> recommended = new ArrayList<>();
@@ -169,7 +172,12 @@ public class RuleBasedPlacementService implements PlacementService {
                 : productRecommendationService.recommend(itemType, context, room).orElse(null);
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
         for (Position position : candidatePositions(itemType, spec, room, placed)) {
-            Furniture candidate = createRecommendedFurniture(itemType, spec, position);
+            Furniture prototype = createRecommendedFurniture(itemType, spec, position);
+            Position safePosition = FurnitureBoundary.clamp(room, position, prototype).orElse(null);
+            if (safePosition == null) {
+                continue;
+            }
+            Furniture candidate = createRecommendedFurniture(itemType, spec, safePosition);
             if (fitsInRoom(room, candidate) && doesNotCollide(placed, candidate)) {
                 placed.add(candidate);
                 return Optional.of(candidate);
@@ -275,11 +283,7 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private boolean fitsInRoom(Room room, Furniture candidate) {
-        Rect rect = Rect.from(candidate);
-        return rect.minX() >= 0
-                && rect.maxX() <= room.getWidth()
-                && rect.minZ() >= 0
-                && rect.maxZ() <= room.getDepth();
+        return FurnitureBoundary.isInside(room, candidate);
     }
 
     private boolean doesNotCollide(List<Furniture> placed, Furniture candidate) {
@@ -295,6 +299,17 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private Furniture copyFurniture(Furniture furniture) {
+        return copyFurniture(furniture, furniture.getPosition());
+    }
+
+    private List<Furniture> clampScriptedRecommendation(Room room, List<Furniture> furniture) {
+        return furniture.stream()
+                .map(item -> copyFurniture(item,
+                        FurnitureBoundary.clamp(room, item.getPosition(), item).orElse(item.getPosition())))
+                .toList();
+    }
+
+    private Furniture copyFurniture(Furniture furniture, Position position) {
         return new Furniture(
                 furniture.getId(),
                 furniture.getType(),
@@ -302,7 +317,7 @@ public class RuleBasedPlacementService implements PlacementService {
                 furniture.getWidth(),
                 furniture.getDepth(),
                 furniture.getHeight(),
-                new Position(furniture.getPosition().getX(), furniture.getPosition().getZ()),
+                new Position(position.getX(), position.getZ()),
                 furniture.getRotation(),
                 furniture.getStatus(),
                 furniture.getProductId(),
@@ -335,13 +350,12 @@ public class RuleBasedPlacementService implements PlacementService {
     private record Rect(double minX, double maxX, double minZ, double maxZ) {
 
         private static Rect from(Furniture furniture) {
-            double halfWidth = furniture.getWidth() / 2.0;
-            double halfDepth = furniture.getDepth() / 2.0;
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(furniture);
             return new Rect(
-                    furniture.getPosition().getX() - halfWidth,
-                    furniture.getPosition().getX() + halfWidth,
-                    furniture.getPosition().getZ() - halfDepth,
-                    furniture.getPosition().getZ() + halfDepth
+                    furniture.getPosition().getX() + footprint.minX(),
+                    furniture.getPosition().getX() + footprint.maxX(),
+                    furniture.getPosition().getZ() + footprint.minZ(),
+                    furniture.getPosition().getZ() + footprint.maxZ()
             );
         }
 

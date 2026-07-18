@@ -2,6 +2,7 @@ package com.roomfit.placement;
 
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.Opening;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
@@ -21,10 +22,11 @@ final class FeedbackPlacementCandidateGenerator {
         List<PlacementCandidate> candidates = new ArrayList<>();
         int order = 0;
         for (double rotation : List.of(0.0, 90.0)) {
-            FurnitureFootprint footprint = FurnitureFootprint.from(product.getWidth(), product.getDepth(), rotation);
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(
+                    product.getWidth(), product.getDepth(), rotation, product.getVariantId());
             for (Position position : positionsForRelation(room, footprint, placement, reference)) {
-                Position clamped = clamp(room, position, footprint);
-                if (addUnique(candidates, clamped, rotation, order)) {
+                Position clamped = FurnitureBoundary.clamp(room, position, footprint).orElse(null);
+                if (clamped != null && addUnique(candidates, clamped, rotation, order)) {
                     order++;
                 }
                 if (candidates.size() == MAX_POSITIONS_PER_PRODUCT) {
@@ -40,14 +42,16 @@ final class FeedbackPlacementCandidateGenerator {
         List<Double> rotations = uniqueRotations(current.getRotation());
         int order = 0;
         for (double rotation : rotations) {
-            FurnitureFootprint footprint = FurnitureFootprint.from(product.getWidth(), product.getDepth(), rotation);
-            Position clamped = clamp(room, current.getPosition(), footprint);
-            if (addUnique(candidates, clamped, rotation, order)) {
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(
+                    product.getWidth(), product.getDepth(), rotation, product.getVariantId());
+            Position clamped = FurnitureBoundary.clamp(room, current.getPosition(), footprint).orElse(null);
+            if (clamped != null && addUnique(candidates, clamped, rotation, order)) {
                 order++;
             }
         }
         for (double rotation : rotations) {
-            FurnitureFootprint footprint = FurnitureFootprint.from(product.getWidth(), product.getDepth(), rotation);
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(
+                    product.getWidth(), product.getDepth(), rotation, product.getVariantId());
             double x = current.getPosition().getX();
             double z = current.getPosition().getZ();
             List<Position> positions = List.of(
@@ -59,8 +63,8 @@ final class FeedbackPlacementCandidateGenerator {
                     new Position(x, room.getDepth() - footprint.effectiveDepth() / 2.0)
             );
             for (Position position : positions) {
-                Position clamped = clamp(room, position, footprint);
-                if (addUnique(candidates, clamped, rotation, order)) {
+                Position clamped = FurnitureBoundary.clamp(room, position, footprint).orElse(null);
+                if (clamped != null && addUnique(candidates, clamped, rotation, order)) {
                     order++;
                 }
                 if (candidates.size() == MAX_SWAP_POSITIONS_PER_PRODUCT) {
@@ -71,7 +75,7 @@ final class FeedbackPlacementCandidateGenerator {
         return List.copyOf(candidates);
     }
 
-    private List<Position> positionsForRelation(Room room, FurnitureFootprint footprint,
+    private List<Position> positionsForRelation(Room room, FurnitureBoundary.Footprint footprint,
                                                 FeedbackPlacement placement, Furniture reference) {
         return switch (placement.relation()) {
             case NEXT_TO -> nextToPositions(footprint, reference, placement.side());
@@ -85,7 +89,8 @@ final class FeedbackPlacementCandidateGenerator {
         };
     }
 
-    private List<Position> nextToPositions(FurnitureFootprint footprint, Furniture reference, FeedbackSide preferredSide) {
+    private List<Position> nextToPositions(FurnitureBoundary.Footprint footprint, Furniture reference,
+                                           FeedbackSide preferredSide) {
         List<FeedbackSide> sides = switch (preferredSide) {
             case LEFT -> List.of(FeedbackSide.LEFT);
             case RIGHT -> List.of(FeedbackSide.RIGHT);
@@ -96,8 +101,8 @@ final class FeedbackPlacementCandidateGenerator {
         return sides.stream().map(side -> relativePosition(footprint, reference, side)).toList();
     }
 
-    private Position relativePosition(FurnitureFootprint footprint, Furniture reference, FeedbackSide side) {
-        FurnitureFootprint referenceFootprint = FurnitureFootprint.from(reference);
+    private Position relativePosition(FurnitureBoundary.Footprint footprint, Furniture reference, FeedbackSide side) {
+        FurnitureBoundary.Footprint referenceFootprint = FurnitureBoundary.footprint(reference);
         double xDistance = referenceFootprint.effectiveWidth() / 2.0 + footprint.effectiveWidth() / 2.0 + FURNITURE_GAP;
         double zDistance = referenceFootprint.effectiveDepth() / 2.0 + footprint.effectiveDepth() / 2.0 + FURNITURE_GAP;
         return switch (side) {
@@ -108,18 +113,20 @@ final class FeedbackPlacementCandidateGenerator {
         };
     }
 
-    private List<Position> nearWallPositions(Room room, FurnitureFootprint footprint) {
+    private List<Position> nearWallPositions(Room room, FurnitureBoundary.Footprint footprint) {
         double halfWidth = footprint.effectiveWidth() / 2.0;
         double halfDepth = footprint.effectiveDepth() / 2.0;
         return List.of(
-                new Position(halfWidth, room.getDepth() / 2.0),
-                new Position(room.getWidth() - halfWidth, room.getDepth() / 2.0),
-                new Position(room.getWidth() / 2.0, halfDepth),
-                new Position(room.getWidth() / 2.0, room.getDepth() - halfDepth)
+                new Position(halfWidth + FurnitureBoundary.WALL_CLEARANCE_METERS, room.getDepth() / 2.0),
+                new Position(room.getWidth() - halfWidth - FurnitureBoundary.WALL_CLEARANCE_METERS,
+                        room.getDepth() / 2.0),
+                new Position(room.getWidth() / 2.0, halfDepth + FurnitureBoundary.WALL_CLEARANCE_METERS),
+                new Position(room.getWidth() / 2.0,
+                        room.getDepth() - halfDepth - FurnitureBoundary.WALL_CLEARANCE_METERS)
         );
     }
 
-    private List<Position> nearWindowPositions(Room room, FurnitureFootprint footprint) {
+    private List<Position> nearWindowPositions(Room room, FurnitureBoundary.Footprint footprint) {
         List<Position> positions = new ArrayList<>();
         for (Opening opening : room.getOpenings()) {
             if (!"window".equals(opening.getType())) continue;
@@ -138,14 +145,16 @@ final class FeedbackPlacementCandidateGenerator {
         return positions;
     }
 
-    private List<Position> cornerPositions(Room room, FurnitureFootprint footprint) {
+    private List<Position> cornerPositions(Room room, FurnitureBoundary.Footprint footprint) {
         double halfWidth = footprint.effectiveWidth() / 2.0;
         double halfDepth = footprint.effectiveDepth() / 2.0;
+        double clearance = FurnitureBoundary.WALL_CLEARANCE_METERS;
         return List.of(
-                new Position(halfWidth, halfDepth),
-                new Position(room.getWidth() - halfWidth, halfDepth),
-                new Position(halfWidth, room.getDepth() - halfDepth),
-                new Position(room.getWidth() - halfWidth, room.getDepth() - halfDepth)
+                new Position(halfWidth + clearance, halfDepth + clearance),
+                new Position(room.getWidth() - halfWidth - clearance, halfDepth + clearance),
+                new Position(halfWidth + clearance, room.getDepth() - halfDepth - clearance),
+                new Position(room.getWidth() - halfWidth - clearance,
+                        room.getDepth() - halfDepth - clearance)
         );
     }
 
@@ -158,14 +167,6 @@ final class FeedbackPlacementCandidateGenerator {
             }
         }
         return rotations;
-    }
-
-    private Position clamp(Room room, Position position, FurnitureFootprint footprint) {
-        double x = Math.max(footprint.effectiveWidth() / 2.0,
-                Math.min(room.getWidth() - footprint.effectiveWidth() / 2.0, position.getX()));
-        double z = Math.max(footprint.effectiveDepth() / 2.0,
-                Math.min(room.getDepth() - footprint.effectiveDepth() / 2.0, position.getZ()));
-        return new Position(x, z);
     }
 
     private boolean addUnique(List<PlacementCandidate> candidates, Position position, double rotation, int order) {

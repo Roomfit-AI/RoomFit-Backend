@@ -175,13 +175,7 @@ public class RoomService {
 
     private void validateFurnitureWithinRoom(Room room) {
         for (Furniture furniture : room.getFurniture()) {
-            double halfWidth = furniture.getWidth() / 2.0;
-            double halfDepth = furniture.getDepth() / 2.0;
-            double x = furniture.getPosition().getX();
-            double z = furniture.getPosition().getZ();
-
-            if (x - halfWidth < 0 || x + halfWidth > room.getWidth()
-                    || z - halfDepth < 0 || z + halfDepth > room.getDepth()) {
+            if (!FurnitureBoundary.isInside(room, furniture)) {
                 throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
             }
         }

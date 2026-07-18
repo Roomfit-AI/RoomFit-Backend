@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public final class GeneratedFurnitureCatalog {
@@ -22,6 +23,7 @@ public final class GeneratedFurnitureCatalog {
     private final Map<String, String> typeAliases;
     private final List<MockProduct> products;
     private final Set<String> variantIds;
+    private final Map<String, VisualFootprint> visualFootprints;
 
     private GeneratedFurnitureCatalog(CatalogDocument document) {
         validateDocument(document);
@@ -30,6 +32,8 @@ public final class GeneratedFurnitureCatalog {
         this.typeAliases = Map.copyOf(document.typeAliases());
         this.products = document.products().stream().map(this::toProduct).toList();
         this.variantIds = this.products.stream().map(MockProduct::getVariantId).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        this.visualFootprints = document.products().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                CatalogProduct::variantId, CatalogProduct::visualFootprint));
         validateUniqueIds(this.products);
     }
 
@@ -51,6 +55,10 @@ public final class GeneratedFurnitureCatalog {
 
     public String sourceHash() {
         return sourceHash;
+    }
+
+    public Optional<VisualFootprint> visualFootprint(String variantId) {
+        return Optional.ofNullable(visualFootprints.get(variantId));
     }
 
     public String normalizeType(String value) {
@@ -87,6 +95,7 @@ public final class GeneratedFurnitureCatalog {
         if (!product.productId().equals(product.variantId() + "-01")) {
             throw new IllegalArgumentException("Product ID must be derived from variantId: " + product.variantId());
         }
+        validateVisualFootprint(product.variantId(), product.visualFootprint());
         Dimensions dimensions = product.dimensions();
         Clearance clearance = product.requiredClearance();
         return new MockProduct(
@@ -95,6 +104,15 @@ public final class GeneratedFurnitureCatalog {
                 product.styleTags(), null, product.purchaseUrl(),
                 new RequiredClearance(clearance.front(), clearance.side()), product.lifestyleTags()
         );
+    }
+
+    private static void validateVisualFootprint(String variantId, VisualFootprint footprint) {
+        if (footprint == null
+                || !Double.isFinite(footprint.minX()) || !Double.isFinite(footprint.maxX())
+                || !Double.isFinite(footprint.minZ()) || !Double.isFinite(footprint.maxZ())
+                || footprint.minX() >= footprint.maxX() || footprint.minZ() >= footprint.maxZ()) {
+            throw new IllegalArgumentException("Invalid visual footprint for generated variant: " + variantId);
+        }
     }
 
     private static void validateDocument(CatalogDocument document) {
@@ -158,6 +176,7 @@ public final class GeneratedFurnitureCatalog {
             String furnitureTypeCode,
             String label,
             Dimensions dimensions,
+            VisualFootprint visualFootprint,
             List<String> styleTags,
             List<String> lifestyleTags,
             List<String> materials,
@@ -169,6 +188,9 @@ public final class GeneratedFurnitureCatalog {
     }
 
     private record Dimensions(double width, double depth, double height) {
+    }
+
+    public record VisualFootprint(double minX, double maxX, double minZ, double maxZ) {
     }
 
     private record Clearance(double front, double side) {

@@ -1,6 +1,8 @@
 package com.roomfit.placement;
 
 import com.jayway.jsonpath.JsonPath;
+import com.roomfit.room.Furniture;
+import com.roomfit.room.Position;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -8,6 +10,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.ArrayList;
 
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -22,6 +26,9 @@ class LayoutConfirmControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private LayoutRepository layoutRepository;
 
     @Test
     void confirmLayout_returnsConfirmedLayout() throws Exception {
@@ -57,6 +64,48 @@ class LayoutConfirmControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
                 .andExpect(jsonPath("$.error.code").value("ALREADY_CONFIRMED"));
+    }
+
+    @Test
+    void confirmLayout_withBoundaryInvalidSnapshot_rejectsBeforeConfirming() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        ArrayList<Furniture> furniture = new ArrayList<>(layout.getFurniture());
+        Furniture current = furniture.getFirst();
+        furniture.set(0, new Furniture(current.getId(), current.getType(), current.getLabel(),
+                current.getWidth(), current.getDepth(), current.getHeight(), new Position(0.01, 0.01),
+                45, current.getStatus(), current.getProductId(), current.getStyleTags(), current.getVariantId()));
+        layout.setFurniture(furniture);
+        layoutRepository.save(layout);
+
+        mockMvc.perform(post("/api/layouts/{layoutId}/confirm", layoutId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
+
+        org.assertj.core.api.Assertions.assertThat(layoutRepository.findById(layoutId).orElseThrow().isConfirmed())
+                .isFalse();
+    }
+
+    @Test
+    void confirmLayout_rejectsVariantWhoseVisualBoundsExceedNominalBoundary() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        ArrayList<Furniture> furniture = new ArrayList<>(layout.getFurniture());
+        Furniture current = furniture.getFirst();
+        furniture.set(0, new Furniture(current.getId(), "plant", "코너 식물",
+                0.6005779884792202, 0.6231243531863027, 0.8999999922374311,
+                new Position(0.3802889942396101, 1.0), 0, current.getStatus(),
+                "plant-corner-01", java.util.List.of("natural"), "plant-corner"));
+        layout.setFurniture(furniture);
+        layoutRepository.save(layout);
+
+        mockMvc.perform(post("/api/layouts/{layoutId}/confirm", layoutId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
+
+        org.assertj.core.api.Assertions.assertThat(layoutRepository.findById(layoutId).orElseThrow().isConfirmed())
+                .isFalse();
     }
 
     private Long createLayout() throws Exception {

@@ -1,6 +1,9 @@
 package com.roomfit.placement;
 
 import com.jayway.jsonpath.JsonPath;
+import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureStatus;
+import com.roomfit.room.Position;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -24,6 +27,9 @@ class LayoutUpdateControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private LayoutRepository layoutRepository;
 
     @Test
     void updateLayout_replacesFurnitureArrayAndReturnsValidationResult() throws Exception {
@@ -139,6 +145,56 @@ class LayoutUpdateControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
                 .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_STATUS"));
+    }
+
+    @Test
+    void updateLayout_withRotatedFootprintOutsideBoundary_returnsInvalidFurniturePosition() throws Exception {
+        Long layoutId = createLayout();
+
+        mockMvc.perform(put("/api/layouts/{layoutId}", layoutId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furniture": [
+                                    { "id": "bed-1", "position": { "x": 1.35, "z": 1.55 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 0.4 }, "rotation": 90, "status": "EXISTING" },
+                                    { "id": "chair-1", "position": { "x": 1.8, "z": 3.1 }, "rotation": 15, "status": "USER_MODIFIED" },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180, "status": "EXISTING" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
+    }
+
+    @Test
+    void updateLayout_withNominallySafeButVisuallyOutsideVariant_returnsInvalidFurniturePosition() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        java.util.ArrayList<Furniture> furniture = new java.util.ArrayList<>(layout.getFurniture());
+        Furniture current = furniture.getFirst();
+        furniture.set(0, new Furniture(current.getId(), "plant", "코너 식물",
+                0.6005779884792202, 0.6231243531863027, 0.8999999922374311,
+                new Position(0.3802889942396101, 1.0), 0, FurnitureStatus.EXISTING,
+                "plant-corner-01", java.util.List.of("natural"), "plant-corner"));
+        layout.setFurniture(furniture);
+        layoutRepository.save(layout);
+
+        mockMvc.perform(put("/api/layouts/{layoutId}", layoutId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furniture": [
+                                    { "id": "bed-1", "position": { "x": 0.3802889942396101, "z": 1.0 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "desk-1", "position": { "x": 3.0, "z": 1.05 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "chair-1", "position": { "x": 3.0, "z": 1.85 }, "rotation": 180, "status": "EXISTING" },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180, "status": "EXISTING" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
     }
 
     private Long createLayout() throws Exception {

@@ -67,7 +67,7 @@ class RoomUploadControllerTest {
                                       "depth": 2.0,
                                       "height": 0.45,
                                       "position": {
-                                        "x": 0.8,
+                                        "x": 1.2,
                                         "z": 1.4
                                       },
                                       "rotation": 88
@@ -173,6 +173,35 @@ class RoomUploadControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.data").value(nullValue()))
+                .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
+    }
+
+    @Test
+    void uploadRoom_withRotatedCornerOutsideRoom_returnsInvalidFurniturePosition() throws Exception {
+        mockMvc.perform(post("/api/rooms/upload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "room": {
+                                    "width": 3.2,
+                                    "depth": 4.5,
+                                    "height": 2.4
+                                  },
+                                  "furniture": [
+                                    {
+                                      "id": "bed-1",
+                                      "type": "bed",
+                                      "width": 1.1,
+                                      "depth": 2.0,
+                                      "height": 0.45,
+                                      "position": { "x": 0.8, "z": 1.4 },
+                                      "rotation": 90
+                                    }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("INVALID_FURNITURE_POSITION"));
     }
 }

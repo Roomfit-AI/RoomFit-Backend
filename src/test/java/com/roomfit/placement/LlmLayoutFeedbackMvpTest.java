@@ -231,8 +231,8 @@ class LlmLayoutFeedbackMvpTest {
         FeedbackExecution execution = executor.execute(plan("desk-1", "desk", storageDesk()), blockedRoom, List.of(compactDesk()));
 
         assertThat(execution.result().applied()).isFalse();
-        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_PRODUCT_PLACEMENT");
-        assertThat(execution.result().summary()).isEqualTo("수납형 책상을 배치할 수 있는 유효한 위치를 찾지 못했습니다.");
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_BOUNDARY_PLACEMENT");
+        assertThat(execution.result().summary()).isEqualTo("가구 전체가 방 안에 들어오는 위치를 찾지 못했습니다.");
         assertThat(execution.furniture().getFirst().getProductId()).isEqualTo("desk-compact-01");
     }
 

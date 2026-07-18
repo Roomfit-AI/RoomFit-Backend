@@ -28,9 +28,24 @@ class GeneratedFurnitureCatalogTest {
         assertThat(catalog.products()).allMatch(product -> product.getProductId().equals(product.getVariantId() + "-01"));
         assertThat(catalog.products()).allMatch(product -> product.getWidth() > 0
                 && product.getDepth() > 0 && product.getHeight() > 0);
+        assertThat(catalog.variantIds()).allMatch(variantId -> catalog.visualFootprint(variantId).isPresent());
         assertThat(catalog.products().stream().map(MockProduct::getType).collect(Collectors.toSet()))
                 .containsExactlyInAnyOrderElementsOf(CANONICAL_TYPES);
         assertThat(catalog.sourceHash()).matches("sha256:[a-f0-9]{64}");
+    }
+
+    @Test
+    void visualFootprintsPreserveGeneratedGeometryBoundsAndOffsets() {
+        GeneratedFurnitureCatalog catalog = GeneratedFurnitureCatalog.get();
+        GeneratedFurnitureCatalog.VisualFootprint bed = catalog.visualFootprint("bed-classic-idanaes").orElseThrow();
+        GeneratedFurnitureCatalog.VisualFootprint plant = catalog.visualFootprint("plant-corner").orElseThrow();
+
+        assertThat(bed.minX()).isEqualTo(-0.785000026);
+        assertThat(bed.maxX()).isEqualTo(0.785000026);
+        assertThat(bed.minZ()).isEqualTo(-1.11);
+        assertThat(bed.maxZ()).isEqualTo(1.11);
+        assertThat(plant.maxX() - plant.minX()).isGreaterThan(0.6005779884792202);
+        assertThat((plant.minX() + plant.maxX()) / 2.0).isNotZero();
     }
 
     @Test

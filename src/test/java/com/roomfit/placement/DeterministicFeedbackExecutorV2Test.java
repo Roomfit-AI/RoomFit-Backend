@@ -2,6 +2,7 @@ package com.roomfit.placement;
 
 import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
@@ -125,14 +126,60 @@ class DeterministicFeedbackExecutorV2Test {
 
     @Test
     void invalidMoveCandidateKeepsOriginalFurnitureState() {
-        Furniture before = desk("desk-1", 2.5, 2, 0);
+        Room room = room(3, 4);
+        Furniture prototype = desk("desk-1", 1.5, 2, 0);
+        double safeMaxX = FurnitureBoundary.clamp(room, new Position(10, 2), prototype)
+                .orElseThrow().getX();
+        Furniture before = desk("desk-1", safeMaxX, 2, 0);
 
         FeedbackExecution execution = executor.execute(direct(move("op-1",
                 new FeedbackTargetSelector("desk-1", "desk", ""), FeedbackRelation.RIGHT, FeedbackMagnitude.LARGE)),
-                room(3, 4), List.of(before));
+                room, List.of(before));
+
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isFalse();
+        assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(safeMaxX);
+    }
+
+    @Test
+    void rotateNearWallMovesFurnitureInwardByTheMinimumRequiredDistance() {
+        Furniture before = desk("desk-1", 0.8, 0.38, 0);
+
+        FeedbackExecution execution = executor.execute(direct(rotate("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackOrientation.QUARTER_TURN_CW, List.of())), room(3, 3), List.of(before));
+
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isTrue();
+        assertThat(execution.furniture().getFirst().getRotation()).isEqualTo(90);
+        assertThat(execution.furniture().getFirst().getPosition().getZ())
+                .isCloseTo(0.68, org.assertj.core.data.Offset.offset(1.0e-7));
+    }
+
+    @Test
+    void moveFurnitureLargerThanRoomReportsBoundaryFailureAndKeepsSnapshot() {
+        Furniture oversized = new Furniture("desk-1", "desk", "책상", 3.0, 0.6, 0.73,
+                new Position(1.5, 1.5), 0, FurnitureStatus.RECOMMENDED);
+
+        FeedbackExecution execution = executor.execute(direct(move("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL)), room(3, 3), List.of(oversized));
 
         assertThat(execution.result().applied()).isFalse();
-        assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(2.5);
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_BOUNDARY_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(oversized);
+    }
+
+    @Test
+    void rotateThatCannotFitReportsRotationOutOfBoundsAndKeepsSnapshot() {
+        Furniture before = new Furniture("desk-1", "desk", "책상", 1.0, 2.5, 0.73,
+                new Position(0.55, 1.5), 0, FurnitureStatus.RECOMMENDED);
+
+        FeedbackExecution execution = executor.execute(direct(rotate("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackOrientation.QUARTER_TURN_CW, List.of())), room(1.1, 3), List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("ROTATION_OUT_OF_BOUNDS");
+        assertThat(execution.furniture()).containsExactly(before);
     }
 
     private FeedbackPlan direct(FeedbackOperation operation) {
