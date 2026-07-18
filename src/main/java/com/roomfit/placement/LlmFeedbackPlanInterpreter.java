@@ -49,7 +49,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             JsonNode target = root.path("target");
             String furnitureId = text(target, "furnitureId");
             String furnitureType = text(target, "furnitureType");
-            List<FeedbackOperation> operations = parseOperations(root.path("operations"));
+            List<FeedbackOperation> operations = parseOperations(root.path("operations"), furnitureType, feedback);
             return new FeedbackPlan("1.0", furnitureId, furnitureType, operations,
                     text(root, "reason"), FeedbackSource.LLM, false);
         } catch (CustomException e) {
@@ -59,7 +59,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
     }
 
-    private List<FeedbackOperation> parseOperations(JsonNode node) {
+    private List<FeedbackOperation> parseOperations(JsonNode node, String targetFurnitureType, String feedback) {
         if (!node.isArray()) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
@@ -75,7 +75,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             FeedbackDirection direction = optionalEnum(FeedbackDirection.class, text(item, "direction"));
             Double distance = optionalNumber(item, "distanceMeters");
             Integer rotation = optionalInteger(item, "rotationDegrees");
-            FeedbackReplaceConstraints constraints = parseConstraints(item.path("constraints"));
+            FeedbackReplaceConstraints constraints = parseConstraints(
+                    item.path("constraints"), targetFurnitureType, feedback);
 
             if (type == FeedbackOperationType.MOVE && (direction == null || distance == null
                     || distance <= 0 || distance > MAX_DISTANCE_METERS)) {
@@ -84,7 +85,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             if (type == FeedbackOperationType.ROTATE && (rotation == null || rotation == 0 || Math.abs(rotation) > 360)) {
                 throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
             }
-            if (type == FeedbackOperationType.REPLACE_PRODUCT && constraints == null) {
+            if (type == FeedbackOperationType.REPLACE_PRODUCT
+                    && (constraints == null || !hasSelectionConstraint(constraints))) {
                 throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
             }
             operations.add(new FeedbackOperation(type, direction, distance, rotation, constraints));
@@ -98,18 +100,60 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 || FeedbackOperationType.REPLACE_PRODUCT.name().equals(rawType);
     }
 
-    private FeedbackReplaceConstraints parseConstraints(JsonNode node) {
+    private FeedbackReplaceConstraints parseConstraints(JsonNode node, String targetFurnitureType, String feedback) {
         if (node.isMissingNode() || node.isNull()) {
             return null;
         }
+        String furnitureType = text(node, "furnitureType");
+        if (furnitureType.isBlank()) {
+            furnitureType = targetFurnitureType;
+        }
+        boolean largerThanCurrent = node.path("largerThanCurrent").asBoolean(false);
         Double minWidth = optionalNumber(node, "minWidth");
         if (minWidth != null && (minWidth <= 0 || minWidth > 10)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
-        return new FeedbackReplaceConstraints(text(node, "furnitureType"),
-                node.path("largerThanCurrent").asBoolean(false), minWidth,
+        boolean storagePreferred = node.path("storagePreferred").asBoolean(false)
+                || node.path("storageRequired").asBoolean(false);
+
+        boolean storageRequest = isStorageRequest(feedback);
+        boolean largerRequest = isLargerRequest(feedback);
+        if (storageRequest && !largerRequest) {
+            storagePreferred = true;
+            largerThanCurrent = false;
+            minWidth = null;
+        } else if (largerRequest) {
+            largerThanCurrent = true;
+        }
+
+        return new FeedbackReplaceConstraints(furnitureType,
+                largerThanCurrent, minWidth,
                 stringList(node.path("requiredStyleTags")), stringList(node.path("requiredLifestyleTags")),
-                node.path("storagePreferred").asBoolean(false));
+                storagePreferred);
+    }
+
+    private boolean hasSelectionConstraint(FeedbackReplaceConstraints constraints) {
+        return !constraints.furnitureType().isBlank()
+                && (constraints.largerThanCurrent()
+                || constraints.minWidth() != null
+                || !constraints.requiredStyleTags().isEmpty()
+                || !constraints.requiredLifestyleTags().isEmpty()
+                || constraints.storagePreferred());
+    }
+
+    private boolean isStorageRequest(String feedback) {
+        return feedback != null && feedback.contains("수납");
+    }
+
+    private boolean isLargerRequest(String feedback) {
+        if (feedback == null) {
+            return false;
+        }
+        return feedback.contains("넓")
+                || feedback.contains("크게")
+                || feedback.contains("키워")
+                || feedback.contains("컸으면")
+                || feedback.contains("큰 책상");
     }
 
     private JsonNode parseObject(String rawResponse) {
@@ -140,7 +184,12 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     Return exactly: {"version":"1.0","target":{"furnitureId":"...","furnitureType":"..."},"operations":[...],"reason":"..."}.
                     Allowed operation types: MOVE, ROTATE, REPLACE_PRODUCT, ADD_FURNITURE, REMOVE_FURNITURE.
                     MOVE needs direction (LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW, AWAY_FROM_DOOR, CENTER) and distanceMeters in (0,2].
-                    ROTATE needs rotationDegrees in [-360,360], excluding 0. REPLACE_PRODUCT needs constraints; never include productId.
+                    ROTATE needs rotationDegrees in [-360,360], excluding 0.
+                    REPLACE_PRODUCT needs a constraints object with exactly these fields when relevant:
+                    {"furnitureType":"desk","largerThanCurrent":false,"minWidth":null,"requiredStyleTags":[],"requiredLifestyleTags":[],"storagePreferred":true}.
+                    For a storage request, set storagePreferred=true and do not set largerThanCurrent or minWidth unless the user also explicitly asks for a larger item.
+                    For a wider/larger request, set largerThanCurrent=true and storagePreferred=false unless storage is also explicitly requested.
+                    Never include productId or variantId. Product selection and placement are deterministic server responsibilities.
                     If no furniture can be identified, return target with empty furnitureId and an empty operations array only when clarification is required.
                     Input:
                     %s

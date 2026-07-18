@@ -104,6 +104,127 @@ class LlmLayoutFeedbackMvpTest {
     }
 
     @Test
+    void fakeProviderStorageReplacementKeepsStorageSeparateFromLargerConstraints() {
+        LlmFeedbackPlanInterpreter interpreter = interpreter(prompt -> {
+            assertThat(prompt).contains("storagePreferred");
+            assertThat(prompt).contains("largerThanCurrent");
+            return planJson("desk-rec-1", "desk", """
+                    {"type":"REPLACE_PRODUCT","constraints":{"storageRequired":true}}
+                    """);
+        });
+        Furniture before = midcenturyDesk();
+
+        FeedbackPlan plan = interpreter.interpret("수납공간이 많은 책상으로 바꿔줘",
+                room(6, 6), List.of(before), context());
+        FeedbackReplaceConstraints constraints = plan.operations().getFirst().constraints();
+        FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
+        Furniture after = execution.furniture().getFirst();
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(plan.fallbackUsed()).isFalse();
+        assertThat(constraints.furnitureType()).isEqualTo("desk");
+        assertThat(constraints.storagePreferred()).isTrue();
+        assertThat(constraints.largerThanCurrent()).isFalse();
+        assertThat(constraints.minWidth()).isNull();
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.result().source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(execution.result().fallbackUsed()).isFalse();
+        assertThat(execution.result().operationsRequested()).containsExactly("REPLACE_PRODUCT");
+        assertThat(execution.result().operationsApplied()).containsExactly("REPLACE_PRODUCT");
+        assertThat(after.getProductId()).isEqualTo("desk-storage-01");
+        assertThat(after.getVariantId()).isEqualTo("desk-storage");
+        assertThat(after.getWidth()).isLessThan(before.getWidth());
+        assertValid(room(6, 6), execution.furniture());
+    }
+
+    @Test
+    void storageFeedbackDoesNotInheritHallucinatedLargerConstraints() {
+        FeedbackPlan plan = interpreter(prompt -> planJson("desk-rec-1", "desk", """
+                {"type":"REPLACE_PRODUCT","constraints":{
+                  "storagePreferred":true,
+                  "largerThanCurrent":true,
+                  "minWidth":1.8
+                }}
+                """)).interpret("수납공간이 많은 책상으로 바꿔줘",
+                room(6, 6), List.of(midcenturyDesk()), context());
+
+        FeedbackReplaceConstraints constraints = plan.operations().getFirst().constraints();
+
+        assertThat(constraints.storagePreferred()).isTrue();
+        assertThat(constraints.largerThanCurrent()).isFalse();
+        assertThat(constraints.minWidth()).isNull();
+    }
+
+    @Test
+    void largerFeedbackDoesNotBecomeStorageReplacement() {
+        FeedbackPlan plan = interpreter(prompt -> planJson("desk-1", "desk", """
+                {"type":"REPLACE_PRODUCT","constraints":{"largerThanCurrent":true}}
+                """)).interpret("더 넓은 책상으로 바꿔줘",
+                room(6, 6), List.of(compactDesk()), context());
+
+        FeedbackReplaceConstraints constraints = plan.operations().getFirst().constraints();
+
+        assertThat(constraints.largerThanCurrent()).isTrue();
+        assertThat(constraints.storagePreferred()).isFalse();
+    }
+
+    @Test
+    void existingDeskWithoutProductMetadataCanBeReplacedWithStorageProduct() {
+        Furniture existing = new Furniture("desk-1", "desk", "기존 책상", 1.2, 0.6, 0.72,
+                new Position(2.0, 2.0), 0, FurnitureStatus.EXISTING);
+
+        FeedbackExecution execution = executor.execute(plan("desk-1", "desk", storageDesk()),
+                room(6, 6), List.of(existing));
+        Furniture after = execution.furniture().getFirst();
+
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(after.getStatus()).isEqualTo(FurnitureStatus.EXISTING);
+        assertThat(after.getProductId()).isEqualTo("desk-storage-01");
+        assertThat(after.getVariantId()).isEqualTo("desk-storage");
+        assertValid(room(6, 6), execution.furniture());
+    }
+
+    @Test
+    void storageProductReturnsExplicitAlreadyMatchesNoOp() {
+        Furniture storage = storageFurniture();
+
+        FeedbackExecution execution = executor.execute(plan("desk-1", "desk", storageDesk()),
+                room(6, 6), List.of(storage));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("CURRENT_PRODUCT_ALREADY_MATCHES");
+        assertThat(execution.furniture()).containsExactly(storage);
+    }
+
+    @Test
+    void missingStorageProductReturnsNoMatchingProduct() {
+        Furniture sofa = new Furniture("sofa-1", "sofa", "소파", 1.8, 0.8, 0.8,
+                new Position(3.0, 3.0), 0, FurnitureStatus.EXISTING);
+        FeedbackOperation storageSofa = new FeedbackOperation(FeedbackOperationType.REPLACE_PRODUCT,
+                null, null, null,
+                new FeedbackReplaceConstraints("sofa", false, null, List.of(), List.of(), true));
+
+        FeedbackExecution execution = executor.execute(plan("sofa-1", "sofa", storageSofa),
+                room(6, 6), List.of(sofa));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_MATCHING_PRODUCT");
+    }
+
+    @Test
+    void invalidReplaceConstraintsReturnExplicitNoOpReason() {
+        FeedbackOperation invalid = new FeedbackOperation(FeedbackOperationType.REPLACE_PRODUCT,
+                null, null, null,
+                new FeedbackReplaceConstraints("", false, null, List.of(), List.of(), false));
+
+        FeedbackExecution execution = executor.execute(plan("desk-1", "desk", invalid),
+                room(6, 6), List.of(compactDesk()));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("INVALID_REPLACE_CONSTRAINTS");
+    }
+
+    @Test
     void storageReplacementNeverFallsBackToGeneralDeskWhenNoValidPlacementExists() {
         Room blockedRoom = roomWithDoorCoveringTheFloor();
         FeedbackExecution execution = executor.execute(plan("desk-1", "desk", storageDesk()), blockedRoom, List.of(compactDesk()));
@@ -121,6 +242,16 @@ class LlmLayoutFeedbackMvpTest {
         FeedbackPlan fallbackPlan = fallback.interpret("책상 더 크게", room(6, 6), List.of(compactDesk()), context());
         assertThat(fallbackPlan.source()).isEqualTo(FeedbackSource.RULE_BASED);
         assertThat(fallbackPlan.fallbackUsed()).isTrue();
+
+        FallbackFeedbackPlanInterpreter missingConstraintsFallback = new FallbackFeedbackPlanInterpreter(
+                Optional.of(interpreter(prompt -> planJson("desk-1", "desk", """
+                        {"type":"REPLACE_PRODUCT"}
+                        """))), new RuleBasedFeedbackPlanInterpreter());
+        FeedbackPlan normalizedFallback = missingConstraintsFallback.interpret(
+                "수납공간이 많은 책상으로 바꿔줘", room(6, 6), List.of(compactDesk()), context());
+        assertThat(normalizedFallback.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(normalizedFallback.fallbackUsed()).isTrue();
+        assertThat(normalizedFallback.operations().getFirst().constraints().storagePreferred()).isTrue();
 
         FeedbackPlan unsupported = interpreter(prompt -> planJson("desk-1", "desk", """
                 {"type":"WARP_FURNITURE"}
@@ -173,6 +304,18 @@ class LlmLayoutFeedbackMvpTest {
         return new Furniture("desk-1", "desk", "컴팩트 책상", 1.2, 0.6, 0.73,
                 new Position(2.0, 2.0), 0, FurnitureStatus.RECOMMENDED,
                 "desk-compact-01", List.of("minimal", "classic"), "desk-compact");
+    }
+
+    private Furniture midcenturyDesk() {
+        return new Furniture("desk-rec-1", "desk", "미드센추리 글라스 책상", 1.75, 0.74, 0.812,
+                new Position(2.3, 1.0), 0, FurnitureStatus.RECOMMENDED,
+                "desk-midcentury-glass-01", List.of("midcentury", "modern"), "desk-midcentury-glass");
+    }
+
+    private Furniture storageFurniture() {
+        return new Furniture("desk-1", "desk", "수납 결합 책상", 1.4, 0.62, 0.73,
+                new Position(2.0, 2.0), 0, FurnitureStatus.RECOMMENDED,
+                "desk-storage-01", List.of("natural", "classic"), "desk-storage");
     }
 
     private Room room(double width, double depth) {

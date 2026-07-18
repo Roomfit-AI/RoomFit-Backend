@@ -111,8 +111,11 @@ public class DeterministicFeedbackExecutor {
 
     private OperationAttempt replace(Room room, List<Furniture> base, int index, FeedbackReplaceConstraints constraints) {
         Furniture current = base.get(index);
-        if (constraints == null || !current.getType().equals(constraints.furnitureType())) {
-            return OperationAttempt.notApplied("OPERATION_NOT_APPLIED");
+        if (!validReplaceConstraints(current, constraints)) {
+            return OperationAttempt.notApplied("INVALID_REPLACE_CONSTRAINTS");
+        }
+        if (currentProductMatches(current, constraints)) {
+            return OperationAttempt.notApplied("CURRENT_PRODUCT_ALREADY_MATCHES");
         }
         List<MockProduct> products = productRepository.findAll().stream()
                 .filter(product -> current.getType().equals(product.getType()))
@@ -125,8 +128,8 @@ public class DeterministicFeedbackExecutor {
                 .sorted(productComparator(constraints.storagePreferred()))
                 .toList();
         if (products.isEmpty()) {
-            return OperationAttempt.notApplied(constraints.storagePreferred()
-                    ? "NO_VALID_PRODUCT_PLACEMENT" : "NO_LARGER_PRODUCT_AVAILABLE");
+            return OperationAttempt.notApplied(constraints.largerThanCurrent()
+                    ? "NO_LARGER_PRODUCT_AVAILABLE" : "NO_MATCHING_PRODUCT");
         }
         Optional<Furniture> placed = products.stream()
                 .map(product -> replacement(room, base, index, current, product))
@@ -134,6 +137,30 @@ public class DeterministicFeedbackExecutor {
                 .findFirst();
         return placed.map(OperationAttempt::applied)
                 .orElseGet(() -> OperationAttempt.notApplied("NO_VALID_PRODUCT_PLACEMENT"));
+    }
+
+    private boolean validReplaceConstraints(Furniture current, FeedbackReplaceConstraints constraints) {
+        return constraints != null
+                && constraints.furnitureType() != null
+                && !constraints.furnitureType().isBlank()
+                && current.getType().equals(constraints.furnitureType())
+                && (constraints.largerThanCurrent()
+                || constraints.minWidth() != null
+                || !constraints.requiredStyleTags().isEmpty()
+                || !constraints.requiredLifestyleTags().isEmpty()
+                || constraints.storagePreferred());
+    }
+
+    private boolean currentProductMatches(Furniture current, FeedbackReplaceConstraints constraints) {
+        if (current.getProductId() == null || constraints.largerThanCurrent()) {
+            return false;
+        }
+        return productRepository.findById(current.getProductId())
+                .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
+                .filter(product -> product.getStyleTags().containsAll(constraints.requiredStyleTags()))
+                .filter(product -> product.getLifestyleTags().containsAll(constraints.requiredLifestyleTags()))
+                .filter(product -> !constraints.storagePreferred() || hasStorage(product))
+                .isPresent();
     }
 
     private Comparator<MockProduct> productComparator(boolean storagePreferred) {
@@ -189,6 +216,15 @@ public class DeterministicFeedbackExecutor {
         }
         if ("NO_VALID_PRODUCT_PLACEMENT".equals(noChangeReason)) {
             return "수납형 책상을 배치할 수 있는 유효한 위치를 찾지 못했습니다.";
+        }
+        if ("NO_MATCHING_PRODUCT".equals(noChangeReason)) {
+            return "요청 조건에 맞는 대체 제품을 찾지 못했습니다.";
+        }
+        if ("CURRENT_PRODUCT_ALREADY_MATCHES".equals(noChangeReason)) {
+            return "현재 제품이 이미 요청 조건을 만족해 기존 배치를 유지했습니다.";
+        }
+        if ("INVALID_REPLACE_CONSTRAINTS".equals(noChangeReason)) {
+            return "제품 교체 조건을 안전하게 해석하지 못해 기존 배치를 유지했습니다.";
         }
         if ("UNSUPPORTED_OPERATION".equals(noChangeReason)) {
             return "이번 피드백에서는 요청한 작업을 지원하지 않습니다.";
