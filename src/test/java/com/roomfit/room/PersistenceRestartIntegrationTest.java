@@ -173,7 +173,7 @@ class PersistenceRestartIntegrationTest {
                 List.of(new Wall("wall-persisted", new Position(0, 0), new Position(5.8, 0), 2.7, 0.12)),
                 List.of(new Opening("door-persisted", "door", "south", 2.2, 0.8, 2.1, null)),
                 List.of(furniture(furnitureId, 2.0, 2.0, 0)),
-                RoomSource.ROOMPLAN, LocalDateTime.of(2026, 7, 19, 12, 0), "thumbnail", clientScope);
+                RoomSource.ROOMPLAN, LocalDateTime.of(2026, 7, 19, 12, 0), clientScope);
     }
 
     private Furniture furniture(String id, double x, double z, double rotation) {
