@@ -30,6 +30,47 @@ import static org.mockito.Mockito.when;
 class LlmPlacementVariantIdTest {
 
     @Test
+    void recommend_normalizesSupportedScreensBeforeValidation() {
+        MockProductService productService = mock(MockProductService.class);
+        when(productService.findByProductIds(List.of())).thenReturn(List.of());
+        AtomicReference<String> prompt = new AtomicReference<>();
+        LlmPlacementService service = new LlmPlacementService(value -> {
+            prompt.set(value);
+            return """
+                    { "furniture": [
+                      {"id":"desk-1","type":"desk","label":"desk","width":1.2,"depth":0.6,"height":0.72,
+                       "position":{"x":1.0,"z":1.0},"rotation":90,"status":"RECOMMENDED","styleTags":[]},
+                      {"id":"monitor-1","type":"monitor","label":"monitor","width":0.6,"depth":0.2,"height":0.4,
+                       "position":{"x":4.5,"z":4.5},"rotation":0,"status":"RECOMMENDED","styleTags":[]},
+                      {"id":"console-1","type":"media_console","label":"console","width":1.8,"depth":0.5,"height":0.55,
+                       "position":{"x":4.0,"z":1.0},"rotation":180,"status":"RECOMMENDED","styleTags":[]},
+                      {"id":"tv-1","type":"tv","label":"tv","width":1.2,"depth":0.15,"height":0.7,
+                       "position":{"x":1.0,"z":4.5},"rotation":0,"status":"RECOMMENDED","styleTags":[]}
+                    ] }
+                    """;
+        }, new ValidationService(), productService, new ObjectMapper());
+        AgentContext context = new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED,
+                List.of(DesignStyle.MINIMAL),
+                List.of("desk", "monitor", "media_console", "tv"), List.of(),
+                List.of(1L), List.of(), List.of("minimal"));
+
+        PlacementResult result = service.recommend(context,
+                new Room(null, 6.0, 6.0, 2.4, "meter", List.of(), List.of()));
+
+        Furniture desk = furnitureById(result, "desk-1");
+        Furniture monitor = furnitureById(result, "monitor-1");
+        Furniture console = furnitureById(result, "console-1");
+        Furniture tv = furnitureById(result, "tv-1");
+        assertThat(monitor.getPosition().getX()).isEqualTo(desk.getPosition().getX());
+        assertThat(monitor.getPosition().getZ()).isEqualTo(desk.getPosition().getZ());
+        assertThat(monitor.getRotation()).isEqualTo(desk.getRotation());
+        assertThat(tv.getPosition().getX()).isEqualTo(console.getPosition().getX());
+        assertThat(tv.getPosition().getZ()).isEqualTo(console.getPosition().getZ());
+        assertThat(tv.getRotation()).isEqualTo(console.getRotation());
+        assertThat(prompt.get()).contains("monitor/desk and TV/media_console pairs intentionally overlap");
+    }
+
+    @Test
     void recommend_usesCatalogVariantIdAndIgnoresLlmVariantId() {
         MockProduct product = product("desk-compact");
         MockProductService productService = productService(product);
@@ -290,6 +331,13 @@ class LlmPlacementVariantIdTest {
         assertThat(furniture.getProductId()).isEqualTo("product-a");
         assertThat(furniture.getVariantId()).isEqualTo("desk-compact");
         assertThat(furniture.getStyleTags()).containsExactly("original-style");
+    }
+
+    private Furniture furnitureById(PlacementResult result, String id) {
+        return result.getRecommendedFurniture().stream()
+                .filter(item -> id.equals(item.getId()))
+                .findFirst()
+                .orElseThrow();
     }
 
     private MockProduct product(String variantId) {
