@@ -35,5 +35,24 @@ dependencies {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'llm-evaluation'
+    }
+}
+
+def realLlmEvaluationConfigured = {
+    def required = ['ROOMFIT_LLM_FEEDBACK_ENABLED', 'ROOMFIT_LLM_API_KEY',
+                    'ROOMFIT_LLM_BASE_URL', 'ROOMFIT_LLM_MODEL']
+    return required.every { key -> System.getenv(key)?.trim() } \
+            && System.getenv('ROOMFIT_LLM_FEEDBACK_ENABLED').trim().equalsIgnoreCase('true')
+}
+
+tasks.register('realLlmEvaluation', Test) {
+    group = 'verification'
+    description = 'Runs opt-in, non-production LLM feedback semantic evaluations when all required environment variables are present.'
+    useJUnitPlatform {
+        includeTags 'llm-evaluation'
+    }
+    shouldRunAfter tasks.named('test')
+    onlyIf('requires explicit non-production LLM environment variables') { realLlmEvaluationConfigured() }
 }

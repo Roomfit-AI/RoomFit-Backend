@@ -41,15 +41,25 @@ public class RenderableProductCatalog {
     }
 
     public List<MockProduct> findCandidates(FeedbackProductRequirements requirements, FurnitureSize referenceSize) {
-        List<MockProduct> candidates = products.stream()
+        List<MockProduct> candidates = matchingCandidates(requirements, referenceSize)
+                .limit(MAX_PRODUCT_CANDIDATES)
+                .toList();
+        return List.copyOf(candidates);
+    }
+
+    /** Full catalog result for a metadata-constrained swap; it must not silently truncate ambiguity. */
+    public List<MockProduct> findSwapCandidates(FeedbackProductRequirements requirements, FurnitureSize referenceSize) {
+        return matchingCandidates(requirements, referenceSize).toList();
+    }
+
+    private java.util.stream.Stream<MockProduct> matchingCandidates(FeedbackProductRequirements requirements,
+                                                                      FurnitureSize referenceSize) {
+        return products.stream()
                 .filter(this::isRenderable)
                 .filter(product -> sameFurnitureType(requirements.furnitureType(), product.getType()))
                 .filter(product -> !requirements.storagePreferred() || hasStorage(product))
                 .filter(product -> containsStyleKeywords(product, requirements.styleKeywords()))
-                .sorted(productComparator(requirements.sizePreference(), referenceSize))
-                .limit(MAX_PRODUCT_CANDIDATES)
-                .toList();
-        return List.copyOf(candidates);
+                .sorted(productComparator(requirements.sizePreference(), referenceSize));
     }
 
     public boolean isRenderable(MockProduct product) {
@@ -106,6 +116,7 @@ public class RenderableProductCatalog {
         }
         Set<String> tags = new HashSet<>();
         product.getStyleTags().forEach(tag -> tags.add(tag.toLowerCase(Locale.ROOT)));
+        product.getMaterials().forEach(material -> tags.add(material.toLowerCase(Locale.ROOT)));
         return keywords.stream()
                 .map(keyword -> keyword.toLowerCase(Locale.ROOT))
                 .allMatch(tags::contains);
