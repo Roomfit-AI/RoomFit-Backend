@@ -348,6 +348,27 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void bindsSwapTargetSeparatelyFromItsMoveReference() {
+        Furniture bookshelf = furniture("bookshelf-1", "bookshelf", 2, 2);
+        Furniture desk = furniture("desk-1", "desk", 5, 3);
+
+        FeedbackPlan plan = interpreter.interpret("책장을 다른 디자인으로 바꾸고 책상 오른쪽으로 옮겨줘",
+                room(), List.of(bookshelf, desk), context());
+        FeedbackPlan crossType = interpreter.interpret("책장을 행거로 바꾸고 뒤로 옮겨줘",
+                room(), List.of(bookshelf), context());
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.SWAP_FURNITURE, FeedbackOperationType.MOVE);
+        assertThat(plan.operations().getFirst().target().furnitureId()).isEqualTo("bookshelf-1");
+        assertThat(plan.operations().getFirst().replacementRequirements().furnitureType()).isEqualTo("bookshelf");
+        assertThat(plan.operations().get(1).target().furnitureId()).isEqualTo("bookshelf-1");
+        assertThat(plan.operations().get(1).referenceTarget().furnitureId()).isEqualTo("desk-1");
+        assertThat(plan.operations().get(1).placement().relation()).isEqualTo(FeedbackRelation.RIGHT_OF);
+        assertThat(crossType.needsClarification()).isTrue();
+        assertThat(crossType.operations()).isEmpty();
+    }
+
+    @Test
     void clarifiesWhenSeveralFurnitureTypesAreMovedWithoutSeparateTargets() {
         Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
         Furniture desk = furniture("desk-1", "desk", 4, 2);

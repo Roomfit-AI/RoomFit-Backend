@@ -384,9 +384,10 @@ public class LayoutService {
             FeedbackClarification clarification = plan.clarification();
             String type = clarification == null ? "" : clarification.targetFurnitureType();
             List<FeedbackClarificationResponse.Candidate> candidates = clarificationCandidates(type, "", originalFurniture, room);
-            result.add(new FeedbackClarificationResponse(candidates.size() > 1 ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
-                    clarificationQuestion(type, false), null, "targetFurnitureId",
-                    candidates));
+            boolean ambiguous = candidates.size() > 1;
+            result.add(new FeedbackClarificationResponse(ambiguous ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
+                    clarificationQuestion(type, false), null, ambiguous ? "targetFurnitureId" : null,
+                    ambiguous ? candidates : List.of()));
         }
         Map<String, FeedbackOperation> operations = plan.operations().stream()
                 .collect(Collectors.toMap(FeedbackOperation::operationId, operation -> operation,
@@ -399,10 +400,12 @@ public class LayoutService {
             FeedbackTargetSelector target = reference ? operation.referenceTarget() : operation.target();
             String type = target == null ? "" : target.furnitureType();
             String keyword = target == null ? "" : target.labelKeyword();
+            boolean ambiguous = "AMBIGUOUS_TARGET".equals(executionResult.reasonCode())
+                    || "AMBIGUOUS_REFERENCE_TARGET".equals(executionResult.reasonCode());
             result.add(new FeedbackClarificationResponse(executionResult.reasonCode(),
                     clarificationQuestion(type, reference), operation.operationId(),
-                    reference ? "referenceTargetFurnitureId" : "targetFurnitureId",
-                    clarificationCandidates(type, keyword, originalFurniture, room)));
+                    ambiguous ? reference ? "referenceTargetFurnitureId" : "targetFurnitureId" : null,
+                    ambiguous ? clarificationCandidates(type, keyword, originalFurniture, room) : List.of()));
         }
         return List.copyOf(result);
     }

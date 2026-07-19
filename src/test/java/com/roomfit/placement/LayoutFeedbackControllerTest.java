@@ -282,6 +282,31 @@ class LayoutFeedbackControllerTest {
     }
 
     @Test
+    void feedback_withNonAmbiguousClarificationDoesNotExposeTargetChooser() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        layout.setFurniture(new ArrayList<>(List.of(
+                new Furniture("desk-only", "desk", "책상", 1.2, 0.6, 0.73,
+                        new Position(2, 2), 0, FurnitureStatus.EXISTING))));
+        layoutRepository.save(layout);
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "소파를 옮겨줘"
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(layoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("NEEDS_CLARIFICATION"))
+                .andExpect(jsonPath("$.data.clarification.reasonCode").value("NEEDS_CLARIFICATION"))
+                .andExpect(jsonPath("$.data.clarification.requiredField").value(nullValue()))
+                .andExpect(jsonPath("$.data.clarification.candidates", hasSize(0)));
+    }
+
+    @Test
     void feedback_withSelectedFurnitureMovesExistingFurnitureToCornerWithoutAdding() throws Exception {
         Long layoutId = createLayout();
         Layout layout = layoutRepository.findById(layoutId).orElseThrow();

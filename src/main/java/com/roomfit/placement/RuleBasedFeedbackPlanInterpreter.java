@@ -76,9 +76,10 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             }
             List<FeedbackOperation> operations = new ArrayList<>();
             for (String clause : clauses) {
-                FeedbackTargetSelector previousTarget = operations.isEmpty() ? null : operations.getLast().target();
+                FeedbackOperation previousOperation = operations.isEmpty() ? null : operations.getLast();
+                FeedbackTargetSelector previousTarget = previousOperation == null ? null : previousOperation.target();
                 FeedbackOperation operation = parseClause(clause, room, furniture, operations.size() + 1, selection,
-                        previousTarget);
+                        previousOperation);
                 if (!operations.isEmpty() && operation.dependsOn().isEmpty()) {
                     operation = withDependencies(operation, List.of(operations.getLast().operationId()));
                 }
@@ -93,7 +94,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private FeedbackOperation parseClause(String clause, Room room, List<Furniture> furniture, int sequence,
-                                         String selectedFurnitureId, FeedbackTargetSelector previousTarget) {
+                                         String selectedFurnitureId, FeedbackOperation previousOperation) {
+        FeedbackTargetSelector previousTarget = previousOperation == null ? null : previousOperation.target();
         List<FurnitureMention> mentions = mentions(clause);
         if (mentions.isEmpty() && isTypedMetadataSwapRequest(clause)) {
             mentions = List.of(new FurnitureMention("drawer_chest", clause.indexOf("수납장"), "수납장".length()));
@@ -126,6 +128,15 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         FeedbackActionIntentResolver.ActionIntent actionIntent =
                 FeedbackActionIntentResolver.resolveFurnitureActionIntent(clause);
+        if (actionIntent == FeedbackActionIntentResolver.ActionIntent.MOVE
+                && previousOperation != null
+                && previousOperation.type() == FeedbackOperationType.SWAP_FURNITURE
+                && mentions.size() == 1
+                && containsAny(clause, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
+                && !previousTarget.furnitureType().equals(mentions.getFirst().type())) {
+            FeedbackTargetSelector reference = selectorForExisting(mentions.getFirst().type(), clause, furniture);
+            return moveOperation(operationId, clause, previousTarget, reference);
+        }
         if (actionIntent == FeedbackActionIntentResolver.ActionIntent.SWAP) {
             if (mentions.stream().map(FurnitureMention::type).distinct().count() > 1) {
                 throw new ClarificationRequired("교체할 가구를 하나만 알려주세요.", "");

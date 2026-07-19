@@ -126,6 +126,28 @@ class DeterministicFeedbackExecutorV2Test {
     }
 
     @Test
+    void semanticBindingKeepsSwapTargetTypeAndMovesOnlyThatTargetRelativeToReference() {
+        Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.2,
+                new Position(1.5, 1.5), 0, FurnitureStatus.EXISTING, "legacy-bookshelf", List.of(), null);
+        Furniture desk = desk("desk-1", 4, 3, 0);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "책장을 다른 디자인으로 바꾸고 책상 오른쪽으로 옮겨줘",
+                room(8, 6), List.of(bookshelf, desk), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(8, 6), List.of(bookshelf, desk));
+
+        assertThat(execution.result().operationsApplied()).containsExactly("SWAP_FURNITURE", "MOVE");
+        Furniture changed = execution.furniture().stream()
+                .filter(item -> item.getId().equals("bookshelf-1")).findFirst().orElseThrow();
+        Furniture unchangedDesk = execution.furniture().stream()
+                .filter(item -> item.getId().equals("desk-1")).findFirst().orElseThrow();
+        assertThat(changed.getType()).isEqualTo("bookshelf");
+        assertThat(changed.getPosition().getX()).isGreaterThan(unchangedDesk.getPosition().getX());
+        assertThat(unchangedDesk.getPosition().getX()).isEqualTo(desk.getPosition().getX());
+        assertThat(unchangedDesk.getPosition().getZ()).isEqualTo(desk.getPosition().getZ());
+    }
+
+    @Test
     void furnitureIdTakesPriorityWhenMultipleFurnitureShareTheSameType() {
         Furniture first = desk("desk-1", 1, 1, 0);
         Furniture second = desk("desk-2", 4, 4, 0);
