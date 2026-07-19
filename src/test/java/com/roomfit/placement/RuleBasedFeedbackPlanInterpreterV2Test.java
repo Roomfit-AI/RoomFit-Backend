@@ -97,6 +97,36 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
                 .isInstanceOf(com.roomfit.common.CustomException.class);
     }
 
+    @Test
+    void normalizesRotateAndMoveAliasesForOneUniqueTarget() {
+        List<Furniture> desk = List.of(furniture("desk-1", "desk", 3, 3));
+
+        FeedbackPlan clockwise = interpreter.interpret("책상을 오른쪽으로 90도", room(), desk, context());
+        FeedbackPlan counterClockwise = interpreter.interpret("책상을 반시계 방향으로 돌려줘", room(), desk, context());
+        FeedbackPlan toward = interpreter.interpret("책상을 앞으로 당겨줘", room(), desk, context());
+        FeedbackPlan away = interpreter.interpret("책상을 뒤로 밀어줘", room(), desk, context());
+
+        assertThat(clockwise.operations().getFirst().placement().orientation())
+                .isEqualTo(FeedbackOrientation.QUARTER_TURN_CW);
+        assertThat(counterClockwise.operations().getFirst().placement().orientation())
+                .isEqualTo(FeedbackOrientation.QUARTER_TURN_CCW);
+        assertThat(toward.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.FORWARD);
+        assertThat(away.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.BACKWARD);
+    }
+
+    @Test
+    void normalizesExplicitLargerAndSmallerProductRequestsToReplaceProduct() {
+        List<Furniture> desk = List.of(furniture("desk-1", "desk", 3, 3));
+
+        FeedbackPlan larger = interpreter.interpret("책상을 더 큰 제품으로 바꿔줘", room(), desk, context());
+        FeedbackPlan smaller = interpreter.interpret("책상을 더 작은 제품으로 바꿔줘", room(), desk, context());
+
+        assertThat(larger.operations().getFirst().type()).isEqualTo(FeedbackOperationType.REPLACE_PRODUCT);
+        assertThat(larger.operations().getFirst().constraints().largerThanCurrent()).isTrue();
+        assertThat(smaller.operations().getFirst().type()).isEqualTo(FeedbackOperationType.REPLACE_PRODUCT);
+        assertThat(smaller.operations().getFirst().constraints().smallerThanCurrent()).isTrue();
+    }
+
     private FeedbackPlan interpret(String feedback) {
         return interpreter.interpret(feedback, room(), List.of(
                 furniture("bed-1", "bed", 1.5, 2),

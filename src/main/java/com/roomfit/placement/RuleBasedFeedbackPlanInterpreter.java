@@ -19,6 +19,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     private static final Map<String, String> FURNITURE_TERMS = furnitureTerms();
     private static final List<String> ADD_TERMS = List.of("추가", "놓아", "놓아줘", "놓고", "놓기", "넣어", "배치");
     private static final List<String> REMOVE_TERMS = List.of("제거", "삭제", "빼줘", "빼고", "없애", "치워");
+    private static final List<String> ROTATE_TERMS = List.of("회전", "돌려", "돌려줘", "90도", "180도", "반대로", "벽과 평행");
+    private static final List<String> MOVE_TERMS = List.of("옮겨", "이동", "당겨", "밀어", "앞으로", "뒤로");
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
@@ -34,6 +36,26 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             }
 
             List<FurnitureMention> mentions = mentions(normalized);
+            if (mentions.size() == 1) {
+                String type = mentions.getFirst().type();
+                FeedbackTargetSelector target = selector(type, normalized);
+                if (containsAny(normalized, ROTATE_TERMS)) {
+                    return direct(normalized, new FeedbackOperation("op-1", FeedbackOperationType.ROTATE,
+                            target, null, new FeedbackPlacement(null, null, rotationOrientation(normalized)),
+                            null, null, null, List.of()));
+                }
+                if (containsAny(normalized, MOVE_TERMS)) {
+                    return direct(normalized, new FeedbackOperation("op-1", FeedbackOperationType.MOVE,
+                            target, null, new FeedbackPlacement(moveRelation(normalized), FeedbackMagnitude.MEDIUM, null),
+                            null, null, null, List.of()));
+                }
+                if (isSizeRequest(normalized)) {
+                    boolean smaller = containsAny(normalized, List.of("작게", "작은 제품", "더 작은"));
+                    return direct(normalized, new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT,
+                            target, null, null, new FeedbackReplaceConstraints(type, !smaller, smaller,
+                            null, List.of(), List.of(), false), null, null, List.of()));
+                }
+            }
             if (containsAny(normalized, REMOVE_TERMS) && containsAny(normalized, ADD_TERMS)
                     && !normalized.contains("빼고") && !normalized.contains("대신") && mentions.size() >= 2) {
                 return clarification("삭제할 가구를 하나로 특정해주세요.", mentions.getFirst().type());
@@ -129,6 +151,23 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         return new FeedbackOperation("op-1", FeedbackOperationType.MOVE, target,
                 new FeedbackPlacement(FeedbackRelation.CENTER, FeedbackMagnitude.MEDIUM, null), null, List.of());
+    }
+
+    private boolean isSizeRequest(String feedback) {
+        return containsAny(feedback, List.of("크게", "넓게", "큰 제품", "더 큰", "작게", "작은 제품", "더 작은"));
+    }
+
+    private FeedbackOrientation rotationOrientation(String feedback) {
+        if (feedback.contains("180") || feedback.contains("반대로")) return FeedbackOrientation.HALF_TURN;
+        if (feedback.contains("반시계")) return FeedbackOrientation.QUARTER_TURN_CCW;
+        if (feedback.contains("벽과 평행")) return FeedbackOrientation.ALIGN_WITH_WALL;
+        return FeedbackOrientation.QUARTER_TURN_CW;
+    }
+
+    private FeedbackRelation moveRelation(String feedback) {
+        if (feedback.contains("뒤로") || feedback.contains("밀어")) return FeedbackRelation.BACKWARD;
+        if (feedback.contains("앞으로") || feedback.contains("당겨")) return FeedbackRelation.FORWARD;
+        return FeedbackRelation.RIGHT;
     }
 
     private FeedbackOperation addOperation(String feedback, List<FurnitureMention> mentions) {

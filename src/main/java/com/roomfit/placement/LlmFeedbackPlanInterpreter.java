@@ -87,16 +87,16 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                                          String selectedFurnitureId) {
         for (FeedbackOperation operation : plan.operations()) {
             if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
-                validateProviderTarget(operation.target(), furniture, feedback, selectedFurnitureId);
+                validateProviderTarget(operation.target(), furniture, feedback, selectedFurnitureId, true);
             }
             if (operation.referenceTarget() != null) {
-                validateProviderTarget(operation.referenceTarget(), furniture, feedback, "");
+                validateProviderTarget(operation.referenceTarget(), furniture, feedback, "", false);
             }
         }
     }
 
     private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture, String feedback,
-                                        String selectedFurnitureId) {
+                                        String selectedFurnitureId, boolean operationTarget) {
         List<Furniture> active = furniture.stream()
                 .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
                 .toList();
@@ -118,11 +118,27 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     .map(item -> normalizeFurnitureType(item.getType())).findFirst().orElse("");
         }
         String targetType = canonicalType;
+        String requestedType = operationTarget ? requestedCanonicalType(feedback) : "";
+        if (!requestedType.isBlank() && !targetType.isBlank() && !requestedType.equals(targetType)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
         long sameType = active.stream().map(item -> normalizeFurnitureType(item.getType()))
                 .filter(targetType::equals).count();
         if (sameType > 1 && selectedFurnitureId.isBlank() && !hasUserDiscriminator(selector, feedback)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
+    }
+
+    private String requestedCanonicalType(String feedback) {
+        if (feedback == null) return "";
+        if (feedback.contains("책상")) return "desk";
+        if (feedback.contains("의자")) return "desk_chair";
+        if (feedback.contains("침대")) return "bed";
+        if (feedback.contains("협탁")) return "nightstand";
+        if (feedback.contains("옷장")) return "wardrobe";
+        if (feedback.contains("책장")) return "bookshelf";
+        if (feedback.contains("소파")) return "sofa";
+        return "";
     }
 
     private boolean hasUserDiscriminator(FeedbackTargetSelector selector, String feedback) {
@@ -257,6 +273,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
         furnitureType = normalizeFurnitureType(furnitureType);
         boolean largerThanCurrent = node.path("largerThanCurrent").asBoolean(false);
+        boolean smallerThanCurrent = node.path("smallerThanCurrent").asBoolean(false);
         Double minWidth = optionalNumber(node, "minWidth");
         if (minWidth != null && (minWidth <= 0 || minWidth > 10)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
@@ -266,16 +283,21 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
         boolean storageRequest = isStorageRequest(feedback);
         boolean largerRequest = isLargerRequest(feedback);
+        boolean smallerRequest = isSmallerRequest(feedback);
         if (storageRequest && !largerRequest) {
             storagePreferred = true;
             largerThanCurrent = false;
             minWidth = null;
         } else if (largerRequest) {
             largerThanCurrent = true;
+            smallerThanCurrent = false;
+        } else if (smallerRequest) {
+            largerThanCurrent = false;
+            smallerThanCurrent = true;
         }
 
         return new FeedbackReplaceConstraints(furnitureType,
-                largerThanCurrent, minWidth,
+                largerThanCurrent, smallerThanCurrent, minWidth,
                 stringList(node.path("requiredStyleTags")), stringList(node.path("requiredLifestyleTags")),
                 storagePreferred);
     }
@@ -293,6 +315,11 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 || feedback.contains("키워")
                 || feedback.contains("컸으면")
                 || feedback.contains("큰 책상");
+    }
+
+    private boolean isSmallerRequest(String feedback) {
+        return feedback != null && (feedback.contains("작게") || feedback.contains("작은 제품")
+                || feedback.contains("더 작은"));
     }
 
     private JsonNode parseObject(String rawResponse) {
@@ -341,7 +368,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     MOVE uses placement.relation from LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW,
                     AWAY_FROM_DOOR, CENTER and placement.magnitude from SMALL, MEDIUM, LARGE.
                     ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
-                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
+                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent,
+                    smallerThanCurrent, minWidth,
                     requiredStyleTags, requiredLifestyleTags, and storagePreferred.
                     ADD_FURNITURE describes the new type in target.furnitureType, uses productRequirements with
                     furnitureType, sizePreference (SMALL, LARGE, SIMILAR, ANY), storagePreferred, and styleKeywords,

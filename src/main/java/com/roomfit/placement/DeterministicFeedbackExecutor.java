@@ -322,6 +322,7 @@ public class DeterministicFeedbackExecutor {
                 .filter(product -> renderableCatalog.sameFurnitureType(current.getType(), product.getType()))
                 .filter(product -> !product.getProductId().equals(current.getProductId()))
                 .filter(product -> !constraints.largerThanCurrent() || product.getWidth() > current.getWidth())
+                .filter(product -> !constraints.smallerThanCurrent() || product.getWidth() < current.getWidth())
                 .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
                 .filter(product -> product.getStyleTags().containsAll(constraints.requiredStyleTags()))
                 .filter(product -> product.getLifestyleTags().containsAll(constraints.requiredLifestyleTags()))
@@ -329,8 +330,8 @@ public class DeterministicFeedbackExecutor {
                 .sorted(productComparator(constraints.storagePreferred()))
                 .toList();
         if (products.isEmpty()) {
-            return OperationAttempt.failed(constraints.largerThanCurrent()
-                    ? "NO_LARGER_PRODUCT_AVAILABLE" : "NO_MATCHING_PRODUCT");
+            return OperationAttempt.failed(constraints.largerThanCurrent() ? "NO_LARGER_PRODUCT_AVAILABLE"
+                    : constraints.smallerThanCurrent() ? "NO_SMALLER_PRODUCT_AVAILABLE" : "NO_MATCHING_PRODUCT");
         }
         boolean boundaryFitAvailable = products.stream().anyMatch(product -> fitsRoomAtSupportedRotation(room, product));
         for (MockProduct product : products) {
@@ -456,6 +457,7 @@ public class DeterministicFeedbackExecutor {
                 && !constraints.furnitureType().isBlank()
                 && renderableCatalog.sameFurnitureType(current.getType(), constraints.furnitureType())
                 && (constraints.largerThanCurrent()
+                || constraints.smallerThanCurrent()
                 || constraints.minWidth() != null
                 || !constraints.requiredStyleTags().isEmpty()
                 || !constraints.requiredLifestyleTags().isEmpty()
@@ -463,7 +465,7 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean currentProductMatches(Furniture current, FeedbackReplaceConstraints constraints) {
-        if (current.getProductId() == null || constraints.largerThanCurrent()) return false;
+        if (current.getProductId() == null || constraints.largerThanCurrent() || constraints.smallerThanCurrent()) return false;
         return productRepository.findById(current.getProductId())
                 .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
                 .filter(product -> product.getStyleTags().containsAll(constraints.requiredStyleTags()))
