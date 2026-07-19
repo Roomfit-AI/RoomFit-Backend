@@ -447,7 +447,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 사용자 피드백 기반 재추천
-      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 일부 작업만 성공하면 성공한 변경만 새 snapshot으로 저장합니다.
+      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 원자적으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 후행 작업 실패 시 앞선 작업도 rollback하고 source Layout을 유지합니다.
       requestBody:
         required: true
         content:
@@ -1256,13 +1256,18 @@ components:
     FeedbackRequest:
       type: object
       description: 사용자 자연어 피드백 기반 재추천 요청
+      required: [layoutId, feedback]
       properties:
         layoutId:
           type: integer
           format: int64
         feedback:
           type: string
-          enum: [책상 더 크게, 수납 늘려줘, 방이 넓어 보이게]
+          description: Plan v2가 지원하는 자연어 feedback. MOVE, ROTATE, 제품 교체 및 최대 4개 composite operation을 포함할 수 있습니다.
+        selectedFurnitureId:
+          type: string
+          nullable: true
+          description: 사용자가 UI에서 선택한 target ambiguity 해소 전용 내부 ID. active furniture 및 요청 canonical type 검증을 통과해야 하며 provider의 다른 target이나 reference/product ambiguity를 대체하지 않습니다.
     FeedbackCommonResponse:
       allOf:
         - $ref: "#/components/schemas/CommonResponse"
@@ -1336,6 +1341,7 @@ components:
         reasonCode:
           type: string
           nullable: true
+          description: AMBIGUOUS_TARGET, AMBIGUOUS_REFERENCE_TARGET, NO_SAFE_SWAP_CANDIDATE, NO_LARGER_PRODUCT_AVAILABLE, NO_SMALLER_PRODUCT_AVAILABLE, NO_VALID_MOVE_PLACEMENT, ATOMIC_ROLLBACK, DEPENDENCY_NOT_APPLIED 등을 포함합니다.
         message:
           type: string
         targetFurnitureId:
@@ -1363,6 +1369,8 @@ components:
           nullable: true
         requiredField:
           type: string
+          nullable: true
+          description: AMBIGUOUS_TARGET일 때 targetFurnitureId. 비모호 clarification과 product failure에는 null입니다.
         candidates:
           type: array
           maxItems: 10
