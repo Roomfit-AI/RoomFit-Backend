@@ -3,6 +3,7 @@ package com.roomfit.placement;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 
 import java.util.HashSet;
 import java.util.Iterator;
@@ -126,7 +127,7 @@ public class FeedbackPlanValidator {
                 boolean requiresReference = operation.placement().relation() == FeedbackRelation.NEXT_TO
                         || operation.placement().relation() == FeedbackRelation.LEFT_OF
                         || operation.placement().relation() == FeedbackRelation.RIGHT_OF;
-                require(!requiresReference || operation.referenceTarget() != null);
+                require(requiresReference == (operation.referenceTarget() != null));
                 require(operation.placement().relation() == FeedbackRelation.NEXT_TO
                         || operation.placement().side() == null);
             }
@@ -144,6 +145,9 @@ public class FeedbackPlanValidator {
                 require(operation.productRequirements() == null);
                 require(operation.replacementRequirements() != null);
                 validateProductRequirements(operation.replacementRequirements());
+                require(operation.target().furnitureType().isBlank()
+                        || GeneratedFurnitureCatalog.get().sameType(operation.target().furnitureType(),
+                        operation.replacementRequirements().furnitureType()));
             }
             case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> invalid();
         }

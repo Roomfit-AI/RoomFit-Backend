@@ -304,14 +304,8 @@ public class LayoutService {
     }
 
     private FeedbackStatus feedbackStatus(FeedbackPlan plan, FeedbackExecution execution) {
-        long applied = execution.operationResults().stream()
-                .filter(result -> result.status() == FeedbackOperationExecution.Status.APPLIED)
-                .count();
-        if (applied == plan.operations().size() && !plan.operations().isEmpty()) {
+        if (execution.result().applied()) {
             return FeedbackStatus.SUCCESS;
-        }
-        if (applied > 0) {
-            return FeedbackStatus.PARTIAL_SUCCESS;
         }
         if (plan.needsClarification() || execution.operationResults().stream()
                 .anyMatch(result -> needsClarification(result.reasonCode()))) {
@@ -361,10 +355,8 @@ public class LayoutService {
             FeedbackClarification clarification = plan.clarification();
             String type = clarification == null ? "" : clarification.targetFurnitureType();
             List<FeedbackClarificationResponse.Candidate> candidates = clarificationCandidates(type, "", originalFurniture, room);
-            String question = clarification != null && !clarification.question().isBlank()
-                    ? clarification.question() : clarificationQuestion(type, false);
             result.add(new FeedbackClarificationResponse(candidates.size() > 1 ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
-                    question, null, "targetFurnitureId",
+                    clarificationQuestion(type, false), null, "targetFurnitureId",
                     candidates));
         }
         Map<String, FeedbackOperation> operations = plan.operations().stream()
@@ -546,7 +538,8 @@ public class LayoutService {
         result.put("operationIds", plan.operations().stream().map(FeedbackOperation::operationId).toList());
         result.put("reason", plan.reason());
         if (plan.clarification() != null) {
-            result.put("clarificationQuestion", plan.clarification().question());
+            result.put("clarificationQuestion",
+                    clarificationQuestion(plan.clarification().targetFurnitureType(), false));
         }
         if (plan.source() == FeedbackSource.RULE_BASED && !plan.operations().isEmpty()) {
             FeedbackOperation operation = plan.operations().get(0);
