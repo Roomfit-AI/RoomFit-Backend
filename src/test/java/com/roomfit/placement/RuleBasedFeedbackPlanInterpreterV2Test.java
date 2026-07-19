@@ -133,16 +133,18 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void treatsKoreanPlaceWordsAsMoveForAnExistingActiveFurniture() {
+    void treatsImplicitPlacementWordsAsMoveOnlyForOneExistingFurniture() {
         Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
         Furniture sofa = furniture("sofa-1", "sofa", 3, 3);
 
-        FeedbackPlan chairMove = interpreter.interpret("의자를 구석에 놔줘", room(), List.of(chair), context());
-        FeedbackPlan sofaMove = interpreter.interpret("소파를 창가에 놓아줘", room(), List.of(sofa), context());
-        FeedbackPlan explicitAdd = interpreter.interpret("의자 하나 더 놔줘", room(), List.of(chair), context());
-        FeedbackPlan absentChair = interpreter.interpret("의자를 구석에 놔줘", room(), List.of(), context());
-        FeedbackPlan ambiguousChairs = interpreter.interpret("의자를 구석에 놔줘", room(),
+        FeedbackPlan chairMove = interpreter.interpret("의자를 구석에 넣어줘", room(), List.of(chair), context());
+        FeedbackPlan sofaMove = interpreter.interpret("소파를 창가에 배치해줘", room(), List.of(sofa), context());
+        FeedbackPlan wishMove = interpreter.interpret("의자가 구석에 있었으면 좋겠", room(), List.of(chair), context());
+        FeedbackPlan explicitAdd = interpreter.interpret("의자 하나 더 구석에 넣어줘", room(), List.of(chair), context());
+        FeedbackPlan absentChair = interpreter.interpret("의자를 구석에 넣어줘", room(), List.of(), context());
+        FeedbackPlan ambiguousChairs = interpreter.interpret("의자를 구석에 넣어줘", room(),
                 List.of(chair, furniture("chair-2", "desk_chair", 4, 4)), context());
+        FeedbackPlan absentExplicitAdd = interpreter.interpret("의자 하나 추가해줘", room(), List.of(), context());
 
         assertThat(chairMove.operations()).singleElement().satisfies(operation -> {
             assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
@@ -150,10 +152,14 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         });
         assertThat(sofaMove.operations()).singleElement().satisfies(operation ->
                 assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+        assertThat(wishMove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
         assertThat(explicitAdd.operations()).singleElement().satisfies(operation ->
                 assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
         assertThat(absentChair.needsClarification()).isTrue();
         assertThat(ambiguousChairs.needsClarification()).isTrue();
+        assertThat(absentExplicitAdd.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
     }
 
     @Test

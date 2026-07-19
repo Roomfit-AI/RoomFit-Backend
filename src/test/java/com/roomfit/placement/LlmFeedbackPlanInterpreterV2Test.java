@@ -92,6 +92,67 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void normalizesImplicitProviderAddToMoveForOneExistingFurniture() {
+        Furniture chair = chair("chair-1", 2, 2);
+        FeedbackPlan plan = implicitAddInterpreter().interpret("의자를 구석에 넣어줘",
+                room(), List.of(chair), context());
+        FeedbackExecution execution = executor.execute(plan, room(), List.of(chair));
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
+        });
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture()).hasSize(1);
+        assertThat(execution.furniture().getFirst().getId()).isEqualTo("chair-1");
+    }
+
+    @Test
+    void convertsImplicitProviderAddToClarificationWhenTargetIsAbsentOrAmbiguous() {
+        LlmFeedbackPlanInterpreter interpreter = implicitAddInterpreter();
+        Furniture first = chair("chair-1", 2, 2);
+        Furniture second = chair("chair-2", 4, 4);
+
+        FeedbackPlan absent = interpreter.interpret("의자를 구석에 넣어줘", room(), List.of(), context());
+        FeedbackPlan ambiguous = interpreter.interpret("의자를 구석에 넣어줘", room(), List.of(first, second), context());
+
+        assertThat(absent.needsClarification()).isTrue();
+        assertThat(absent.operations()).isEmpty();
+        assertThat(ambiguous.needsClarification()).isTrue();
+        assertThat(ambiguous.operations()).isEmpty();
+    }
+
+    @Test
+    void preservesExplicitAddButNeverTreatsImplicitWishesAsNewFurniture() {
+        Furniture chair = chair("chair-1", 2, 2);
+        Furniture sofa = new Furniture("sofa-1", "sofa", "기존 소파", 1.8, 0.8, 0.8,
+                new Position(3, 3), 0, FurnitureStatus.EXISTING,
+                "sofa-classic-ektorp-01", List.of("classic"), "sofa-classic-ektorp");
+
+        FeedbackPlan wish = implicitAddInterpreter("desk_chair").interpret("의자가 구석에 있었으면 좋겠",
+                room(), List.of(chair), context());
+        FeedbackPlan sofaMove = implicitAddInterpreter("sofa").interpret("소파를 창가에 배치해줘",
+                room(), List.of(sofa), context());
+        FeedbackPlan existingExplicitAdd = implicitAddInterpreter("desk_chair").interpret("의자 하나 더 구석에 넣어줘",
+                room(), List.of(chair), context());
+        FeedbackPlan absentExplicitAdd = implicitAddInterpreter("desk_chair").interpret("의자 하나 추가해줘",
+                room(), List.of(), context());
+
+        assertThat(wish.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+        assertThat(sofaMove.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.NEAR_WINDOW);
+        });
+        assertThat(existingExplicitAdd.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
+        assertThat(absentExplicitAdd.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
+    }
+
+    @Test
     void promptIncludesReferenceMoveContractAndSafeJsonShape() {
         String[] capturedPrompt = new String[1];
         Furniture monitor = monitor();
@@ -464,6 +525,22 @@ class LlmFeedbackPlanInterpreterV2Test {
                 .interpret(feedback, room(), List.of(desk()), context());
     }
 
+    private LlmFeedbackPlanInterpreter implicitAddInterpreter() {
+        return implicitAddInterpreter("desk_chair");
+    }
+
+    private LlmFeedbackPlanInterpreter implicitAddInterpreter(String furnitureType) {
+        return new LlmFeedbackPlanInterpreter(prompt -> """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"ADD_FURNITURE",
+                  "target":{"furnitureType":"%s"},
+                  "placement":{"relation":"IN_CORNER"},
+                  "productRequirements":{"furnitureType":"%s","sizePreference":"ANY","styleKeywords":[]},
+                  "dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"provider add"}
+                """.formatted(furnitureType, furnitureType), objectMapper);
+    }
+
     private void assertInvalid(String response) {
         assertThatThrownBy(() -> interpret("책상을 옮겨줘", response))
                 .isInstanceOf(LlmProviderException.class);
@@ -533,6 +610,12 @@ class LlmFeedbackPlanInterpreterV2Test {
         return new Furniture("monitor-1", "monitor", "기존 모니터", 0.5, 0.25, 0.4,
                 new Position(1, 1), 0, FurnitureStatus.EXISTING,
                 "monitor-basic-01", List.of("minimal"), "monitor-basic");
+    }
+
+    private Furniture chair(String id, double x, double z) {
+        return new Furniture(id, "desk_chair", "기존 의자", 0.5, 0.5, 0.8,
+                new Position(x, z), 0, FurnitureStatus.EXISTING,
+                "desk-chair-basic-01", List.of("minimal"), "desk-chair-basic");
     }
 
     private AgentContext context() {

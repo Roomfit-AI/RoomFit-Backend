@@ -81,7 +81,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
 
         try {
-            validateProviderSafety(plan, feedback);
+            plan = normalizeImplicitProviderAdds(plan, feedback, furniture);
+            planValidator.validate(plan);
         } catch (CustomException e) {
             throw new LlmProviderException(LlmProviderException.OTHER_SAFETY_POLICY, e);
         }
@@ -394,9 +395,10 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     validationResult, weight, objectiveWeight, productId, or variantId.
                     Do not output CHANGE_MATERIAL, CHANGE_COLOR_TONE, ABSTRACT goals, coordinates, angles,
                     scores, product identifiers, variant identifiers, or validation decisions.
-                    Interpret add/one-more/new/place expressions as ADD_FURNITURE only when the user explicitly asks
-                    to add something. If an active item of that type already exists and the user says to place it without
-                    an add signal, interpret it as MOVE. Korean 놓아/놔 expressions are not add signals by themselves.
+                    Use ADD_FURNITURE only for an explicit furniture-count increase: Korean 추가, 하나 더, 한 개 더,
+                    새로 추가, or 새 가구를 추가. Place expressions such as 넣어, 배치해줘, 두어, 놓아, 놔, and
+                    있었으면 좋겠 are not add signals by themselves. If an active item of that type already exists and the
+                    user says to place it without an add signal, interpret it as MOVE.
                     Interpret remove/take-out/delete expressions as REMOVE_FURNITURE,
                     and replace/change expressions as SWAP_FURNITURE. A same-type "different design" request is SWAP_FURNITURE.
                     Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
@@ -440,13 +442,68 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
      * semantic safety rule, not a prompt preference, so enforce it after JSON
      * parsing as well.
      */
-    private void validateProviderSafety(FeedbackPlan plan, String feedback) {
-        boolean explicitAdd = feedback != null && List.of("추가", "하나 더", "한 개 더", "새로", "넣어")
-                .stream().anyMatch(feedback::contains);
-        if (!explicitAdd && plan.operations().stream()
-                .anyMatch(operation -> operation.type() == FeedbackOperationType.ADD_FURNITURE)) {
-            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+    private FeedbackPlan normalizeImplicitProviderAdds(FeedbackPlan plan, String feedback,
+                                                       List<Furniture> furniture) {
+        if (hasExplicitAddSignal(feedback) || plan.operations().stream()
+                .noneMatch(operation -> operation.type() == FeedbackOperationType.ADD_FURNITURE)) {
+            return plan;
         }
+
+        List<FeedbackOperation> normalized = new ArrayList<>();
+        for (FeedbackOperation operation : plan.operations()) {
+            if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
+                normalized.add(operation);
+                continue;
+            }
+            String type = operation.target().furnitureType();
+            List<Furniture> activeMatches = furniture.stream()
+                    .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                    .filter(item -> type.equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType())))
+                    .toList();
+            if (activeMatches.size() != 1 || !hasPlacementExpression(feedback)) {
+                return providerClarification(type);
+            }
+            Furniture existing = activeMatches.getFirst();
+            normalized.add(new FeedbackOperation(operation.operationId(), FeedbackOperationType.MOVE,
+                    new FeedbackTargetSelector(existing.getId(), type, ""),
+                    null, implicitMovePlacement(feedback), null, null, null, operation.dependsOn()));
+        }
+        return new FeedbackPlan(plan.version(), plan.requestKind(), normalized, plan.goals(), plan.clarification(),
+                plan.reason(), plan.source(), plan.fallbackUsed());
+    }
+
+    private boolean hasExplicitAddSignal(String feedback) {
+        return feedback != null && List.of("추가", "하나 더", "한 개 더")
+                .stream().anyMatch(feedback::contains);
+    }
+
+    private boolean hasPlacementExpression(String feedback) {
+        return feedback != null && List.of("구석", "모서리", "코너", "창가", "창문", "벽",
+                        "왼쪽", "오른쪽", "가운데", "중앙", "배치", "넣어", "두어", "놓아", "놔", "있었으면 좋겠")
+                .stream().anyMatch(feedback::contains);
+    }
+
+    private FeedbackPlacement implicitMovePlacement(String feedback) {
+        if (containsAny(feedback, List.of("구석", "모서리", "코너"))) {
+            return new FeedbackPlacement(FeedbackRelation.IN_CORNER, null, null);
+        }
+        FeedbackRelation relation = containsAny(feedback, List.of("창가", "창문")) ? FeedbackRelation.NEAR_WINDOW
+                : feedback.contains("벽") ? FeedbackRelation.NEAR_WALL
+                : feedback.contains("왼쪽") ? FeedbackRelation.LEFT
+                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT
+                : containsAny(feedback, List.of("가운데", "중앙")) ? FeedbackRelation.CENTER
+                : FeedbackRelation.NEAR_WALL;
+        return new FeedbackPlacement(relation, FeedbackMagnitude.MEDIUM, null);
+    }
+
+    private FeedbackPlan providerClarification(String type) {
+        return new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION, List.of(), List.of(),
+                new FeedbackClarification("가구를 새로 추가할지 기존 가구를 옮길지 확인이 필요합니다.", type),
+                "", FeedbackSource.LLM, false);
+    }
+
+    private boolean containsAny(String value, List<String> terms) {
+        return terms.stream().anyMatch(value::contains);
     }
 
     private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture, String selectedFurnitureId,

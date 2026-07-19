@@ -34,6 +34,21 @@ class LlmProviderIsolationConfigTest {
     }
 
     @Test
+    void validFeedbackOverrideDoesNotEnablePlacementWhenRootPlacementConfigurationIsInvalid() {
+        LlmFeedbackProperties properties = new LlmFeedbackProperties();
+        properties.setEnabled(true);
+        properties.getPlacement().setEnabled(true);
+        properties.getFeedback().setApiKey("feedback-test-token");
+        properties.getFeedback().setBaseUrl("https://feedback.example.test/v1");
+        properties.getFeedback().setModel("feedback-test-model");
+
+        assertThat(properties.hasValidFeedbackClientConfig()).isTrue();
+        assertThat(properties.hasValidClientConfig()).isFalse();
+        assertThat(feedback(properties).hasPrimaryParser()).isTrue();
+        assertThat(placement(properties).hasPrimaryService()).isFalse();
+    }
+
+    @Test
     void feedbackDisabledPlacementEnabledKeepsPlacementPrimaryAvailable() {
         LlmFeedbackProperties properties = rootConfigured();
         properties.setEnabled(false);

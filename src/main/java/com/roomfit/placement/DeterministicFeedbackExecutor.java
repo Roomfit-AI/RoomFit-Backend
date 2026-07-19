@@ -78,7 +78,7 @@ public class DeterministicFeedbackExecutor {
         List<String> requested = plan.operations().stream().map(operation -> operation.type().name()).toList();
         if (plan.needsClarification()) {
             return noChange(original, plan, requested, "NEEDS_CLARIFICATION",
-                    plan.clarification().question(), List.of());
+                    summaryFor("NEEDS_CLARIFICATION"), List.of());
         }
         if (plan.operations().isEmpty()) {
             return noChange(original, plan, requested, "UNSUPPORTED_OPERATION",
