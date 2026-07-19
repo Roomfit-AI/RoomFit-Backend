@@ -205,6 +205,39 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void preservesLeftAndRightReferenceRolesWithoutSelectingTheDeskAsTarget() {
+        Furniture chair = furniture("chair-1", "desk_chair", 1, 1);
+        Furniture desk = furniture("desk-1", "desk", 3, 3);
+
+        FeedbackPlan left = interpreter.interpret("책상 왼쪽에 의자를 옮겨줘", room(), List.of(chair, desk), context());
+        FeedbackPlan right = interpreter.interpret("의자를 책상 오른쪽으로 옮겨줘", room(), List.of(chair, desk), context());
+
+        assertThat(left.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.referenceTarget().furnitureId()).isEqualTo("desk-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.LEFT_OF);
+        });
+        assertThat(right.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.referenceTarget().furnitureId()).isEqualTo("desk-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.RIGHT_OF);
+        });
+    }
+
+    @Test
+    void removesOnlyTheSelectedFurnitureWhenSameTypeCandidatesExist() {
+        Furniture first = furniture("chair-1", "desk_chair", 1, 1);
+        Furniture second = furniture("chair-2", "desk_chair", 3, 3);
+
+        FeedbackPlan selected = interpreter.interpret("의자를 삭제해줘", room(), List.of(first, second), context(), "chair-2");
+        FeedbackPlan ambiguous = interpreter.interpret("의자를 삭제해줘", room(), List.of(first, second), context());
+
+        assertThat(selected.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-2"));
+        assertThat(ambiguous.needsClarification()).isTrue();
+    }
+
+    @Test
     void clarifiesWhenSeveralFurnitureTypesAreMovedWithoutSeparateTargets() {
         Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
         Furniture desk = furniture("desk-1", "desk", 4, 2);

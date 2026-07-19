@@ -42,14 +42,11 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void parsesDirectRotateWithSemanticOrientation() {
-        FeedbackPlan plan = interpret("책상을 반 바퀴 돌려줘", directOperation("""
+    void rejectsProviderRotationWhenTheUserActionIsUnspecified() {
+        assertThatThrownBy(() -> interpret("책상을 반 바퀴 돌려줘", directOperation("""
                 "type":"ROTATE",
                 "placement":{"orientation":"HALF_TURN"}
-                """));
-
-        assertThat(plan.operations().getFirst().placement().orientation())
-                .isEqualTo(FeedbackOrientation.HALF_TURN);
+                """))).isInstanceOf(LlmProviderException.class);
     }
 
     @Test
@@ -407,6 +404,117 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void rejectsEveryProviderOperationWhenTheUserActionIsUnspecified() {
+        Furniture chair = chair("chair-1", 2, 2);
+        List<String> providerResponses = List.of(
+                removeResponse("chair-1", "desk_chair"),
+                moveResponse("chair-1", "desk_chair"),
+                swapResponse("chair-1", "desk_chair"),
+                addResponse("desk_chair", null, null)
+        );
+
+        for (String providerResponse : providerResponses) {
+            FeedbackPlan plan = fallback(new LlmFeedbackPlanInterpreter(prompt -> providerResponse, objectMapper))
+                    .interpret("의자를 적당히 정리해줘", room(), List.of(chair), context());
+            FeedbackExecution execution = executor.execute(plan, room(), List.of(chair), context());
+
+            assertThat(plan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+            assertThat(plan.needsClarification()).isTrue();
+            assertThat(execution.result().applied()).isFalse();
+            assertThat(execution.furniture()).containsExactly(chair);
+        }
+    }
+
+    @Test
+    void clarifiesAnAmbiguousSwapInsteadOfAcceptingTheProviderPlan() {
+        Furniture chair = chair("chair-1", 2, 2);
+        FeedbackPlan plan = fallback(new LlmFeedbackPlanInterpreter(
+                prompt -> swapResponse("chair-1", "desk_chair"), objectMapper))
+                .interpret("의자를 좀 바꿔줘", room(), List.of(chair), context());
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(executor.execute(plan, room(), List.of(chair), context()).result().applied()).isFalse();
+    }
+
+    @Test
+    void allowsOnlyMoveForAnImplicitPlacementRequest() {
+        Furniture chair = chair("chair-1", 2, 2);
+        String feedback = "의자를 구석에 넣어줘";
+        FeedbackPlan accepted = new LlmFeedbackPlanInterpreter(
+                prompt -> moveResponse("chair-1", "desk_chair"), objectMapper)
+                .interpret(feedback, room(), List.of(chair), context());
+
+        assertThat(accepted.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(accepted.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+
+        for (String providerResponse : List.of(
+                removeResponse("chair-1", "desk_chair"),
+                swapResponse("chair-1", "desk_chair"),
+                addResponse("desk_chair", null, null))) {
+            FeedbackPlan fallbackPlan = fallback(new LlmFeedbackPlanInterpreter(prompt -> providerResponse, objectMapper))
+                    .interpret(feedback, room(), List.of(chair), context());
+            FeedbackExecution execution = executor.execute(fallbackPlan, room(), List.of(chair), context());
+
+            assertThat(fallbackPlan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+            assertThat(fallbackPlan.operations()).singleElement().satisfies(operation ->
+                    assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+            assertThat(execution.furniture()).hasSize(1);
+            assertThat(execution.furniture().getFirst().getId()).isEqualTo("chair-1");
+        }
+    }
+
+    @Test
+    void preservesExplicitRemoveContractAndSelectedFurnitureId() {
+        Furniture first = chair("chair-1", 2, 2);
+        Furniture second = chair("chair-2", 4, 4);
+        List<Furniture> chairs = List.of(first, second);
+        FeedbackPlan accepted = new LlmFeedbackPlanInterpreter(
+                prompt -> removeResponse("chair-1", "desk_chair"), objectMapper)
+                .interpret("의자를 삭제해줘", room(), chairs, context(), "chair-1");
+        FeedbackPlan rejected = fallback(new LlmFeedbackPlanInterpreter(
+                prompt -> moveResponse("chair-2", "desk_chair"), objectMapper))
+                .interpret("의자를 삭제해줘", room(), chairs, context(), "chair-1");
+        FeedbackPlan ambiguous = fallback(new LlmFeedbackPlanInterpreter(
+                prompt -> removeResponse("chair-1", "desk_chair"), objectMapper))
+                .interpret("의자를 삭제해줘", room(), chairs, context());
+
+        assertThat(accepted.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(accepted.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-1"));
+        assertThat(rejected.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(rejected.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-1"));
+        assertThat(ambiguous.needsClarification()).isTrue();
+    }
+
+    @Test
+    void preservesLeftAndRightReferenceRolesInLlmAndRuleFallback() {
+        Furniture chair = chair("chair-1", 2, 2);
+        Furniture desk = desk();
+        FeedbackPlan left = new LlmFeedbackPlanInterpreter(
+                prompt -> referenceMoveResponse("chair-1", "desk_chair", "desk-1", "desk", "LEFT_OF"), objectMapper)
+                .interpret("책상 왼쪽에 의자를 옮겨줘", room(), List.of(chair, desk), context());
+        FeedbackPlan rightFallback = fallback(new LlmFeedbackPlanInterpreter(
+                prompt -> referenceMoveResponse("desk-1", "desk", "chair-1", "desk_chair", "RIGHT_OF"), objectMapper))
+                .interpret("의자를 책상 오른쪽으로 옮겨줘", room(), List.of(chair, desk), context());
+
+        assertThat(left.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(left.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.referenceTarget().furnitureId()).isEqualTo("desk-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.LEFT_OF);
+        });
+        assertThat(rightFallback.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(rightFallback.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.referenceTarget().furnitureId()).isEqualTo("desk-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.RIGHT_OF);
+        });
+    }
+
+    @Test
     void requiresTheExactSelectedFurnitureIdForMoveAndSwap() {
         Furniture first = chair("chair-1", 2, 2);
         Furniture second = chair("chair-2", 4, 4);
@@ -660,8 +768,8 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void parsesMoveAndRotateCompositeWithValidatedDependency() {
-        FeedbackPlan plan = interpret("책상을 오른쪽으로 옮기고 돌려줘", """
+    void rejectsCompositeWhenAnyClauseHasAnUnspecifiedAction() {
+        assertThatThrownBy(() -> interpret("책상을 오른쪽으로 옮기고 돌려줘", """
                 {
                   "version":"2.0",
                   "requestKind":"COMPOSITE",
@@ -685,12 +793,7 @@ class LlmFeedbackPlanInterpreterV2Test {
                   "clarification":null,
                   "reason":"move and rotate desk"
                 }
-                """);
-
-        assertThat(plan.requestKind()).isEqualTo(FeedbackRequestKind.COMPOSITE);
-        assertThat(plan.operations()).extracting(FeedbackOperation::operationId)
-                .containsExactly("op-1", "op-2");
-        assertThat(plan.operations().get(1).dependsOn()).containsExactly("op-1");
+                """)).isInstanceOf(LlmProviderException.class);
     }
 
     @Test
@@ -930,6 +1033,15 @@ class LlmFeedbackPlanInterpreterV2Test {
                 """.formatted(furnitureId, furnitureType);
     }
 
+    private String removeResponse(String furnitureId, String furnitureType) {
+        return """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"REMOVE_FURNITURE",
+                  "target":{"furnitureId":"%s","furnitureType":"%s"},"dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"provider remove"}
+                """.formatted(furnitureId, furnitureType);
+    }
+
     private String addResponse(String furnitureType, String referenceId, String referenceType) {
         String reference = referenceId == null ? "" : """
                 "referenceTarget":{"furnitureId":"%s","furnitureType":"%s"},
@@ -948,14 +1060,19 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     private String referenceMoveResponse(String targetId, String targetType, String referenceId, String referenceType) {
+        return referenceMoveResponse(targetId, targetType, referenceId, referenceType, "NEXT_TO");
+    }
+
+    private String referenceMoveResponse(String targetId, String targetType, String referenceId, String referenceType,
+                                         String relation) {
         return """
                 {"version":"2.0","requestKind":"DIRECT","operations":[{
                   "operationId":"op-1","type":"MOVE",
                   "target":{"furnitureId":"%s","furnitureType":"%s"},
                   "referenceTarget":{"furnitureId":"%s","furnitureType":"%s"},
-                  "placement":{"relation":"NEXT_TO"},"dependsOn":[]
+                  "placement":{"relation":"%s"},"dependsOn":[]
                 }],"goals":[],"clarification":null,"reason":"reference move"}
-                """.formatted(targetId, targetType, referenceId, referenceType);
+                """.formatted(targetId, targetType, referenceId, referenceType, relation);
     }
 
     private String swapResponse(String furnitureId, String furnitureType) {

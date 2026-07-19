@@ -101,7 +101,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             return sameTypeSwapOperation(operationId, clause, target, target.furnitureType());
         }
         if (actionIntent == FeedbackActionIntentResolver.ActionIntent.REMOVE) {
-            return removeOperation(operationId, mentions.getFirst().type(), clause, furniture);
+            return removeOperation(operationId, mentions.getFirst().type(), clause, furniture, selectedFurnitureId);
         }
 
         boolean placementExpression = containsAny(clause,
@@ -112,7 +112,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         if (actionIntent == FeedbackActionIntentResolver.ActionIntent.MOVE
                 || (placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
-            if (mentions.size() > 1 && !containsAny(clause, List.of("옆", "근처", "가까이"))) {
+            if (mentions.size() > 1 && !containsAny(clause, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))) {
                 throw new ClarificationRequired("각 가구의 이동 위치를 구분해서 알려주세요.", "");
             }
             if (mentions.size() > 1 && hasConflictingReferenceAndAbsoluteDestination(clause)) {
@@ -167,7 +167,17 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
                 requirements(targetMention.type(), feedback), null, List.of());
     }
 
-    private FeedbackOperation removeOperation(String operationId, String type, String feedback, List<Furniture> furniture) {
+    private FeedbackOperation removeOperation(String operationId, String type, String feedback, List<Furniture> furniture,
+                                              String selectedFurnitureId) {
+        Furniture selected = selectedActiveFurniture(selectedFurnitureId, furniture);
+        if (selected != null) {
+            String selectedType = FeedbackVocabularyNormalizer.normalizeCanonicalType(selected.getType());
+            if (!type.equals(selectedType)) {
+                throw new ClarificationRequired("선택한 가구와 요청한 가구 종류가 다릅니다.", type);
+            }
+            return new FeedbackOperation(operationId, FeedbackOperationType.REMOVE_FURNITURE,
+                    new FeedbackTargetSelector(selected.getId(), type, ""), null, null, null, null, null, List.of());
+        }
         return new FeedbackOperation(operationId, FeedbackOperationType.REMOVE_FURNITURE,
                 selectorForExisting(type, feedback, furniture), null, null, null, null, null, List.of());
     }

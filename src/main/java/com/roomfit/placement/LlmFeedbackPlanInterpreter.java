@@ -550,7 +550,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             case SWAP -> providerOperation == FeedbackOperationType.SWAP_FURNITURE;
             case REPLACE -> providerOperation == FeedbackOperationType.REPLACE_PRODUCT;
             case REMOVE -> providerOperation == FeedbackOperationType.REMOVE_FURNITURE;
-            case UNSPECIFIED -> true;
+            case UNSPECIFIED -> false;
         };
     }
 
@@ -586,23 +586,10 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 .filter(item -> selector.furnitureType()
                         .equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType())))
                 .count();
-        boolean selectedGenericTarget = isOperationTarget && selector.furnitureId().equals(selectedFurnitureId)
-                && !explicitlyMentionsCanonicalType(feedback, selector.furnitureType());
-        if (sameTypeActiveCount > 1 && !selectedGenericTarget && !hasDiscriminator) {
+        boolean selectedTarget = isOperationTarget && selector.furnitureId().equals(selectedFurnitureId);
+        if (sameTypeActiveCount > 1 && !selectedTarget && !hasDiscriminator) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
-    }
-
-    private boolean explicitlyMentionsCanonicalType(String feedback, String canonicalType) {
-        if (feedback == null || feedback.isBlank()) {
-            return false;
-        }
-        String compactFeedback = feedback.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
-        return compactFeedback.contains(canonicalType.toLowerCase(java.util.Locale.ROOT))
-                || FeedbackVocabularyNormalizer.aliasesByLength().stream()
-                .filter(entry -> canonicalType.equals(entry.getValue()))
-                .map(entry -> entry.getKey().replace("_", ""))
-                .anyMatch(compactFeedback::contains);
     }
 
     private String selectedCanonicalType(List<Furniture> furniture, String selectedFurnitureId) {
