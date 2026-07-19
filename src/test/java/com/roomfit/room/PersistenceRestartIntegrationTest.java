@@ -46,7 +46,12 @@ class PersistenceRestartIntegrationTest {
                 assertThat(reloaded.getId()).isEqualTo(sample.getId());
                 assertThat(reloaded.getCreatedAt()).isEqualTo(sample.getCreatedAt());
             });
-            Room browserRoom = rooms.save(room("Browser Room", browserClientId, "browser-existing"));
+            Room browserRoomToSave = room("Browser Room", browserClientId, "browser-existing");
+            browserRoomToSave.setImportMetadata(RoomImportStatus.ACCEPTED_WITH_WARNINGS, List.of(
+                    new RoomImportWarning("FURNITURE_REPOSITIONED", "browser-existing", "desk",
+                            "strict-safe 배치를 위해 위치를 조정했습니다.", 0.15,
+                            new Position(1.0, 1.0), new Position(1.15, 1.0), 0.0, 0.0)));
+            Room browserRoom = rooms.save(browserRoomToSave);
             Room appRoom = rooms.save(room("App Room", appClientId, "app-existing"));
             AgentContext context = contexts.save(new AgentContext(
                     browserRoom.getId(), LifestyleGoal.STUDY_FOCUSED,
@@ -84,6 +89,20 @@ class PersistenceRestartIntegrationTest {
             assertThat(browserRoom.getOpenings()).singleElement().satisfies(opening -> {
                 assertThat(opening.getId()).isEqualTo("door-persisted");
                 assertThat(opening.getWall()).isEqualTo("south");
+            });
+            // Regression coverage for the originalx/originalz/normalizedx/normalizedz
+            // @Column(name=...) overrides (see RoomImportWarning) — a real save+reload
+            // across two separate contexts against a persisted file DB, not just a
+            // fresh in-memory schema, so a future accidental removal of those
+            // overrides fails this test instead of only surfacing against
+            // production's already-existing, differently-named columns.
+            assertThat(browserRoom.getImportStatus()).isEqualTo(RoomImportStatus.ACCEPTED_WITH_WARNINGS);
+            assertThat(browserRoom.getImportWarnings()).singleElement().satisfies(warning -> {
+                assertThat(warning.getCode()).isEqualTo("FURNITURE_REPOSITIONED");
+                assertThat(warning.getOriginalX()).isEqualTo(1.0);
+                assertThat(warning.getOriginalZ()).isEqualTo(1.0);
+                assertThat(warning.getNormalizedX()).isEqualTo(1.15);
+                assertThat(warning.getNormalizedZ()).isEqualTo(1.0);
             });
             assertThat(appRoom.getWalls()).singleElement().satisfies(wall -> {
                 assertThat(wall.getId()).isEqualTo("wall-persisted");
