@@ -35,7 +35,8 @@ class RoomSamplesControllerTest {
                 .andExpect(jsonPath("$.data[0].room.height").value(2.7))
                 .andExpect(jsonPath("$.data[0].room.unit").value("meter"))
                 .andExpect(jsonPath("$.data[0].openings[*].type").value(hasItems("door", "window")))
-                .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].rotation").value(hasItems(180.0)))
+                .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].rotation").value(hasItems(90.0)))
+                .andExpect(jsonPath("$.data[0].furniture[?(@.id == 'wardrobe-1')].position.x").value(hasItems(5.39)))
                 .andExpect(jsonPath("$.data[0].furniture[*].status").value(hasItems("EXISTING")));
 
         mockMvc.perform(get("/api/rooms/samples")
