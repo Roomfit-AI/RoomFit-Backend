@@ -38,8 +38,13 @@ public class RoomSampleDataInitializer implements CommandLineRunner {
                 new Position(3.0, 1.05), 0, FurnitureStatus.EXISTING);
         Furniture chair = new Furniture("chair-1", "chair", "우드 의자", 0.55, 0.55, 0.82,
                 new Position(3.0, 1.85), 180, FurnitureStatus.EXISTING);
+        // rotation 90: width (1.2, the door-bearing face) runs parallel to the
+        // east wall, depth (0.65) sticks into the room — back flush against the
+        // wall, doors facing west into the room. x=5.39 puts the back edge
+        // (center + depth/2 = 5.715) just inside the room's usable bound
+        // (width 5.8 minus the default 0.08m wall-clearance inset = 5.72).
         Furniture wardrobe = new Furniture("wardrobe-1", "wardrobe", "우드 옷장", 1.2, 0.65, 2.1,
-                new Position(5.0, 3.85), 180, FurnitureStatus.EXISTING);
+                new Position(5.39, 3.85), 90, FurnitureStatus.EXISTING);
 
         Room sampleRoom = new Room(null, 5.8, 5.4, 2.7, "meter",
                 List.of(door, window), List.of(bed, desk, chair, wardrobe));
