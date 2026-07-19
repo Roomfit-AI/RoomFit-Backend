@@ -29,6 +29,9 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         try {
             FeedbackOperation legacy = legacyDeskOperation(normalized, furniture);
             if (legacy != null) return direct(normalized, legacy);
+            if (normalized.contains("색 바")) {
+                throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
+            }
             if (isVague(normalized) || FeedbackVocabularyNormalizer.isAmbiguousFurnitureWord(normalized)) {
                 return clarification("어떤 가구를 말씀하시는지 확인이 필요합니다.", "");
             }
@@ -279,7 +282,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private boolean containsToneRequest(String feedback) {
-        return containsAny(feedback, List.of("다른 톤", "밝은 톤", "우드 톤", "색상", "톤으로"));
+        return containsAny(feedback, List.of("다른 톤", "밝은 톤", "우드 톤", "색상", "색 바", "톤으로"));
     }
 
     private Integer ordinal(String feedback) {
