@@ -254,6 +254,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
         boolean largerThanCurrent = node.path("largerThanCurrent").asBoolean(false);
+        boolean smallerThanCurrent = node.path("smallerThanCurrent").asBoolean(false);
         Double minWidth = optionalNumber(node, "minWidth");
         if (minWidth != null && (minWidth <= 0 || minWidth > 10)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
@@ -263,16 +264,22 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
         boolean storageRequest = isStorageRequest(feedback);
         boolean largerRequest = isLargerRequest(feedback);
+        boolean smallerRequest = isSmallerRequest(feedback);
         if (storageRequest && !largerRequest) {
             storagePreferred = true;
             largerThanCurrent = false;
+            smallerThanCurrent = false;
             minWidth = null;
         } else if (largerRequest) {
             largerThanCurrent = true;
+            smallerThanCurrent = false;
+        } else if (smallerRequest) {
+            largerThanCurrent = false;
+            smallerThanCurrent = true;
         }
 
         return new FeedbackReplaceConstraints(furnitureType,
-                largerThanCurrent, minWidth,
+                largerThanCurrent, smallerThanCurrent, minWidth,
                 stringList(node.path("requiredStyleTags")), stringList(node.path("requiredLifestyleTags")),
                 storagePreferred);
     }
@@ -289,7 +296,14 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 || feedback.contains("크게")
                 || feedback.contains("키워")
                 || feedback.contains("컸으면")
-                || feedback.contains("큰 책상");
+                || feedback.contains("큰 책상")
+                || feedback.contains("더 큰")
+                || feedback.contains("큰 제품");
+    }
+
+    private boolean isSmallerRequest(String feedback) {
+        return feedback != null && (feedback.contains("작게") || feedback.contains("더 작은")
+                || feedback.contains("작은 제품"));
     }
 
     private JsonNode parseObject(String rawResponse) {
@@ -376,7 +390,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     IN_CORNER, CENTER, LEFT, RIGHT, FORWARD, and BACKWARD must not include referenceTarget.
                     target and referenceTarget must identify different existing furniture.
                     ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
-                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
+                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent,
+                    smallerThanCurrent, minWidth,
                     requiredStyleTags, requiredLifestyleTags, and storagePreferred.
                     ADD_FURNITURE describes the new type in target.furnitureType, uses productRequirements with
                     furnitureType, sizePreference (SMALL, LARGE, SIMILAR, ANY), storagePreferred, and styleKeywords,
@@ -547,6 +562,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return switch (action) {
             case ADD -> providerOperation == FeedbackOperationType.ADD_FURNITURE;
             case MOVE -> providerOperation == FeedbackOperationType.MOVE;
+            case ROTATE -> providerOperation == FeedbackOperationType.ROTATE;
             case SWAP -> providerOperation == FeedbackOperationType.SWAP_FURNITURE;
             case REPLACE -> providerOperation == FeedbackOperationType.REPLACE_PRODUCT;
             case REMOVE -> providerOperation == FeedbackOperationType.REMOVE_FURNITURE;

@@ -17,7 +17,9 @@ import java.util.Locale;
 public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private static final List<String> REMOVE_TERMS = List.of("삭제", "제거", "없애", "치워", "빼", "필요 없어");
-    private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "붙여", "붙이");
+    private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "붙여", "붙이", "당겨", "밀어", "앞으로", "뒤로");
+    private static final List<String> ROTATE_TERMS = List.of(
+            "회전", "돌려", "돌리", "90도", "180도", "반대로", "벽과 평행");
     private static final List<String> SWAP_TERMS = List.of("교체", "바꿔", "바꾸", "다른 디자인", "다른 제품");
 
     @Override
@@ -94,6 +96,20 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             throw new ClarificationRequired("어떤 가구를 말씀하시는지 확인이 필요합니다.", "");
         }
         String operationId = "op-" + sequence;
+        if (containsAny(clause, ROTATE_TERMS)) {
+            FeedbackTargetSelector target = selectorForExisting(mentions.getFirst().type(), clause, furniture,
+                    selectedFurnitureId, true);
+            return new FeedbackOperation(operationId, FeedbackOperationType.ROTATE, target, null,
+                    new FeedbackPlacement(null, null, rotationOrientation(clause)), null, null, null, List.of());
+        }
+        if (isExplicitSizeProductRequest(clause)) {
+            String type = mentions.getFirst().type();
+            FeedbackTargetSelector target = selectorForExisting(type, clause, furniture, selectedFurnitureId, true);
+            boolean smaller = containsAny(clause, List.of("작게", "더 작은", "작은 제품"));
+            return new FeedbackOperation(operationId, FeedbackOperationType.REPLACE_PRODUCT, target, null, null,
+                    new FeedbackReplaceConstraints(type, !smaller, smaller, null, List.of(), List.of(), false),
+                    null, null, List.of());
+        }
         FeedbackActionIntentResolver.ActionIntent actionIntent =
                 FeedbackActionIntentResolver.resolveFurnitureActionIntent(clause);
         if (actionIntent == FeedbackActionIntentResolver.ActionIntent.SWAP) {
@@ -251,6 +267,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         FeedbackRelation relation = feedback.contains("창가") || feedback.contains("창문") ? FeedbackRelation.NEAR_WINDOW
                 : feedback.contains("문에서 멀") ? FeedbackRelation.AWAY_FROM_DOOR
+                : feedback.contains("뒤로") || feedback.contains("밀어") ? FeedbackRelation.BACKWARD
+                : feedback.contains("앞으로") || feedback.contains("당겨") ? FeedbackRelation.FORWARD
                 : feedback.contains("왼쪽") ? FeedbackRelation.LEFT
                 : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT
                 : feedback.contains("가운데") || feedback.contains("중앙") ? FeedbackRelation.CENTER
@@ -438,6 +456,18 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     private boolean isTypedMetadataSwapRequest(String feedback) {
         return feedback.contains("수납장") && containsAny(feedback, SWAP_TERMS)
                 && FeedbackMetadataKeywordNormalizer.containsMetadataRequest(feedback);
+    }
+
+    private boolean isExplicitSizeProductRequest(String feedback) {
+        return containsAny(feedback, SWAP_TERMS)
+                && containsAny(feedback, List.of("크게", "넓게", "더 큰", "큰 제품", "작게", "더 작은", "작은 제품"));
+    }
+
+    private FeedbackOrientation rotationOrientation(String feedback) {
+        if (feedback.contains("180") || feedback.contains("반대로")) return FeedbackOrientation.HALF_TURN;
+        if (feedback.contains("반시계")) return FeedbackOrientation.QUARTER_TURN_CCW;
+        if (feedback.contains("벽과 평행")) return FeedbackOrientation.ALIGN_WITH_WALL;
+        return FeedbackOrientation.QUARTER_TURN_CW;
     }
 
     private void validateSelectionMatchesExplicitType(String selectedFurnitureId, String explicitType,

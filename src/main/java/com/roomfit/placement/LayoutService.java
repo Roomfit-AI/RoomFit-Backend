@@ -393,7 +393,7 @@ public class LayoutService {
     private boolean needsClarification(String reasonCode) {
         if (reasonCode == null) return false;
         return Set.of("NEEDS_CLARIFICATION", "AMBIGUOUS_TARGET", "AMBIGUOUS_REFERENCE_TARGET",
-                        "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT", "NO_SAFE_SWAP_CANDIDATE")
+                        "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT")
                 .contains(reasonCode);
     }
 
@@ -516,6 +516,8 @@ public class LayoutService {
             case "REFERENCE_TARGET_NOT_FOUND" -> "기준 가구를 찾을 수 없습니다.";
             case "NO_RENDERABLE_PRODUCT" -> "렌더링 가능한 제품을 찾을 수 없습니다.";
             case "NO_SAFE_SWAP_CANDIDATE" -> "요청 조건에 맞는 교체 제품을 하나로 정할 수 없습니다.";
+            case "NO_LARGER_PRODUCT_AVAILABLE" -> "현재 가구보다 큰 교체 제품이 없습니다.";
+            case "NO_SMALLER_PRODUCT_AVAILABLE" -> "현재 가구보다 작은 교체 제품이 없습니다.";
             case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
             case "NO_VALID_SWAP_PLACEMENT" -> "교체 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
             case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구를 방 경계 안에 배치할 수 없습니다.";

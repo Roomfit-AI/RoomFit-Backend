@@ -89,6 +89,38 @@ class LayoutFeedbackControllerTest {
     }
 
     @Test
+    void feedback_withSmallestDesk_returnsProductFailureWithoutSnapshotOrCandidates() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        Furniture smallest = new Furniture("desk-smallest", "desk", "컴팩트 책상", 1.2, 0.6, 0.73,
+                new Position(2.0, 2.0), 0, FurnitureStatus.RECOMMENDED,
+                "desk-compact-01", List.of("minimal", "classic"), "desk-compact");
+        layout.setFurniture(new ArrayList<>(List.of(smallest)));
+        layoutRepository.save(layout);
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "책상을 더 작은 제품으로 바꿔줘"
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(layoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data.feedbackResult.applied").value(false))
+                .andExpect(jsonPath("$.data.feedbackResult.noChangeReason").value("NO_SMALLER_PRODUCT_AVAILABLE"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(1)))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.data.operationResults[0].reasonCode").value("NO_SMALLER_PRODUCT_AVAILABLE"))
+                .andExpect(jsonPath("$.data.clarification").value(nullValue()))
+                .andExpect(jsonPath("$.data.clarifications", hasSize(0)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].id").value("desk-smallest"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].productId").value("desk-compact-01"));
+    }
+
+    @Test
     void feedback_withStoragePriority_returnsInterpretedIntent() throws Exception {
         Long layoutId = createLayout();
 

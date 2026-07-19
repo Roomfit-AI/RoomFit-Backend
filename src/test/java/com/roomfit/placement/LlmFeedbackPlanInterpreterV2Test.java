@@ -42,11 +42,16 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void rejectsProviderRotationWhenTheUserActionIsUnspecified() {
-        assertThatThrownBy(() -> interpret("책상을 반 바퀴 돌려줘", directOperation("""
+    void acceptsProviderRotationOnlyForAnExplicitRotateIntent() {
+        FeedbackPlan plan = interpret("책상을 반 바퀴 돌려줘", directOperation("""
                 "type":"ROTATE",
                 "placement":{"orientation":"HALF_TURN"}
-                """))).isInstanceOf(LlmProviderException.class);
+                """));
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.ROTATE);
+            assertThat(operation.placement().orientation()).isEqualTo(FeedbackOrientation.HALF_TURN);
+        });
     }
 
     @Test
@@ -768,8 +773,8 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void rejectsCompositeWhenAnyClauseHasAnUnspecifiedAction() {
-        assertThatThrownBy(() -> interpret("책상을 오른쪽으로 옮기고 돌려줘", """
+    void acceptsMoveAndRotateCompositeWhenBothClausesHaveExplicitActions() {
+        FeedbackPlan plan = interpret("책상을 오른쪽으로 옮기고 돌려줘", """
                 {
                   "version":"2.0",
                   "requestKind":"COMPOSITE",
@@ -793,7 +798,10 @@ class LlmFeedbackPlanInterpreterV2Test {
                   "clarification":null,
                   "reason":"move and rotate desk"
                 }
-                """)).isInstanceOf(LlmProviderException.class);
+                """);
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ROTATE);
     }
 
     @Test
