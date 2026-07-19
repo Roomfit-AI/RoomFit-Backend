@@ -17,15 +17,25 @@ public class FallbackFeedbackPlanInterpreter implements FeedbackPlanInterpreter 
         this.fallback = fallback;
     }
 
+    public boolean hasPrimaryInterpreter() {
+        return primary.isPresent();
+    }
+
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
+        return interpret(feedback, room, furniture, context, "");
+    }
+
+    @Override
+    public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context,
+                                  String selectedFurnitureId) {
         if (primary.isEmpty()) {
-            return fallback.interpret(feedback, room, furniture, context);
+            return fallback.interpret(feedback, room, furniture, context, selectedFurnitureId);
         }
         try {
-            return primary.get().interpret(feedback, room, furniture, context);
+            return primary.get().interpret(feedback, room, furniture, context, selectedFurnitureId);
         } catch (LlmProviderException e) {
-            return fallback.interpret(feedback, room, furniture, context);
+            return fallback.interpret(feedback, room, furniture, context, selectedFurnitureId);
         }
     }
 }

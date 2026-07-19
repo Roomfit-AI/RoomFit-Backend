@@ -102,8 +102,7 @@ public final class GeneratedFurnitureCatalog {
                 product.productId(), product.variantId(), product.furnitureType(), product.label(), null,
                 dimensions.width(), dimensions.depth(), dimensions.height(), (Integer) null,
                 product.styleTags(), null, product.purchaseUrl(),
-                new RequiredClearance(clearance.front(), clearance.side()), product.lifestyleTags(),
-                product.materials()
+                new RequiredClearance(clearance.front(), clearance.side()), product.lifestyleTags(), product.materials()
         );
     }
 

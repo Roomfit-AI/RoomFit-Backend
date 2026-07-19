@@ -3,6 +3,7 @@ package com.roomfit.placement;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 
 import java.util.HashSet;
 import java.util.Iterator;
@@ -15,7 +16,8 @@ public class FeedbackPlanValidator {
     private static final Set<FeedbackRelation> MOVE_RELATIONS = Set.of(
             FeedbackRelation.LEFT, FeedbackRelation.RIGHT, FeedbackRelation.FORWARD,
             FeedbackRelation.BACKWARD, FeedbackRelation.NEAR_WINDOW, FeedbackRelation.NEAR_WALL,
-            FeedbackRelation.AWAY_FROM_DOOR, FeedbackRelation.CENTER
+            FeedbackRelation.AWAY_FROM_DOOR, FeedbackRelation.CENTER, FeedbackRelation.NEXT_TO,
+            FeedbackRelation.LEFT_OF, FeedbackRelation.RIGHT_OF, FeedbackRelation.IN_CORNER
     );
     private static final Set<FeedbackRelation> ADD_RELATIONS = Set.of(
             FeedbackRelation.NEXT_TO, FeedbackRelation.LEFT_OF, FeedbackRelation.RIGHT_OF,
@@ -71,18 +73,25 @@ public class FeedbackPlanValidator {
         if (operation.referenceTarget() != null) {
             require(!operation.referenceTarget().isEmpty());
             validateTarget(operation.referenceTarget());
+            require(!sameExistingTarget(operation.target(), operation.referenceTarget()));
         }
         switch (operation.type()) {
             case MOVE -> {
                 require(operation.placement() != null);
                 require(MOVE_RELATIONS.contains(operation.placement().relation()));
-                require(operation.placement().magnitude() != null);
                 require(operation.placement().orientation() == null);
-                require(operation.placement().side() == null);
                 require(operation.constraints() == null);
-                require(operation.referenceTarget() == null);
                 require(operation.productRequirements() == null);
                 require(operation.replacementRequirements() == null);
+                boolean referenceMove = operation.placement().relation() == FeedbackRelation.NEXT_TO
+                        || operation.placement().relation() == FeedbackRelation.LEFT_OF
+                        || operation.placement().relation() == FeedbackRelation.RIGHT_OF;
+                boolean cornerMove = operation.placement().relation() == FeedbackRelation.IN_CORNER;
+                require(referenceMove == (operation.referenceTarget() != null));
+                require(cornerMove || referenceMove || operation.placement().magnitude() != null);
+                require((!cornerMove && !referenceMove) || operation.placement().magnitude() == null);
+                require(operation.placement().relation() == FeedbackRelation.NEXT_TO
+                        || operation.placement().side() == null);
             }
             case ROTATE -> {
                 require(operation.placement() != null);
@@ -118,7 +127,7 @@ public class FeedbackPlanValidator {
                 boolean requiresReference = operation.placement().relation() == FeedbackRelation.NEXT_TO
                         || operation.placement().relation() == FeedbackRelation.LEFT_OF
                         || operation.placement().relation() == FeedbackRelation.RIGHT_OF;
-                require(!requiresReference || operation.referenceTarget() != null);
+                require(requiresReference == (operation.referenceTarget() != null));
                 require(operation.placement().relation() == FeedbackRelation.NEXT_TO
                         || operation.placement().side() == null);
             }
@@ -136,6 +145,9 @@ public class FeedbackPlanValidator {
                 require(operation.productRequirements() == null);
                 require(operation.replacementRequirements() != null);
                 validateProductRequirements(operation.replacementRequirements());
+                require(operation.target().furnitureType().isBlank()
+                        || GeneratedFurnitureCatalog.get().sameType(operation.target().furnitureType(),
+                        operation.replacementRequirements().furnitureType()));
             }
             case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> invalid();
         }
@@ -148,6 +160,18 @@ public class FeedbackPlanValidator {
         require(target.locationHint() == null || target.ordinal() == null);
         require((target.locationHint() == null && target.ordinal() == null)
                 || !target.furnitureType().isBlank());
+    }
+
+    private boolean sameExistingTarget(FeedbackTargetSelector target, FeedbackTargetSelector referenceTarget) {
+        if (!target.furnitureId().isBlank() && !referenceTarget.furnitureId().isBlank()) {
+            return target.furnitureId().equals(referenceTarget.furnitureId());
+        }
+        return target.furnitureId().isBlank() && referenceTarget.furnitureId().isBlank()
+                && !target.furnitureType().isBlank()
+                && target.furnitureType().equals(referenceTarget.furnitureType())
+                && target.labelKeyword().equals(referenceTarget.labelKeyword())
+                && target.locationHint() == referenceTarget.locationHint()
+                && java.util.Objects.equals(target.ordinal(), referenceTarget.ordinal());
     }
 
     private void validateProductRequirements(FeedbackProductRequirements requirements) {
@@ -165,6 +189,7 @@ public class FeedbackPlanValidator {
                 && constraints.furnitureType() != null
                 && !constraints.furnitureType().isBlank()
                 && (constraints.largerThanCurrent()
+                || constraints.smallerThanCurrent()
                 || constraints.minWidth() != null
                 || !constraints.requiredStyleTags().isEmpty()
                 || !constraints.requiredLifestyleTags().isEmpty()

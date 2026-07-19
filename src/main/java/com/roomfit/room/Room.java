@@ -10,7 +10,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.OrderColumn;
 import org.hibernate.annotations.Fetch;
 import org.hibernate.annotations.FetchMode;
@@ -50,13 +49,13 @@ public class Room {
     @Enumerated(EnumType.STRING)
     private RoomSource source;
     private LocalDateTime createdAt;
-    // Base64-encoded JPEG snapshot taken by the iOS app at scan completion
-    // (RoomCaptureViewContainer's snapshotImage()). Stored inline alongside
-    // the rest of the room JSON rather than as a separate file/object-storage
-    // upload, matching this repo's existing in-memory-map storage model.
-    // Null for sample rooms and any older upload predating this field.
-    @Lob
-    private String thumbnailBase64;
+    // The iOS app's scan-time JPEG snapshot used to be stored here as an
+    // inline `@Lob String thumbnailBase64`. It is deliberately gone: the room
+    // cards render from the tone-based illustration (and the web-captured
+    // thumbnail the browser keeps locally), so nothing depended on it. The
+    // production `thumbnail_base64` column is intentionally left in place —
+    // ddl-auto=update never drops columns, and an unmapped column is simply
+    // never selected, so no migration or data deletion is needed here.
     // Null is kept for samples and rows created before anonymous client
     // isolation was introduced. New client-owned uploads store a UUID scope.
     private String clientScope;
@@ -74,19 +73,18 @@ public class Room {
     public Room(Long id, double width, double depth, double height, String unit,
                 List<Opening> openings, List<Furniture> furniture) {
         this(id, "Sample Room", width, depth, height, unit, List.of(), openings, furniture,
-                RoomSource.SAMPLE, LocalDateTime.now(), null);
+                RoomSource.SAMPLE, LocalDateTime.now());
     }
 
     public Room(Long id, String name, double width, double depth, double height, String unit,
                 List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
-                LocalDateTime createdAt, String thumbnailBase64) {
-        this(id, name, width, depth, height, unit, walls, openings, furniture, source, createdAt,
-                thumbnailBase64, null);
+                LocalDateTime createdAt) {
+        this(id, name, width, depth, height, unit, walls, openings, furniture, source, createdAt, null);
     }
 
     public Room(Long id, String name, double width, double depth, double height, String unit,
                 List<Wall> walls, List<Opening> openings, List<Furniture> furniture, RoomSource source,
-                LocalDateTime createdAt, String thumbnailBase64, String clientScope) {
+                LocalDateTime createdAt, String clientScope) {
         this.id = id;
         this.name = name;
         this.width = width;
@@ -101,7 +99,6 @@ public class Room {
         this.furniture = furniture == null ? new ArrayList<>() : new ArrayList<>(furniture);
         this.source = source == null ? RoomSource.SAMPLE : source;
         this.createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
-        this.thumbnailBase64 = thumbnailBase64;
         this.clientScope = clientScope;
     }
 
@@ -158,10 +155,6 @@ public class Room {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
-    }
-
-    public String getThumbnailBase64() {
-        return thumbnailBase64;
     }
 
     public String getClientScope() {

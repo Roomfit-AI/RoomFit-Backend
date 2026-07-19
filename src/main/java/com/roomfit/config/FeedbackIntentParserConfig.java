@@ -26,10 +26,10 @@ public class FeedbackIntentParserConfig {
 
     private Optional<FeedbackIntentParser> createLlmParser(LlmFeedbackProperties properties,
                                                            ObjectMapper objectMapper) {
-        if (!properties.isEnabled() || !properties.hasValidClientConfig()) {
+        if (!properties.isEnabled() || !properties.hasValidFeedbackClientConfig()) {
             return Optional.empty();
         }
         return Optional.of(new LlmFeedbackIntentParser(
-                new OpenAiCompatibleLlmClient(properties, objectMapper)));
+                OpenAiCompatibleLlmClient.forFeedback(properties.feedbackClientProperties(), objectMapper)));
     }
 }

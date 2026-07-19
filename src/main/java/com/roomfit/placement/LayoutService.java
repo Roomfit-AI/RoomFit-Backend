@@ -9,6 +9,7 @@ import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
+import com.roomfit.room.Opening;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 import com.roomfit.room.RoomAccessService;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -283,33 +285,55 @@ public class LayoutService {
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
         Room room = roomAccessService.findWritableRoom(baseLayout.getRoomId());
 
-        FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context);
+        FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context,
+                request.getSelectedFurnitureId());
         FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
         furnitureDomainPolicy.validateFinalState(execution.furniture());
         ValidationResult validationResult = validationService.validate(room, execution.furniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
-            responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
-                    deepCopyFurniture(execution.furniture()), baseLayout.getId());
-            layoutRepository.save(responseLayout);
+            responseLayout = layoutRepository.findBySourceLayoutIdOrderByIdDesc(baseLayout.getId()).stream()
+                    .filter(layout -> sameFurnitureSnapshot(layout.getFurniture(), execution.furniture()))
+                    .findFirst()
+                    .orElseGet(() -> layoutRepository.save(new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
+                            deepCopyFurniture(execution.furniture()), baseLayout.getId())));
         }
 
         return FeedbackResponse.of(responseLayout, RecommendationStatus.SUCCESS,
                 scoreSummary, validationResult, interpretedPlan(plan), execution.result(),
                 feedbackStatus(plan, execution), operationResults(plan, execution, baseLayout.getFurniture()),
-                clarifications(plan, execution, baseLayout.getFurniture()));
+                clarifications(plan, execution, baseLayout.getFurniture(), room));
+    }
+
+    /** Reuse an identical derived snapshot so a transport retry remains idempotent. */
+    private boolean sameFurnitureSnapshot(List<Furniture> first, List<Furniture> second) {
+        if (first.size() != second.size()) return false;
+        for (int index = 0; index < first.size(); index++) {
+            Furniture left = first.get(index);
+            Furniture right = second.get(index);
+            if (!Objects.equals(left.getId(), right.getId())
+                    || !Objects.equals(left.getType(), right.getType())
+                    || !Objects.equals(left.getLabel(), right.getLabel())
+                    || Double.compare(left.getWidth(), right.getWidth()) != 0
+                    || Double.compare(left.getDepth(), right.getDepth()) != 0
+                    || Double.compare(left.getHeight(), right.getHeight()) != 0
+                    || Double.compare(left.getPosition().getX(), right.getPosition().getX()) != 0
+                    || Double.compare(left.getPosition().getZ(), right.getPosition().getZ()) != 0
+                    || Double.compare(left.getRotation(), right.getRotation()) != 0
+                    || left.getStatus() != right.getStatus()
+                    || !Objects.equals(left.getProductId(), right.getProductId())
+                    || !Objects.equals(left.getVariantId(), right.getVariantId())
+                    || !Objects.equals(left.getStyleTags(), right.getStyleTags())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private FeedbackStatus feedbackStatus(FeedbackPlan plan, FeedbackExecution execution) {
-        long applied = execution.operationResults().stream()
-                .filter(result -> result.status() == FeedbackOperationExecution.Status.APPLIED)
-                .count();
-        if (applied == plan.operations().size() && !plan.operations().isEmpty()) {
+        if (execution.result().applied()) {
             return FeedbackStatus.SUCCESS;
-        }
-        if (applied > 0) {
-            return FeedbackStatus.PARTIAL_SUCCESS;
         }
         if (plan.needsClarification() || execution.operationResults().stream()
                 .anyMatch(result -> needsClarification(result.reasonCode()))) {
@@ -331,8 +355,9 @@ public class LayoutService {
             FeedbackOperationExecution executionResult = executions.get(operation.operationId());
             if (executionResult == null) {
                 return new FeedbackOperationResult(operation.operationId(), operation.type(),
-                        FeedbackOperationResult.Status.FAILED, "INVALID_OPERATION",
-                        operationMessage(operation.type(), FeedbackOperationResult.Status.FAILED, "INVALID_OPERATION"),
+                        FeedbackOperationResult.Status.SKIPPED_DEPENDENCY, "DEPENDENCY_NOT_APPLIED",
+                        operationMessage(operation.type(), FeedbackOperationResult.Status.SKIPPED_DEPENDENCY,
+                                "DEPENDENCY_NOT_APPLIED"),
                         targetFurnitureId(operation, null), null, null, null);
             }
             FeedbackOperationResult.Status status = publicOperationStatus(executionResult);
@@ -353,15 +378,16 @@ public class LayoutService {
     }
 
     private List<FeedbackClarificationResponse> clarifications(FeedbackPlan plan, FeedbackExecution execution,
-                                                                 List<Furniture> originalFurniture) {
+                                                                 List<Furniture> originalFurniture, Room room) {
         List<FeedbackClarificationResponse> result = new ArrayList<>();
         if (plan.needsClarification()) {
             FeedbackClarification clarification = plan.clarification();
             String type = clarification == null ? "" : clarification.targetFurnitureType();
-            List<FeedbackClarificationResponse.Candidate> candidates = clarificationCandidates(type, "", originalFurniture);
-            result.add(new FeedbackClarificationResponse(candidates.size() > 1 ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
-                    clarificationQuestion(type, false), null, "targetFurnitureId",
-                    candidates));
+            List<FeedbackClarificationResponse.Candidate> candidates = clarificationCandidates(type, "", originalFurniture, room);
+            boolean ambiguous = candidates.size() > 1;
+            result.add(new FeedbackClarificationResponse(ambiguous ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
+                    clarificationQuestion(type, false), null, ambiguous ? "targetFurnitureId" : null,
+                    ambiguous ? candidates : List.of()));
         }
         Map<String, FeedbackOperation> operations = plan.operations().stream()
                 .collect(Collectors.toMap(FeedbackOperation::operationId, operation -> operation,
@@ -374,10 +400,12 @@ public class LayoutService {
             FeedbackTargetSelector target = reference ? operation.referenceTarget() : operation.target();
             String type = target == null ? "" : target.furnitureType();
             String keyword = target == null ? "" : target.labelKeyword();
+            boolean ambiguous = "AMBIGUOUS_TARGET".equals(executionResult.reasonCode())
+                    || "AMBIGUOUS_REFERENCE_TARGET".equals(executionResult.reasonCode());
             result.add(new FeedbackClarificationResponse(executionResult.reasonCode(),
                     clarificationQuestion(type, reference), operation.operationId(),
-                    reference ? "referenceTargetFurnitureId" : "targetFurnitureId",
-                    clarificationCandidates(type, keyword, originalFurniture)));
+                    ambiguous ? reference ? "referenceTargetFurnitureId" : "targetFurnitureId" : null,
+                    ambiguous ? clarificationCandidates(type, keyword, originalFurniture, room) : List.of()));
         }
         return List.copyOf(result);
     }
@@ -414,10 +442,10 @@ public class LayoutService {
     }
 
     private List<FeedbackClarificationResponse.Candidate> clarificationCandidates(String type, String labelKeyword,
-                                                                                    List<Furniture> furniture) {
+                                                                                    List<Furniture> furniture, Room room) {
         if (type == null || type.isBlank()) return List.of();
         String normalizedKeyword = labelKeyword == null ? "" : labelKeyword.toLowerCase(java.util.Locale.ROOT);
-        return furniture.stream()
+        List<Furniture> matches = furniture.stream()
                 .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
                 .filter(item -> GeneratedFurnitureCatalog.get().sameType(type, item.getType()))
                 .filter(item -> normalizedKeyword.isBlank() || (item.getLabel() != null
@@ -426,14 +454,77 @@ public class LayoutService {
                         .thenComparingDouble(item -> item.getPosition().getZ())
                         .thenComparing(Furniture::getId))
                 .limit(10)
-                .map(item -> new FeedbackClarificationResponse.Candidate(item.getId(), item.getType(), item.getLabel()))
                 .toList();
+        return java.util.stream.IntStream.range(0, matches.size())
+                .mapToObj(index -> {
+                    Furniture item = matches.get(index);
+                    return new FeedbackClarificationResponse.Candidate(item.getId(), item.getType(),
+                            clarificationCandidateLabel(item, type, room, index + 1));
+                }).toList();
     }
 
     private String clarificationQuestion(String type, boolean reference) {
-        String subject = type == null || type.isBlank() ? "가구" : type + " 가구";
+        String subject = koreanFurnitureType(type);
         return reference ? subject + " 중 기준으로 사용할 가구를 선택해주세요."
                 : subject + " 중 변경할 가구를 선택해주세요.";
+    }
+
+    private String clarificationCandidateLabel(Furniture item, String type, Room room, int ordinal) {
+        String label = item.getLabel() == null ? "" : item.getLabel().trim();
+        if (!label.isBlank() && !label.equalsIgnoreCase(item.getType()) && !label.equalsIgnoreCase(type)) {
+            return label;
+        }
+        String location = clarificationLocationHint(item, room);
+        return location + " " + koreanFurnitureType(type) + " " + ordinal;
+    }
+
+    private String clarificationLocationHint(Furniture item, Room room) {
+        double x = item.getPosition().getX();
+        double z = item.getPosition().getZ();
+        if (room.getOpenings().stream().filter(opening -> "window".equals(opening.getType()))
+                .anyMatch(opening -> distance(item.getPosition(), openingPosition(opening, room)) < 1.2)) {
+            return "창가 쪽";
+        }
+        if (x < room.getWidth() / 3.0) return "방 왼쪽의";
+        if (x > room.getWidth() * 2.0 / 3.0) return "방 오른쪽의";
+        if (distance(item.getPosition(), new Position(room.getWidth() / 2.0, room.getDepth() / 2.0))
+                < Math.min(room.getWidth(), room.getDepth()) / 4.0) return "중앙 근처의";
+        return "방 안의";
+    }
+
+    private String koreanFurnitureType(String type) {
+        String canonicalType = GeneratedFurnitureCatalog.get().normalizeType(type == null ? "" : type);
+        if (canonicalType == null) {
+            return "가구";
+        }
+        return switch (canonicalType) {
+            case "bed" -> "침대";
+            case "bookshelf" -> "책장";
+            case "desk" -> "책상";
+            case "desk_chair" -> "의자";
+            case "drawer_chest" -> "서랍장";
+            case "monitor" -> "모니터";
+            case "nightstand" -> "협탁";
+            case "sofa" -> "소파";
+            case "tv" -> "TV";
+            case "wardrobe" -> "옷장";
+            default -> "가구";
+        };
+    }
+
+    private Position openingPosition(Opening opening, Room room) {
+        double center = opening.getOffset() + opening.getWidth() / 2.0;
+        return switch (opening.getWall()) {
+            case "north" -> new Position(center, room.getDepth());
+            case "south" -> new Position(center, 0);
+            case "east" -> new Position(room.getWidth(), center);
+            case "west" -> new Position(0, center);
+            default -> new Position(0, 0);
+        };
+    }
+
+    private double distance(Position first, Position second) {
+        return Math.hypot(first.getX() - second.getX(), first.getZ() - second.getZ());
     }
 
     private String operationMessage(FeedbackOperationType type, FeedbackOperationResult.Status status,
@@ -456,6 +547,9 @@ public class LayoutService {
             case "TARGET_NOT_FOUND" -> "요청한 가구를 찾을 수 없습니다.";
             case "REFERENCE_TARGET_NOT_FOUND" -> "기준 가구를 찾을 수 없습니다.";
             case "NO_RENDERABLE_PRODUCT" -> "렌더링 가능한 제품을 찾을 수 없습니다.";
+            case "NO_SAFE_SWAP_CANDIDATE" -> "요청 조건에 맞는 교체 제품을 하나로 정할 수 없습니다.";
+            case "NO_LARGER_PRODUCT_AVAILABLE" -> "현재 가구보다 큰 교체 제품이 없습니다.";
+            case "NO_SMALLER_PRODUCT_AVAILABLE" -> "현재 가구보다 작은 교체 제품이 없습니다.";
             case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
             case "NO_VALID_SWAP_PLACEMENT" -> "교체 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
             case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구를 방 경계 안에 배치할 수 없습니다.";
@@ -476,9 +570,10 @@ public class LayoutService {
         result.put("targetFurniture", plan.furnitureType());
         result.put("operations", plan.operations().stream().map(operation -> operation.type().name()).toList());
         result.put("operationIds", plan.operations().stream().map(FeedbackOperation::operationId).toList());
-        result.put("reason", plan.reason());
+        result.put("reason", plan.source() == FeedbackSource.LLM ? "" : plan.reason());
         if (plan.clarification() != null) {
-            result.put("clarificationQuestion", plan.clarification().question());
+            result.put("clarificationQuestion",
+                    clarificationQuestion(plan.clarification().targetFurnitureType(), false));
         }
         if (plan.source() == FeedbackSource.RULE_BASED && !plan.operations().isEmpty()) {
             FeedbackOperation operation = plan.operations().get(0);

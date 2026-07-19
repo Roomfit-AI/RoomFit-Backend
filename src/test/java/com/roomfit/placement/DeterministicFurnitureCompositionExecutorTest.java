@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DeterministicFurnitureCompositionExecutorTest {
 
@@ -270,84 +271,69 @@ class DeterministicFurnitureCompositionExecutorTest {
     }
 
     @Test
-    void swapBookshelfToHangerKeepsIdAndUsesCatalogMetadataAtOriginalPosition() {
-        MockProduct hanger = new MockProductRepository().findById("hanger-basic-01").orElseThrow();
-        DeterministicFeedbackExecutor executor = executor(List.of(hanger));
+    void swapsBookshelfToAnotherBookshelfDesignWhileKeepingIdentityAndCount() {
+        DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
+                new ValidationService(), new MockProductRepository());
         Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 1.2, 0.4, 1.8,
                 new Position(3, 3), 0, FurnitureStatus.EXISTING,
-                "bookshelf-01", List.of("classic"), null);
+                "bookshelf-classic-havsta-01", List.of("classic"), "bookshelf-classic-havsta");
 
-        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "hanger")),
+        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "bookshelf")),
                 room(8, 6), List.of(bookshelf));
 
         Furniture swapped = execution.furniture().getFirst();
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture()).hasSize(1);
         assertThat(swapped.getId()).isEqualTo("bookshelf-1");
-        assertThat(swapped.getType()).isEqualTo("hanger");
-        assertThat(swapped.getLabel()).isEqualTo("기본 스탠드형 행거");
-        assertThat(swapped.getProductId()).isEqualTo("hanger-basic-01");
-        assertThat(swapped.getVariantId()).isEqualTo("hanger-basic");
-        assertThat(swapped.getStyleTags()).containsExactly("minimal", "modern");
-        assertThat(swapped.getWidth()).isEqualTo(1.11);
-        assertThat(swapped.getDepth()).isEqualTo(0.51);
-        assertThat(swapped.getHeight()).isEqualTo(1.75);
-        assertThat(swapped.getPosition().getX()).isEqualTo(3);
-        assertThat(swapped.getPosition().getZ()).isEqualTo(3);
+        assertThat(swapped.getType()).isEqualTo("bookshelf");
+        assertThat(swapped.getProductId()).isNotEqualTo(bookshelf.getProductId());
+        assertThat(swapped.getVariantId()).isNotEqualTo(bookshelf.getVariantId());
         assertThat(swapped.getStatus()).isEqualTo(FurnitureStatus.EXISTING);
         assertThat(bookshelf.getType()).isEqualTo("bookshelf");
     }
 
     @Test
-    void swapSearchesAlternativePositionWhenOriginalPositionCollides() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
-                0.4, 0.4, 1.5, List.of())));
+    void validatorRejectsCrossTypeSwap() {
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
-        Furniture blocker = furniture("blocker", "chair", "의자", 0.4, 0.4, 0.8, 3, 3, 0);
 
-        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "hanger")),
-                room(6, 6), List.of(bookshelf, blocker));
-
-        Furniture swapped = execution.furniture().stream()
-                .filter(item -> item.getId().equals("bookshelf-1")).findFirst().orElseThrow();
-        assertThat(execution.result().applied()).isTrue();
-        assertThat(swapped.getPosition().getX() == 3 && swapped.getPosition().getZ() == 3).isFalse();
+        assertThatThrownBy(() -> executor(List.of()).execute(direct(swap("op-1", "bookshelf", "hanger")),
+                room(6, 6), List.of(bookshelf)))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
     }
 
     @Test
-    void allInvalidSwapCandidatesKeepOriginalFurniture() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
-                0.4, 0.4, 1.5, List.of())));
+    void executorRejectsCrossTypeSwapWhenTheValidatorCannotCompareAnIdOnlyTarget() {
+        DeterministicFeedbackExecutor executor = executor(List.of());
+        Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
+        FeedbackOperation bypass = new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
+                new FeedbackTargetSelector("bookshelf-1", "", ""), null, null, null, null,
+                requirements("hanger"), List.of());
+
+        FeedbackExecution execution = executor.execute(direct(bypass), room(6, 6), List.of(bookshelf));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("INVALID_SWAP_CANONICAL_TYPE");
+        assertThat(execution.furniture()).containsExactly(bookshelf);
+    }
+
+    @Test
+    void allInvalidSwapCandidatesReturnProductFailureAndKeepOriginalFurniture() {
+        DeterministicFeedbackExecutor executor = executor(List.of(product("bookshelf-alt-01", "bookshelf-high",
+                "bookshelf", "대체 책장", 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
         Furniture blocker = furniture("blocker", "bed", "방 전체", 6, 6, 1, 3, 3, 0);
         List<Furniture> before = List.of(bookshelf, blocker);
 
-        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "hanger")),
+        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "bookshelf")),
                 room(6, 6), before);
 
         assertThat(execution.result().applied()).isFalse();
-        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_SWAP_PLACEMENT");
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_SAFE_SWAP_CANDIDATE");
         assertThat(execution.furniture()).containsExactlyElementsOf(before);
     }
 
     @Test
-    void operationAfterSwapCanTargetThePreservedFurnitureId() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
-                0.4, 0.4, 1.5, List.of())));
-        Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 2, 2, 0);
-        FeedbackOperation swap = swap("op-1", "bookshelf", "hanger");
-        FeedbackOperation move = new FeedbackOperation("op-2", FeedbackOperationType.MOVE,
-                new FeedbackTargetSelector("bookshelf-1", "hanger", ""),
-                new FeedbackPlacement(FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL, null), null, List.of("op-1"));
-
-        FeedbackExecution execution = executor.execute(composite(swap, move), room(6, 6), List.of(bookshelf));
-
-        assertThat(execution.result().operationsApplied()).containsExactly("SWAP_FURNITURE", "MOVE");
-        assertThat(execution.furniture().getFirst().getId()).isEqualTo("bookshelf-1");
-        assertThat(execution.furniture().getFirst().getType()).isEqualTo("hanger");
-        assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(2.2);
-    }
-
-    @Test
-    void failedDependencyIsSkippedAndInternalOperationResultsKeepReasons() {
+    void failedOperationStopsCompositeWithoutApplyingDependentOperations() {
         DeterministicFeedbackExecutor executor = executor(List.of(product("lamp-01", null, "lamp", "조명",
                 0.2, 0.2, 1.0, List.of())));
         FeedbackOperation missingRemove = remove("op-1", new FeedbackTargetSelector("", "sofa", ""));
@@ -358,14 +344,14 @@ class DeterministicFurnitureCompositionExecutorTest {
 
         FeedbackExecution execution = executor.execute(composite(missingRemove, dependentAdd), room(6, 6), List.of());
 
-        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::status)
-                .containsExactly(FeedbackOperationExecution.Status.FAILED, FeedbackOperationExecution.Status.SKIPPED);
-        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
-                .containsExactly("TARGET_NOT_FOUND", "DEPENDENCY_NOT_APPLIED");
+        assertThat(execution.operationResults()).singleElement().satisfies(result -> {
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+            assertThat(result.reasonCode()).isEqualTo("TARGET_NOT_FOUND");
+        });
     }
 
     @Test
-    void independentSuccessIsKeptWhenLaterOperationFails() {
+    void laterFailureRollsBackEarlierSuccessfulOperation() {
         DeterministicFeedbackExecutor executor = executor(List.of());
         Furniture chair = furniture("chair-1", "chair", "의자", 0.5, 0.5, 0.8, 2, 2, 0);
         FeedbackOperation removeChair = remove("op-1", new FeedbackTargetSelector("chair-1", "", ""));
@@ -375,11 +361,99 @@ class DeterministicFurnitureCompositionExecutorTest {
         FeedbackExecution execution = executor.execute(composite(removeChair, removeMissingSofa),
                 room(6, 6), List.of(chair));
 
-        assertThat(execution.result().applied()).isTrue();
-        assertThat(execution.result().operationsApplied()).containsExactly("REMOVE_FURNITURE");
-        assertThat(execution.furniture()).isEmpty();
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().operationsApplied()).isEmpty();
+        assertThat(execution.furniture()).containsExactly(chair);
         assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::status)
-                .containsExactly(FeedbackOperationExecution.Status.APPLIED, FeedbackOperationExecution.Status.FAILED);
+                .containsExactly(FeedbackOperationExecution.Status.FAILED, FeedbackOperationExecution.Status.FAILED);
+        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
+                .containsExactly("ATOMIC_ROLLBACK", "TARGET_NOT_FOUND");
+    }
+
+    @Test
+    void moveThenSwapFailureRestoresEveryOriginalFurnitureAttribute() {
+        DeterministicFeedbackExecutor executor = executor(List.of());
+        Furniture desk = new Furniture("desk-1", "desk", "기존 책상", 1.2, 0.6, 0.7,
+                new Position(3, 3), 0, FurnitureStatus.EXISTING,
+                "desk-current", List.of("minimal"), "desk-current-variant");
+        FeedbackOperation move = new FeedbackOperation("op-1", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("desk-1", "", ""),
+                new FeedbackPlacement(FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL, null), null, List.of());
+        FeedbackOperation swapWithoutCandidate = new FeedbackOperation("op-2", FeedbackOperationType.SWAP_FURNITURE,
+                new FeedbackTargetSelector("desk-1", "", ""), null, null, null, null,
+                requirements("desk"), List.of());
+
+        FeedbackExecution execution = executor.execute(composite(move, swapWithoutCandidate), room(8, 6), List.of(desk));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.furniture()).containsExactly(desk);
+        Furniture unchanged = execution.furniture().getFirst();
+        assertThat(unchanged.getId()).isEqualTo("desk-1");
+        assertThat(unchanged.getProductId()).isEqualTo("desk-current");
+        assertThat(unchanged.getVariantId()).isEqualTo("desk-current-variant");
+        assertThat(unchanged.getStatus()).isEqualTo(FurnitureStatus.EXISTING);
+        assertThat(unchanged.getPosition().getX()).isEqualTo(3);
+        assertThat(unchanged.getPosition().getZ()).isEqualTo(3);
+        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
+                .containsExactly("ATOMIC_ROLLBACK", "NO_RENDERABLE_PRODUCT");
+    }
+
+    @Test
+    void swapThenMoveFailureRollsBackTheSuccessfulSwap() {
+        DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
+                new ValidationService(), new MockProductRepository());
+        Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 1.2, 0.4, 1.8,
+                new Position(3, 3), 0, FurnitureStatus.EXISTING,
+                "bookshelf-classic-havsta-01", List.of("classic"), "bookshelf-classic-havsta");
+        Furniture deletedLamp = new Furniture("lamp-1", "lamp", "삭제된 조명", 0.25, 0.25, 1.2,
+                new Position(1, 1), 0, FurnitureStatus.DELETED,
+                "lamp-01", List.of("minimal"), "lamp");
+        FeedbackOperation swap = swap("op-1", "bookshelf", "bookshelf");
+        FeedbackOperation rejectedMove = new FeedbackOperation("op-2", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("lamp-1", "", ""),
+                new FeedbackPlacement(FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL, null), null, List.of());
+
+        FeedbackExecution execution = executor.execute(composite(swap, rejectedMove), room(8, 6),
+                List.of(bookshelf, deletedLamp));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.furniture()).containsExactly(bookshelf, deletedLamp);
+        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
+                .containsExactly("ATOMIC_ROLLBACK", "TARGET_NOT_FOUND");
+    }
+
+    @Test
+    void thirdOperationFailureRollsBackAllEarlierOperations() {
+        DeterministicFeedbackExecutor executor = executor(List.of());
+        Furniture desk = furniture("desk-1", "desk", "책상", 1.2, 0.6, 0.7, 2, 2, 0);
+        Furniture chair = furniture("chair-1", "chair", "의자", 0.5, 0.5, 0.8, 5, 4, 0);
+        FeedbackOperation moveDesk = new FeedbackOperation("op-1", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("desk-1", "", ""),
+                new FeedbackPlacement(FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL, null), null, List.of());
+        FeedbackOperation moveChair = new FeedbackOperation("op-2", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("chair-1", "", ""),
+                new FeedbackPlacement(FeedbackRelation.LEFT, FeedbackMagnitude.SMALL, null), null, List.of());
+        FeedbackOperation missingRemove = remove("op-3", new FeedbackTargetSelector("", "sofa", ""));
+
+        FeedbackExecution execution = executor.execute(composite(moveDesk, moveChair, missingRemove), room(8, 6),
+                List.of(desk, chair));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.furniture()).containsExactly(desk, chair);
+        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
+                .containsExactly("ATOMIC_ROLLBACK", "ATOMIC_ROLLBACK", "TARGET_NOT_FOUND");
+    }
+
+    @Test
+    void validatorRejectsReferenceTargetForAbsoluteAddRelation() {
+        FeedbackOperation invalid = new FeedbackOperation("op-1", FeedbackOperationType.ADD_FURNITURE,
+                new FeedbackTargetSelector("", "lamp", ""),
+                new FeedbackTargetSelector("", "bed", ""),
+                new FeedbackPlacement(FeedbackRelation.IN_CORNER, null, null), null,
+                requirements("lamp"), null, List.of());
+
+        assertThatThrownBy(() -> executor(List.of()).execute(direct(invalid), room(6, 6), List.of()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
     }
 
     private DeterministicFeedbackExecutor executor(List<MockProduct> products) {

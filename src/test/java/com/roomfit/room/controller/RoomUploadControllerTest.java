@@ -235,4 +235,35 @@ class RoomUploadControllerTest {
                 .andExpect(jsonPath("$.data.importStatus").value("ACCEPTED_WITH_WARNINGS"))
                 .andExpect(jsonPath("$.data.importWarnings[*].code", hasItems("FURNITURE_REPOSITIONED")));
     }
+
+    // The iOS app still sends its scan-time snapshot; the backend no longer
+    // stores or returns one. Uploads must keep succeeding (Jackson drops the
+    // now-unknown property) and no response may carry it back, otherwise the
+    // field would quietly come back the next time someone re-adds a getter.
+    @Test
+    void uploadRoom_stillAcceptsLegacyThumbnailField_butNeverStoresOrReturnsIt() throws Exception {
+        String uploadResponse = mockMvc.perform(post("/api/rooms/upload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Thumbnail Sending Scan",
+                                  "room": { "width": 3.2, "depth": 4.5, "height": 2.4 },
+                                  "furniture": [],
+                                  "thumbnailBase64": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA=="
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.thumbnailBase64").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+
+        int roomId = JsonPath.read(uploadResponse, "$.data.roomId");
+
+        mockMvc.perform(get("/api/rooms/" + roomId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.thumbnailBase64").doesNotExist());
+
+        mockMvc.perform(get("/api/rooms/uploads/recent?limit=10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].thumbnailBase64").doesNotExist());
+    }
 }

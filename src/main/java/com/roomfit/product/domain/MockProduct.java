@@ -22,7 +22,7 @@ public class MockProduct {
     private final String purchaseUrl;
     private final RequiredClearance requiredClearance;
     private final List<String> lifestyleTags;
-    private final List<String> materialTags;
+    private final List<String> materials;
 
     public MockProduct(String productId, String type, String name, String brand,
                        double width, double depth, double height, int price,
@@ -76,24 +76,17 @@ public class MockProduct {
     // desk 4종만 실제 값을 갖고, 나머지 Product는 기존 생성자를 통해 빈 리스트로
     // 남는다(전체 92종 Catalog 반영은 별도 작업).
     public MockProduct(String productId, String variantId, String type, String name, String brand,
-                       double width, double depth, double height, Integer price,
-                       List<String> styleTags, String imageUrl, String purchaseUrl,
-                       RequiredClearance requiredClearance, List<String> lifestyleTags) {
-        this(productId, variantId, type, name, brand, width, depth, height, price,
-                styleTags, imageUrl, purchaseUrl, requiredClearance, lifestyleTags, List.of());
+                        double width, double depth, double height, Integer price,
+                        List<String> styleTags, String imageUrl, String purchaseUrl,
+                        RequiredClearance requiredClearance, List<String> lifestyleTags) {
+        this(productId, variantId, type, name, brand, width, depth, height, price, styleTags, imageUrl,
+                purchaseUrl, requiredClearance, lifestyleTags, List.of());
     }
 
-    // Generated Catalog 원본 JSON에는 렌더링용 material id 목록(예: "wood",
-    // "paintedWhite")이 이미 있었지만, GeneratedFurnitureCatalog가 지금까지 이걸
-    // MockProduct로 옮기지 않고 버려 preferredColorTone이 어떤 Product 선택에도
-    // 반영될 수 없었다 — materialTags로 보존해 PreferredColorTone.toMaterialTags()와
-    // 겹치는지 비교할 수 있게 한다. legacy Product는 이 데이터가 없어 빈 리스트로
-    // 남는다.
     public MockProduct(String productId, String variantId, String type, String name, String brand,
-                       double width, double depth, double height, Integer price,
-                       List<String> styleTags, String imageUrl, String purchaseUrl,
-                       RequiredClearance requiredClearance, List<String> lifestyleTags,
-                       List<String> materialTags) {
+                        double width, double depth, double height, Integer price,
+                        List<String> styleTags, String imageUrl, String purchaseUrl,
+                        RequiredClearance requiredClearance, List<String> lifestyleTags, List<String> materials) {
         this.productId = productId;
         this.variantId = VariantIdValidator.validateNullable(variantId);
         this.type = type;
@@ -111,7 +104,7 @@ public class MockProduct {
         }
         this.requiredClearance = requiredClearance;
         this.lifestyleTags = lifestyleTags == null ? List.of() : List.copyOf(lifestyleTags);
-        this.materialTags = materialTags == null ? List.of() : List.copyOf(materialTags);
+        this.materials = materials == null ? List.of() : List.copyOf(materials);
     }
 
     private static String validatePurchaseUrl(String purchaseUrl) {
@@ -192,6 +185,10 @@ public class MockProduct {
     }
 
     public List<String> getMaterialTags() {
-        return materialTags;
+        return materials;
+    }
+
+    public List<String> getMaterials() {
+        return materials;
     }
 }

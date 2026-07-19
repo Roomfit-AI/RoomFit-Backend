@@ -86,7 +86,7 @@ public class RoomService {
         ClientScope scope = roomAccessService.currentScope();
         Room room = new Room(null, name, roomData.getWidth(), roomData.getDepth(), roomData.getHeight(),
                 unit, walls, openings, furniture, RoomSource.ROOMPLAN, LocalDateTime.now(),
-                request.getThumbnailBase64(), scope.enabled() ? scope.id() : null);
+                scope.enabled() ? scope.id() : null);
         validateUniqueIds(room);
         roomPlanImportValidator.validateAndNormalize(room);
 
@@ -137,7 +137,7 @@ public class RoomService {
         Room copy = new Room(null, sample.getName() + " 복사본", sample.getWidth(), sample.getDepth(),
                 sample.getHeight(), sample.getUnit(), sample.getWalls(), sample.getOpenings(),
                 copyFurniture(sample.getFurniture()),
-                RoomSource.ROOMPLAN, LocalDateTime.now(), null, scope.enabled() ? scope.id() : null);
+                RoomSource.ROOMPLAN, LocalDateTime.now(), scope.enabled() ? scope.id() : null);
         return RoomResponse.from(roomRepository.save(copy));
     }
 

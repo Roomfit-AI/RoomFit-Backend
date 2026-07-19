@@ -10,6 +10,7 @@ import com.roomfit.product.service.MockProductService;
 import com.roomfit.product.service.ProductRecommendationService;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureBoundary;
+import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -37,7 +38,8 @@ class RecommendationFeasibilityTest {
     @ParameterizedTest(name = "{0} has a renderable deterministic placement")
     @MethodSource("canonicalFurnitureTypes")
     void eachCanonicalFurnitureType_isRecognizedAndPlacedInLargeRoom(String furnitureType) {
-        PlacementResult result = placementService.recommend(context(furnitureType), room(30, 30));
+        Room room = roomFor(furnitureType, 30, 30);
+        PlacementResult result = placementService.recommend(context(furnitureType), room);
 
         assertThat(catalog.normalizeType(furnitureType)).isEqualTo(furnitureType);
         assertThat(result.getRecommendationStatus()).isEqualTo(RecommendationExecutionStatus.SUCCESS);
@@ -49,9 +51,9 @@ class RecommendationFeasibilityTest {
             assertThat(furniture.getProductId()).isNotBlank();
             assertThat(furniture.getVariantId()).isNotBlank();
             assertThat(catalog.visualFootprint(furniture.getVariantId())).isPresent();
-            assertThat(FurnitureBoundary.isInside(room(30, 30), furniture)).isTrue();
+            assertThat(FurnitureBoundary.isInside(room, furniture)).isTrue();
         });
-        assertThat(new ValidationService().validate(room(30, 30), result.getRecommendedFurniture()).isBoundaryValid())
+        assertThat(new ValidationService().validate(room, result.getRecommendedFurniture()).isBoundaryValid())
                 .isTrue();
     }
 
@@ -94,9 +96,9 @@ class RecommendationFeasibilityTest {
     }
 
     @Test
-    void constrainedRoomKeepsEarlierPlacementAndReturnsStablePartialFailureDetails() {
+    void windowlessRoomKeepsEarlierPlacementAndReturnsStablePartialFailureDetails() {
         AgentContext context = new AgentContext(1L, LifestyleGoal.STUDY_FOCUSED, List.of(DesignStyle.MINIMAL),
-                List.of("bed", "sofa"), List.of(), List.of(), List.of(), List.of());
+                List.of("bed", "curtain_blind"), List.of(), List.of(), List.of(), List.of());
 
         PlacementResult result = placementService.recommend(context, room(3, 2.8));
 
@@ -105,7 +107,7 @@ class RecommendationFeasibilityTest {
         assertThat(result.getPlacedFurnitureCount()).isEqualTo(1);
         assertThat(result.getUnplacedFurniture()).singleElement().satisfies(unplaced -> {
             assertThat(unplaced.requestIndex()).isEqualTo(1);
-            assertThat(unplaced.furnitureType()).isEqualTo("sofa");
+            assertThat(unplaced.furnitureType()).isEqualTo("curtain_blind");
         });
         assertThat(new ValidationService().validate(room(3, 2.8), result.getRecommendedFurniture()).isBoundaryValid())
                 .isTrue();
@@ -118,5 +120,12 @@ class RecommendationFeasibilityTest {
 
     private Room room(double width, double depth) {
         return new Room(null, width, depth, 3, "meter", List.of(), List.of());
+    }
+
+    private Room roomFor(String furnitureType, double width, double depth) {
+        List<Opening> openings = "curtain_blind".equals(furnitureType)
+                ? List.of(new Opening("window-1", "window", "north", 14, 2, 1.2, 0.9))
+                : List.of();
+        return new Room(null, width, depth, 3, "meter", openings, List.of());
     }
 }

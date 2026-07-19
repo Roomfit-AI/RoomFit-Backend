@@ -37,10 +37,16 @@ class RecommendationCatalogLifecycleControllerTest {
     @ParameterizedTest(name = "{0} persists, reloads, and confirms")
     @MethodSource("canonicalFurnitureTypes")
     void eachCanonicalType_survivesRecommendationLayoutAndRoomLifecycle(String furnitureType) throws Exception {
+        String openings = "curtain_blind".equals(furnitureType)
+                ? """
+                  [{ "id": "window-1", "type": "window", "wall": "north",
+                     "offset": 14, "width": 2, "height": 1, "sillHeight": 0.9 }]
+                  """
+                : "[]";
         long roomId = number(postJson("/api/rooms/upload", """
                 { "name": "Catalog QA", "room": { "width": 30, "depth": 30, "height": 3 },
-                  "openings": [], "furniture": [] }
-                """), "$.data.roomId");
+                  "openings": %s, "furniture": [] }
+                """.formatted(openings)), "$.data.roomId");
         long contextId = number(postJson("/api/agent/context", """
                 { "roomId": %d, "lifestyleGoal": "STUDY_FOCUSED", "designStyle": ["MINIMAL"],
                   "requiredItems": ["%s"], "optionalItems": [], "selectedImageIds": [1], "selectedProductIds": [] }
