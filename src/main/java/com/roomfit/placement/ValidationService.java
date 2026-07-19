@@ -1,5 +1,6 @@
 package com.roomfit.placement;
 
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
@@ -70,6 +71,9 @@ public class ValidationService {
         for (int i = 0; i < furniture.size(); i++) {
             Rect current = Rect.from(furniture.get(i));
             for (int j = i + 1; j < furniture.size(); j++) {
+                if (FurnitureSupportPolicy.isStrictStack(furniture.get(i), furniture.get(j))) {
+                    continue;
+                }
                 Rect other = Rect.from(furniture.get(j));
                 if (current.overlaps(other)) {
                     warnings.add("가구 충돌이 감지되었습니다.");
@@ -99,6 +103,10 @@ public class ValidationService {
 
             Rect clearance = clearanceRect(room, opening, openingType);
             for (Furniture item : furniture) {
+                if ("window".equals(openingType)
+                        && GeneratedFurnitureCatalog.get().sameType("curtain_blind", item.getType())) {
+                    continue;
+                }
                 if ("window".equals(openingType) && item.getHeight() < windowSillHeight(opening)) {
                     continue;
                 }

@@ -92,6 +92,30 @@ class ValidationServiceTest {
     }
 
     @Test
+    void strictDeskMonitorStackIsCollisionFree() {
+        Furniture desk = furniture("desk-1", "desk", 1.2, 0.7, 2.0, 2.0);
+        Furniture monitor = furniture("monitor-1", "monitor", 0.5, 0.2, 2.0, 2.0);
+
+        assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isTrue();
+    }
+
+    @Test
+    void movedMonitorOverlappingDeskRemainsCollision() {
+        Furniture desk = furniture("desk-1", "desk", 1.2, 0.7, 2.0, 2.0);
+        Furniture monitor = furniture("monitor-1", "monitor", 0.5, 0.2, 2.01, 2.0);
+
+        assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isFalse();
+    }
+
+    @Test
+    void oversizedMonitorOverlappingDeskRemainsCollision() {
+        Furniture desk = furniture("desk-1", "desk", 1.2, 0.7, 2.0, 2.0);
+        Furniture monitor = furniture("monitor-1", "monitor", 1.3, 0.2, 2.0, 2.0);
+
+        assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isFalse();
+    }
+
+    @Test
     void rugCanOverlapBedSofaAndDeskWithoutFurnitureCollision() {
         for (String type : List.of("bed", "sofa", "desk")) {
             Furniture furniture = furniture(type + "-1", type, 1.2, 1.2, 2.0, 2.0);
