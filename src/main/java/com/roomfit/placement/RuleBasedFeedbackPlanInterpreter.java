@@ -76,7 +76,13 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             }
             List<FeedbackOperation> operations = new ArrayList<>();
             for (String clause : clauses) {
-                operations.add(parseClause(clause, room, furniture, operations.size() + 1, selection));
+                FeedbackTargetSelector previousTarget = operations.isEmpty() ? null : operations.getLast().target();
+                FeedbackOperation operation = parseClause(clause, room, furniture, operations.size() + 1, selection,
+                        previousTarget);
+                if (!operations.isEmpty() && operation.dependsOn().isEmpty()) {
+                    operation = withDependencies(operation, List.of(operations.getLast().operationId()));
+                }
+                operations.add(operation);
             }
             if (operations.size() == 1) return direct(normalized, operations.getFirst());
             return new FeedbackPlan("2.0", FeedbackRequestKind.COMPOSITE, operations, List.of(), null,
@@ -87,12 +93,20 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private FeedbackOperation parseClause(String clause, Room room, List<Furniture> furniture, int sequence,
-                                         String selectedFurnitureId) {
+                                         String selectedFurnitureId, FeedbackTargetSelector previousTarget) {
         List<FurnitureMention> mentions = mentions(clause);
         if (mentions.isEmpty() && isTypedMetadataSwapRequest(clause)) {
             mentions = List.of(new FurnitureMention("drawer_chest", clause.indexOf("수납장"), "수납장".length()));
         }
         if (mentions.isEmpty()) {
+            String operationId = "op-" + sequence;
+            if (previousTarget != null && containsAny(clause, ROTATE_TERMS)) {
+                return new FeedbackOperation(operationId, FeedbackOperationType.ROTATE, previousTarget, null,
+                        new FeedbackPlacement(null, null, rotationOrientation(clause)), null, null, null, List.of());
+            }
+            if (previousTarget != null && containsAny(clause, MOVE_TERMS)) {
+                return moveOperation(operationId, clause, previousTarget, null);
+            }
             throw new ClarificationRequired("어떤 가구를 말씀하시는지 확인이 필요합니다.", "");
         }
         String operationId = "op-" + sequence;
@@ -146,6 +160,12 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         throw new ClarificationRequired("요청한 변경 방식을 확인할 수 없습니다. 추가, 이동, 삭제, 교체 중 하나로 말씀해주세요.",
                 mentions.getFirst().type());
+    }
+
+    private FeedbackOperation withDependencies(FeedbackOperation operation, List<String> dependencies) {
+        return new FeedbackOperation(operation.operationId(), operation.type(), operation.target(),
+                operation.referenceTarget(), operation.placement(), operation.constraints(),
+                operation.productRequirements(), operation.replacementRequirements(), dependencies);
     }
 
     private FeedbackOperation legacyDeskOperation(String feedback, List<Furniture> furniture,

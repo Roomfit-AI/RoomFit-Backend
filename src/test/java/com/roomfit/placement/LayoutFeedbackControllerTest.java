@@ -19,6 +19,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -311,6 +312,73 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.data.recommendedFurniture[0].variantId").value("desk-chair-basic"))
                 .andExpect(jsonPath("$.data.validationResult.collisionFree").value(true))
                 .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true));
+    }
+
+    @Test
+    void selectedChairCompositeCreatesOneIdempotentDerivedLayout() throws Exception {
+        Long sourceLayoutId = createLayout();
+        Layout source = layoutRepository.findById(sourceLayoutId).orElseThrow();
+        source.setFurniture(new ArrayList<>(List.of(
+                new Furniture("chair-1", "desk_chair", "의자 1", 0.5, 0.5, 0.8,
+                        new Position(1, 1), 0, FurnitureStatus.EXISTING),
+                new Furniture("chair-2", "desk_chair", "의자 2", 0.5, 0.5, 0.8,
+                        new Position(4, 4), 0, FurnitureStatus.EXISTING))));
+        layoutRepository.save(source);
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "의자를 삭제하고 협탁을 추가해줘"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(sourceLayoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("NEEDS_CLARIFICATION"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(0)))
+                .andExpect(jsonPath("$.data.clarification.reasonCode").value("AMBIGUOUS_TARGET"))
+                .andExpect(jsonPath("$.data.clarification.candidates", hasSize(2)));
+
+        long layoutsBeforeSelection = layoutRepository.count();
+        String selectedResponse = mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "의자를 삭제하고 협탁을 추가해줘",
+                                  "selectedFurnitureId": "chair-1"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.feedbackStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(2)))
+                .andExpect(jsonPath("$.data.operationResults[0].operationType").value("REMOVE_FURNITURE"))
+                .andExpect(jsonPath("$.data.operationResults[1].operationType").value("ADD_FURNITURE"))
+                .andReturn().getResponse().getContentAsString();
+
+        Integer resultLayoutId = JsonPath.read(selectedResponse, "$.data.layoutId");
+        Layout result = layoutRepository.findById(resultLayoutId.longValue()).orElseThrow();
+        assertThat(result.getId()).isNotEqualTo(sourceLayoutId);
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeSelection + 1);
+        assertThat(result.getFurniture()).extracting(Furniture::getId).contains("chair-2").doesNotContain("chair-1");
+        assertThat(result.getFurniture()).filteredOn(item -> "nightstand".equals(item.getType())).hasSize(1);
+        assertThat(source.getFurniture()).extracting(Furniture::getId).containsExactly("chair-1", "chair-2");
+
+        String retryResponse = mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "의자를 삭제하고 협탁을 추가해줘",
+                                  "selectedFurnitureId": "chair-1"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.feedbackStatus").value("SUCCESS"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(JsonPath.<Integer>read(retryResponse, "$.data.layoutId").longValue()).isEqualTo(result.getId());
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeSelection + 1);
     }
 
     private Long createLayout() throws Exception {

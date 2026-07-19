@@ -310,6 +310,44 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void selectedChairResolvesWholeRemoveAndAddComposite() {
+        List<Furniture> chairs = List.of(
+                furniture("chair-1", "desk_chair", 1, 1),
+                furniture("chair-2", "desk_chair", 4, 4));
+
+        FeedbackPlan noSelection = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘",
+                room(), chairs, context());
+        FeedbackPlan selected = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘",
+                room(), chairs, context(), "chair-1");
+
+        assertThat(noSelection.needsClarification()).isTrue();
+        assertThat(noSelection.operations()).isEmpty();
+        assertThat(selected.requestKind()).isEqualTo(FeedbackRequestKind.COMPOSITE);
+        assertThat(selected.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REMOVE_FURNITURE, FeedbackOperationType.ADD_FURNITURE);
+        assertThat(selected.operations().getFirst().target().furnitureId()).isEqualTo("chair-1");
+        assertThat(selected.operations().get(1).dependsOn()).containsExactly("op-1");
+    }
+
+    @Test
+    void inheritsTargetAcrossSupportedMoveRotateAndReplaceMoveClauses() {
+        FeedbackPlan moveRotate = interpreter.interpret("침대를 모서리로 옮기고 90도 회전해줘", room(),
+                List.of(furniture("bed-1", "bed", 3, 3)), context());
+        FeedbackPlan replaceMove = interpreter.interpret("책상을 더 큰 제품으로 바꾸고 창가로 옮겨줘", room(),
+                List.of(furniture("desk-1", "desk", 3, 3)), context());
+
+        assertThat(moveRotate.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ROTATE);
+        assertThat(moveRotate.operations().get(1).target()).isEqualTo(moveRotate.operations().getFirst().target());
+        assertThat(moveRotate.operations().get(1).dependsOn()).containsExactly("op-1");
+        assertThat(replaceMove.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REPLACE_PRODUCT, FeedbackOperationType.MOVE);
+        assertThat(replaceMove.operations().get(1).target()).isEqualTo(replaceMove.operations().getFirst().target());
+        assertThat(replaceMove.operations().get(1).placement().relation()).isEqualTo(FeedbackRelation.NEAR_WINDOW);
+        assertThat(replaceMove.operations().get(1).dependsOn()).containsExactly("op-1");
+    }
+
+    @Test
     void clarifiesWhenSeveralFurnitureTypesAreMovedWithoutSeparateTargets() {
         Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
         Furniture desk = furniture("desk-1", "desk", 4, 2);
