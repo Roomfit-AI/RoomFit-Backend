@@ -308,7 +308,7 @@ public class DeterministicFeedbackExecutor {
         return bestCandidate(validCandidates)
                 .map(candidate -> OperationAttempt.applied(candidate.snapshot(), candidate.affectedFurnitureId()))
                 .orElseGet(() -> OperationAttempt.failed(boundaryFitAvailable
-                        ? "NO_VALID_SWAP_PLACEMENT" : "NO_VALID_BOUNDARY_PLACEMENT"));
+                        ? "NO_SAFE_SWAP_CANDIDATE" : "NO_VALID_BOUNDARY_PLACEMENT"));
     }
 
     private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation,

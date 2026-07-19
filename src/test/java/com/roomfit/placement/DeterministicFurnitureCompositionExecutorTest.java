@@ -317,6 +317,22 @@ class DeterministicFurnitureCompositionExecutorTest {
     }
 
     @Test
+    void allInvalidSwapCandidatesReturnProductFailureAndKeepOriginalFurniture() {
+        DeterministicFeedbackExecutor executor = executor(List.of(product("bookshelf-alt-01", "bookshelf-high",
+                "bookshelf", "대체 책장", 0.4, 0.4, 1.5, List.of())));
+        Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
+        Furniture blocker = furniture("blocker", "bed", "방 전체", 6, 6, 1, 3, 3, 0);
+        List<Furniture> before = List.of(bookshelf, blocker);
+
+        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "bookshelf")),
+                room(6, 6), before);
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_SAFE_SWAP_CANDIDATE");
+        assertThat(execution.furniture()).containsExactlyElementsOf(before);
+    }
+
+    @Test
     void failedOperationStopsCompositeWithoutApplyingDependentOperations() {
         DeterministicFeedbackExecutor executor = executor(List.of(product("lamp-01", null, "lamp", "조명",
                 0.2, 0.2, 1.0, List.of())));
