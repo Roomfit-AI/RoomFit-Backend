@@ -27,6 +27,8 @@ placed safely. It is not an ambiguity response; `requiredField` and
 ## Layout and operation semantics
 
 - A successful execution persists a new layout and returns its newest `layoutId`.
+- Retrying the same successful feedback against the same source layout reuses an
+  identical derived snapshot; it does not create another layout or duplicate an added item.
 - Clarification or failure returns the source layout's `layoutId`; no new layout
   is saved and the source layout is unchanged.
 - `operationResults[].status` is `APPLIED`, `NEEDS_CLARIFICATION`, `FAILED`, or

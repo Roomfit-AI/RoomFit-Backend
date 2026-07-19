@@ -299,6 +299,21 @@ class LayoutFeedbackControllerTest {
         assertThat(result.getFurniture()).extracting(Furniture::getId).contains("chair-2").doesNotContain("chair-1");
         assertThat(result.getFurniture()).filteredOn(item -> "nightstand".equals(item.getType())).hasSize(1);
         assertThat(source.getFurniture()).extracting(Furniture::getId).containsExactly("chair-1", "chair-2");
+
+        String retryResponse = mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "의자를 삭제하고 협탁을 추가해줘",
+                                  "selectedFurnitureId": "chair-1"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.feedbackStatus").value("SUCCESS"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(JsonPath.<Integer>read(retryResponse, "$.data.layoutId").longValue()).isEqualTo(result.getId());
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeSelection + 1);
     }
 
     private Long createLayout() throws Exception {

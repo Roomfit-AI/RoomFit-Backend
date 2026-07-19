@@ -22,6 +22,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -291,15 +292,42 @@ public class LayoutService {
         ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
-            responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
-                    deepCopyFurniture(execution.furniture()), baseLayout.getId());
-            layoutRepository.save(responseLayout);
+            responseLayout = layoutRepository.findBySourceLayoutIdOrderByIdDesc(baseLayout.getId()).stream()
+                    .filter(layout -> sameFurnitureSnapshot(layout.getFurniture(), execution.furniture()))
+                    .findFirst()
+                    .orElseGet(() -> layoutRepository.save(new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
+                            deepCopyFurniture(execution.furniture()), baseLayout.getId())));
         }
 
         return FeedbackResponse.of(responseLayout, RecommendationStatus.SUCCESS,
                 scoreSummary, validationResult, interpretedPlan(plan), execution.result(),
                 feedbackStatus(plan, execution), operationResults(plan, execution, baseLayout.getFurniture()),
                 clarifications(plan, execution, baseLayout.getFurniture()));
+    }
+
+    /** Reusing an identical derived snapshot makes retrying the same request idempotent. */
+    private boolean sameFurnitureSnapshot(List<Furniture> first, List<Furniture> second) {
+        if (first.size() != second.size()) return false;
+        for (int index = 0; index < first.size(); index++) {
+            Furniture left = first.get(index);
+            Furniture right = second.get(index);
+            if (!Objects.equals(left.getId(), right.getId())
+                    || !Objects.equals(left.getType(), right.getType())
+                    || !Objects.equals(left.getLabel(), right.getLabel())
+                    || Double.compare(left.getWidth(), right.getWidth()) != 0
+                    || Double.compare(left.getDepth(), right.getDepth()) != 0
+                    || Double.compare(left.getHeight(), right.getHeight()) != 0
+                    || Double.compare(left.getPosition().getX(), right.getPosition().getX()) != 0
+                    || Double.compare(left.getPosition().getZ(), right.getPosition().getZ()) != 0
+                    || Double.compare(left.getRotation(), right.getRotation()) != 0
+                    || left.getStatus() != right.getStatus()
+                    || !Objects.equals(left.getProductId(), right.getProductId())
+                    || !Objects.equals(left.getVariantId(), right.getVariantId())
+                    || !Objects.equals(left.getStyleTags(), right.getStyleTags())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private FeedbackStatus feedbackStatus(FeedbackPlan plan, FeedbackExecution execution) {
