@@ -17,6 +17,11 @@ import java.util.Map;
 
 public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
+    private static final List<String> LEFT_DIRECTION_TERMS = List.of("왼쪽", "좌측", "왼편");
+    private static final List<String> RIGHT_DIRECTION_TERMS = List.of("오른쪽", "우측", "오른편");
+    private static final List<String> REFERENCE_TERMS = List.of(
+            "옆", "왼쪽", "좌측", "왼편", "오른쪽", "우측", "오른편", "근처", "가까이");
+
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
     private final FeedbackPlanValidator planValidator;
@@ -43,7 +48,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (feedback == null || feedback.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         }
-        selectedFurnitureId = selectedFurnitureId == null ? "" : selectedFurnitureId;
+        selectedFurnitureId = selectedFurnitureId == null ? "" : selectedFurnitureId.trim();
 
         String rawResponse;
         try {
@@ -254,6 +259,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
         boolean largerThanCurrent = node.path("largerThanCurrent").asBoolean(false);
+        boolean smallerThanCurrent = node.path("smallerThanCurrent").asBoolean(false);
         Double minWidth = optionalNumber(node, "minWidth");
         if (minWidth != null && (minWidth <= 0 || minWidth > 10)) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
@@ -263,16 +269,22 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
         boolean storageRequest = isStorageRequest(feedback);
         boolean largerRequest = isLargerRequest(feedback);
+        boolean smallerRequest = isSmallerRequest(feedback);
         if (storageRequest && !largerRequest) {
             storagePreferred = true;
             largerThanCurrent = false;
+            smallerThanCurrent = false;
             minWidth = null;
         } else if (largerRequest) {
             largerThanCurrent = true;
+            smallerThanCurrent = false;
+        } else if (smallerRequest) {
+            largerThanCurrent = false;
+            smallerThanCurrent = true;
         }
 
         return new FeedbackReplaceConstraints(furnitureType,
-                largerThanCurrent, minWidth,
+                largerThanCurrent, smallerThanCurrent, minWidth,
                 stringList(node.path("requiredStyleTags")), stringList(node.path("requiredLifestyleTags")),
                 storagePreferred);
     }
@@ -289,7 +301,14 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 || feedback.contains("크게")
                 || feedback.contains("키워")
                 || feedback.contains("컸으면")
-                || feedback.contains("큰 책상");
+                || feedback.contains("큰 책상")
+                || feedback.contains("더 큰")
+                || feedback.contains("큰 제품");
+    }
+
+    private boolean isSmallerRequest(String feedback) {
+        return feedback != null && (feedback.contains("작게") || feedback.contains("더 작은")
+                || feedback.contains("작은 제품"));
     }
 
     private JsonNode parseObject(String rawResponse) {
@@ -376,7 +395,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     IN_CORNER, CENTER, LEFT, RIGHT, FORWARD, and BACKWARD must not include referenceTarget.
                     target and referenceTarget must identify different existing furniture.
                     ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
-                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
+                    REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent,
+                    smallerThanCurrent, minWidth,
                     requiredStyleTags, requiredLifestyleTags, and storagePreferred.
                     ADD_FURNITURE describes the new type in target.furnitureType, uses productRequirements with
                     furnitureType, sizePreference (SMALL, LARGE, SIMILAR, ANY), storagePreferred, and styleKeywords,
@@ -404,6 +424,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     and replace/change expressions as SWAP_FURNITURE. A same-type "different design" request is SWAP_FURNITURE.
                     Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
                     or reference cannot be identified safely, return CLARIFICATION instead of guessing.
+                    Interpret 왼쪽, 좌측, and 왼편 as LEFT/LEFT_OF; interpret 오른쪽, 우측, and 오른편 as
+                    RIGHT/RIGHT_OF. Interpret 구석, 모서리, 코너, and 방 모서리 as IN_CORNER.
                     When selectedFurnitureId is present and the user uses a generic target such as "가구" or "저거",
                     use that exact active furniture as the MOVE target. For a type-omitted tone/material SWAP, use that
                     exact active furniture as the target. Do not use it to override an explicit furniture name.
@@ -547,6 +569,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return switch (action) {
             case ADD -> providerOperation == FeedbackOperationType.ADD_FURNITURE;
             case MOVE -> providerOperation == FeedbackOperationType.MOVE;
+            case ROTATE -> providerOperation == FeedbackOperationType.ROTATE;
             case SWAP -> providerOperation == FeedbackOperationType.SWAP_FURNITURE;
             case REPLACE -> providerOperation == FeedbackOperationType.REPLACE_PRODUCT;
             case REMOVE -> providerOperation == FeedbackOperationType.REMOVE_FURNITURE;
@@ -642,17 +665,17 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
     }
 
     private boolean hasReferenceExpression(String feedback) {
-        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream().anyMatch(feedback::contains);
+        return REFERENCE_TERMS.stream().anyMatch(feedback::contains);
     }
 
     private int firstReferenceRelationIndex(String compactFeedback) {
-        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream()
+        return REFERENCE_TERMS.stream()
                 .mapToInt(compactFeedback::indexOf).filter(index -> index >= 0).min().orElse(-1);
     }
 
     private FeedbackRelation relationFor(String feedback) {
-        return feedback.contains("왼쪽") ? FeedbackRelation.LEFT_OF
-                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
+        return containsAny(feedback, LEFT_DIRECTION_TERMS) ? FeedbackRelation.LEFT_OF
+                : containsAny(feedback, RIGHT_DIRECTION_TERMS) ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
     }
 
     private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {

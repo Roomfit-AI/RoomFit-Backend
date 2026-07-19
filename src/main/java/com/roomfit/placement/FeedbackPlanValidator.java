@@ -189,6 +189,7 @@ public class FeedbackPlanValidator {
                 && constraints.furnitureType() != null
                 && !constraints.furnitureType().isBlank()
                 && (constraints.largerThanCurrent()
+                || constraints.smallerThanCurrent()
                 || constraints.minWidth() != null
                 || !constraints.requiredStyleTags().isEmpty()
                 || !constraints.requiredLifestyleTags().isEmpty()

@@ -648,6 +648,14 @@ Request
   "layoutId": 1,
   "feedback": "책상 더 크게"
 }
+
+대상 선택 재요청 예시:
+
+{
+  "layoutId": 1,
+  "feedback": "의자를 삭제하고 협탁을 추가해줘",
+  "selectedFurnitureId": "chair-1"
+}
 Response
 {
   "success": true,
@@ -722,8 +730,12 @@ Feedback 실행 결과
 
 - `feedbackStatus`는 기존 `status`와 별개인 전체 실행 결과입니다. `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`, `NEEDS_CLARIFICATION` 중 하나입니다.
 - `operationResults`는 Plan 순서대로 반환됩니다. 의존 작업이 적용되지 않으면 하위 작업은 `SKIPPED_DEPENDENCY`와 `DEPENDENCY_NOT_APPLIED`를 반환합니다.
-- 하나 이상의 작업만 성공한 경우 성공한 변경만 새 snapshot에 저장되고 `feedbackStatus`는 `PARTIAL_SUCCESS`입니다. 모두 실패하거나 재질문이 필요하면 입력 `layoutId`를 그대로 반환합니다.
-- 모호한 대상은 `clarification`(그리고 복수인 경우 `clarifications`)에 후보 최대 10개와 `requiredField`를 반환합니다. 클라이언트는 첫 후보를 임의 선택하지 않아야 합니다.
+- Feedback composite는 원자적으로 실행됩니다. 후행 작업이 실패하면 앞선 성공 작업도 `ATOMIC_ROLLBACK`으로 되돌리고 source Layout 전체를 유지합니다. 실패 또는 재질문은 입력 `layoutId`를 그대로 반환합니다.
+- 성공한 동일 요청을 같은 source Layout에 재전송하면 동일한 derived snapshot을 재사용합니다. 성공 응답의 newest `layoutId`를 이후 피드백 기준으로 사용합니다.
+- `selectedFurnitureId`는 사용자가 UI에서 고른 target ambiguity 해소 전용입니다. active furniture 및 요청 canonical type이 일치해야 하며 provider의 다른 target, reference, product ambiguity를 대체하지 않습니다.
+- `AMBIGUOUS_TARGET`만 `requiredField: targetFurnitureId`와 후보 최대 10개를 반환합니다. `AMBIGUOUS_REFERENCE_TARGET`은 별도 계약이며 target 선택값을 사용하지 않습니다.
+- `NO_SAFE_SWAP_CANDIDATE`, `NO_LARGER_PRODUCT_AVAILABLE`, `NO_SMALLER_PRODUCT_AVAILABLE`은 product failure이므로 `FAILED`이며 target 후보를 반환하지 않습니다.
+- `왼쪽/좌측/왼편`, `오른쪽/우측/오른편`, `구석/모서리/코너/방 모서리`는 각각 LEFT, RIGHT, IN_CORNER 의미로 보존됩니다. 요청 방향 이동이 불가능하면 반대 방향으로 이동하지 않고 `NO_VALID_MOVE_PLACEMENT`를 반환합니다.
 
 12. 최종 배치 확정
 POST /api/layouts/{layoutId}/confirm

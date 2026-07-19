@@ -95,6 +95,70 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         assertThat(interpret("의자를 빼고 책상을 옮겨줘").needsClarification()).isTrue();
     }
 
+    @Test
+    void normalizesRotateAndLongitudinalMoveAliasesForOneUniqueTarget() {
+        List<Furniture> desk = List.of(furniture("desk-1", "desk", 3, 3));
+
+        FeedbackPlan clockwise = interpreter.interpret("책상을 오른쪽으로 90도", room(), desk, context());
+        FeedbackPlan counterClockwise = interpreter.interpret("책상을 반시계 방향으로 돌려줘", room(), desk, context());
+        FeedbackPlan toward = interpreter.interpret("책상을 앞으로 당겨줘", room(), desk, context());
+        FeedbackPlan away = interpreter.interpret("책상을 뒤로 밀어줘", room(), desk, context());
+
+        assertThat(clockwise.operations().getFirst().placement().orientation())
+                .isEqualTo(FeedbackOrientation.QUARTER_TURN_CW);
+        assertThat(counterClockwise.operations().getFirst().placement().orientation())
+                .isEqualTo(FeedbackOrientation.QUARTER_TURN_CCW);
+        assertThat(toward.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.FORWARD);
+        assertThat(away.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.BACKWARD);
+    }
+
+    @Test
+    void normalizesEveryDirectHorizontalMoveAliasBeforeTheDirectionlessFallback() {
+        List<Furniture> furniture = List.of(
+                furniture("desk-1", "desk", 3, 3),
+                furniture("chair-1", "desk_chair", 4, 4),
+                furniture("bed-1", "bed", 2, 2));
+
+        for (String feedback : List.of("책상을 왼쪽으로 옮겨줘", "의자를 좌측으로 옮겨줘", "침대를 왼편으로 옮겨줘")) {
+            FeedbackPlan plan = interpreter.interpret(feedback, room(), furniture, context());
+            assertThat(plan.operations().getFirst().placement().relation()).as(feedback)
+                    .isEqualTo(FeedbackRelation.LEFT);
+        }
+        for (String feedback : List.of("책상을 오른쪽으로 옮겨줘", "의자를 우측으로 옮겨줘", "침대를 오른편으로 옮겨줘")) {
+            FeedbackPlan plan = interpreter.interpret(feedback, room(), furniture, context());
+            assertThat(plan.operations().getFirst().placement().relation()).as(feedback)
+                    .isEqualTo(FeedbackRelation.RIGHT);
+        }
+        FeedbackPlan directionless = interpreter.interpret("책상을 옮겨줘", room(), furniture, context());
+        assertThat(directionless.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.RIGHT);
+    }
+
+    @Test
+    void normalizesEveryCornerAliasBeforeDirectionalFallback() {
+        for (String feedback : List.of("침대를 모서리로 옮겨줘", "침대를 구석으로 옮겨줘", "소파를 방 모서리로 옮겨줘")) {
+            String type = feedback.startsWith("소파") ? "sofa" : "bed";
+            FeedbackPlan plan = interpreter.interpret(feedback, room(),
+                    List.of(furniture(type + "-1", type, 3, 3)), context());
+            assertThat(plan.operations().getFirst().placement().relation()).as(feedback)
+                    .isEqualTo(FeedbackRelation.IN_CORNER);
+        }
+    }
+
+    @Test
+    void normalizesExplicitLargerAndSmallerProductRequestsToReplaceProduct() {
+        List<Furniture> desk = List.of(furniture("desk-1", "desk", 3, 3));
+
+        FeedbackPlan larger = interpreter.interpret("책상을 더 큰 제품으로 바꿔줘", room(), desk, context());
+        FeedbackPlan smaller = interpreter.interpret("책상을 더 작은 제품으로 바꿔줘", room(), desk, context());
+
+        assertThat(larger.operations().getFirst().type()).isEqualTo(FeedbackOperationType.REPLACE_PRODUCT);
+        assertThat(larger.operations().getFirst().constraints().largerThanCurrent()).isTrue();
+        assertThat(larger.operations().getFirst().constraints().smallerThanCurrent()).isFalse();
+        assertThat(smaller.operations().getFirst().type()).isEqualTo(FeedbackOperationType.REPLACE_PRODUCT);
+        assertThat(smaller.operations().getFirst().constraints().largerThanCurrent()).isFalse();
+        assertThat(smaller.operations().getFirst().constraints().smallerThanCurrent()).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"소파를 삭제해줘", "소파를 없애줘", "소파를 치워줘", "소파를 빼줘", "소파는 필요 없어"})
     void recognizesKoreanRemovalSynonyms(String feedback) {
@@ -235,6 +299,105 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         assertThat(selected.operations()).singleElement().satisfies(operation ->
                 assertThat(operation.target().furnitureId()).isEqualTo("chair-2"));
         assertThat(ambiguous.needsClarification()).isTrue();
+    }
+
+    @Test
+    void selectedFurnitureIdResolvesOnlyAnActiveMatchingOperationTarget() {
+        Furniture first = furniture("chair-1", "desk_chair", 1, 1);
+        Furniture second = furniture("chair-2", "desk_chair", 3, 3);
+        Furniture sofa = furniture("sofa-1", "sofa", 5, 3);
+        Furniture deleted = new Furniture("chair-deleted", "desk_chair", "deleted", 0.8, 0.5, 0.8,
+                new Position(4, 2), 0, FurnitureStatus.DELETED);
+        List<Furniture> furniture = List.of(first, second, sofa, deleted);
+
+        FeedbackPlan firstMove = interpreter.interpret("의자를 왼쪽으로 옮겨줘", room(), furniture, context(), "chair-1");
+        FeedbackPlan secondRemove = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "chair-2");
+        FeedbackPlan missing = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "missing");
+        FeedbackPlan inactive = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "chair-deleted");
+        FeedbackPlan wrongType = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "sofa-1");
+
+        assertThat(firstMove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-1"));
+        assertThat(secondRemove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-2"));
+        assertThat(missing.needsClarification()).isTrue();
+        assertThat(inactive.needsClarification()).isTrue();
+        assertThat(wrongType.needsClarification()).isTrue();
+        assertThat(missing.operations()).isEmpty();
+        assertThat(inactive.operations()).isEmpty();
+        assertThat(wrongType.operations()).isEmpty();
+    }
+
+    @Test
+    void selectedFurnitureIdNeverResolvesReferenceAmbiguity() {
+        Furniture chair = furniture("chair-1", "desk_chair", 1, 1);
+        Furniture firstDesk = furniture("desk-1", "desk", 3, 2);
+        Furniture secondDesk = furniture("desk-2", "desk", 5, 2);
+
+        FeedbackPlan plan = interpreter.interpret("의자를 책상 옆으로 옮겨줘", room(),
+                List.of(chair, firstDesk, secondDesk), context(), "chair-1");
+
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.operations()).isEmpty();
+    }
+
+    @Test
+    void selectedChairResolvesWholeRemoveAndAddComposite() {
+        List<Furniture> chairs = List.of(
+                furniture("chair-1", "desk_chair", 1, 1),
+                furniture("chair-2", "desk_chair", 4, 4));
+
+        FeedbackPlan noSelection = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘",
+                room(), chairs, context());
+        FeedbackPlan selected = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘",
+                room(), chairs, context(), "chair-1");
+
+        assertThat(noSelection.needsClarification()).isTrue();
+        assertThat(noSelection.operations()).isEmpty();
+        assertThat(selected.requestKind()).isEqualTo(FeedbackRequestKind.COMPOSITE);
+        assertThat(selected.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REMOVE_FURNITURE, FeedbackOperationType.ADD_FURNITURE);
+        assertThat(selected.operations().getFirst().target().furnitureId()).isEqualTo("chair-1");
+        assertThat(selected.operations().get(1).dependsOn()).containsExactly("op-1");
+    }
+
+    @Test
+    void inheritsTargetAcrossSupportedMoveRotateAndReplaceMoveClauses() {
+        FeedbackPlan moveRotate = interpreter.interpret("침대를 모서리로 옮기고 90도 회전해줘", room(),
+                List.of(furniture("bed-1", "bed", 3, 3)), context());
+        FeedbackPlan replaceMove = interpreter.interpret("책상을 더 큰 제품으로 바꾸고 창가로 옮겨줘", room(),
+                List.of(furniture("desk-1", "desk", 3, 3)), context());
+
+        assertThat(moveRotate.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ROTATE);
+        assertThat(moveRotate.operations().get(1).target()).isEqualTo(moveRotate.operations().getFirst().target());
+        assertThat(moveRotate.operations().get(1).dependsOn()).containsExactly("op-1");
+        assertThat(replaceMove.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REPLACE_PRODUCT, FeedbackOperationType.MOVE);
+        assertThat(replaceMove.operations().get(1).target()).isEqualTo(replaceMove.operations().getFirst().target());
+        assertThat(replaceMove.operations().get(1).placement().relation()).isEqualTo(FeedbackRelation.NEAR_WINDOW);
+        assertThat(replaceMove.operations().get(1).dependsOn()).containsExactly("op-1");
+    }
+
+    @Test
+    void bindsSwapTargetSeparatelyFromItsMoveReference() {
+        Furniture bookshelf = furniture("bookshelf-1", "bookshelf", 2, 2);
+        Furniture desk = furniture("desk-1", "desk", 5, 3);
+
+        FeedbackPlan plan = interpreter.interpret("책장을 다른 디자인으로 바꾸고 책상 우측으로 옮겨줘",
+                room(), List.of(bookshelf, desk), context());
+        FeedbackPlan crossType = interpreter.interpret("책장을 행거로 바꾸고 뒤로 옮겨줘",
+                room(), List.of(bookshelf), context());
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.SWAP_FURNITURE, FeedbackOperationType.MOVE);
+        assertThat(plan.operations().getFirst().target().furnitureId()).isEqualTo("bookshelf-1");
+        assertThat(plan.operations().getFirst().replacementRequirements().furnitureType()).isEqualTo("bookshelf");
+        assertThat(plan.operations().get(1).target().furnitureId()).isEqualTo("bookshelf-1");
+        assertThat(plan.operations().get(1).referenceTarget().furnitureId()).isEqualTo("desk-1");
+        assertThat(plan.operations().get(1).placement().relation()).isEqualTo(FeedbackRelation.RIGHT_OF);
+        assertThat(crossType.needsClarification()).isTrue();
+        assertThat(crossType.operations()).isEmpty();
     }
 
     @Test

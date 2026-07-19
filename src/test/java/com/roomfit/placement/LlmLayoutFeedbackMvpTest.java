@@ -96,6 +96,22 @@ class LlmLayoutFeedbackMvpTest {
     }
 
     @Test
+    void smallerDeskReplacementAndSmallestDeskFailureUseExplicitContracts() {
+        Furniture widest = midcenturyDesk();
+        FeedbackExecution replaced = executor.execute(plan("desk-rec-1", "desk", smallerDesk()),
+                room(6, 6), List.of(widest));
+        Furniture smallest = compactDesk();
+        FeedbackExecution unavailable = executor.execute(plan("desk-1", "desk", smallerDesk()),
+                room(6, 6), List.of(smallest));
+
+        assertThat(replaced.result().applied()).isTrue();
+        assertThat(replaced.furniture().getFirst().getWidth()).isLessThan(widest.getWidth());
+        assertThat(unavailable.result().applied()).isFalse();
+        assertThat(unavailable.result().noChangeReason()).isEqualTo("NO_SMALLER_PRODUCT_AVAILABLE");
+        assertThat(unavailable.furniture()).containsExactly(smallest);
+    }
+
+    @Test
     void storageReplacementUsesDedicatedStorageDeskOnly() {
         FeedbackExecution execution = executor.execute(plan("desk-1", "desk", storageDesk()), room(6, 6), List.of(compactDesk()));
         Furniture after = execution.furniture().getFirst();
@@ -299,6 +315,11 @@ class LlmLayoutFeedbackMvpTest {
     private FeedbackOperation widerDesk() {
         return new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT, null, null,
                 new FeedbackReplaceConstraints("desk", true, null, List.of(), List.of(), false), List.of());
+    }
+
+    private FeedbackOperation smallerDesk() {
+        return new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT, null, null,
+                new FeedbackReplaceConstraints("desk", false, true, null, List.of(), List.of(), false), List.of());
     }
 
     private FeedbackOperation storageDesk() {

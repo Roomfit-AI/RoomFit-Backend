@@ -5,10 +5,14 @@ import java.util.List;
 /** Shared, conservative action intent policy for rule and provider feedback plans. */
 final class FeedbackActionIntentResolver {
 
-    private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동");
+    private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "당겨", "밀어", "앞으로", "뒤로");
+    private static final List<String> ROTATE_TERMS = List.of(
+            "회전", "돌려", "돌리", "90도", "180도", "반대로", "벽과 평행");
     private static final List<String> PLACEMENT_TERMS = List.of("배치", "넣어", "놓아", "놔", "두어");
     private static final List<String> SPATIAL_TERMS = List.of(
-            "구석", "모서리", "코너", "창가", "창문", "벽", "왼쪽", "오른쪽", "가운데", "중앙", "옆", "근처", "가까이");
+            "구석", "모서리", "코너", "창가", "창문", "벽", "왼쪽", "좌측", "왼편",
+            "오른쪽", "우측", "오른편", "가운데", "중앙", "옆", "근처", "가까이",
+            "앞으로", "뒤로");
     private static final List<String> CREATION_TERMS = List.of("추가", "하나 더", "한 개 더");
     private static final List<String> SWAP_TERMS = List.of("교체", "바꿔", "바꾸", "다른 디자인", "다른 제품");
     private static final List<String> REMOVE_TERMS = List.of("삭제", "제거", "없애", "치워", "빼", "필요 없어");
@@ -20,8 +24,12 @@ final class FeedbackActionIntentResolver {
         if (feedback == null || feedback.isBlank()) {
             return ActionIntent.UNSPECIFIED;
         }
+        if (containsAny(feedback, ROTATE_TERMS)) {
+            return ActionIntent.ROTATE;
+        }
         if (containsAny(feedback, SWAP_TERMS) && (feedback.contains("수납 책상")
-                || containsAny(feedback, List.of("수납공간", "넓", "크게", "키워")))) {
+                || containsAny(feedback, List.of("수납공간", "넓", "크게", "키워", "더 큰", "큰 제품",
+                "작게", "더 작은", "작은 제품")))) {
             return ActionIntent.REPLACE;
         }
         if (containsAny(feedback, SWAP_TERMS) && !isAmbiguousSwapRequest(feedback)) {
@@ -73,6 +81,7 @@ final class FeedbackActionIntentResolver {
     enum ActionIntent {
         ADD,
         MOVE,
+        ROTATE,
         SWAP,
         REPLACE,
         REMOVE,

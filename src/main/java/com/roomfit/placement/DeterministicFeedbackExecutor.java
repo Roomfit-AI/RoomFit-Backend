@@ -308,7 +308,7 @@ public class DeterministicFeedbackExecutor {
         return bestCandidate(validCandidates)
                 .map(candidate -> OperationAttempt.applied(candidate.snapshot(), candidate.affectedFurnitureId()))
                 .orElseGet(() -> OperationAttempt.failed(boundaryFitAvailable
-                        ? "NO_VALID_SWAP_PLACEMENT" : "NO_VALID_BOUNDARY_PLACEMENT"));
+                        ? "NO_SAFE_SWAP_CANDIDATE" : "NO_VALID_BOUNDARY_PLACEMENT"));
     }
 
     private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation,
@@ -408,6 +408,7 @@ public class DeterministicFeedbackExecutor {
                 .filter(product -> renderableCatalog.sameFurnitureType(current.getType(), product.getType()))
                 .filter(product -> !product.getProductId().equals(current.getProductId()))
                 .filter(product -> !constraints.largerThanCurrent() || product.getWidth() > current.getWidth())
+                .filter(product -> !constraints.smallerThanCurrent() || product.getWidth() < current.getWidth())
                 .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
                 .filter(product -> product.getStyleTags().containsAll(constraints.requiredStyleTags()))
                 .filter(product -> product.getLifestyleTags().containsAll(constraints.requiredLifestyleTags()))
@@ -415,8 +416,8 @@ public class DeterministicFeedbackExecutor {
                 .sorted(productComparator(constraints.storagePreferred()))
                 .toList();
         if (products.isEmpty()) {
-            return OperationAttempt.failed(constraints.largerThanCurrent()
-                    ? "NO_LARGER_PRODUCT_AVAILABLE" : "NO_MATCHING_PRODUCT");
+            return OperationAttempt.failed(constraints.largerThanCurrent() ? "NO_LARGER_PRODUCT_AVAILABLE"
+                    : constraints.smallerThanCurrent() ? "NO_SMALLER_PRODUCT_AVAILABLE" : "NO_MATCHING_PRODUCT");
         }
         boolean boundaryFitAvailable = products.stream().anyMatch(product -> fitsRoomAtSupportedRotation(room, product));
         for (MockProduct product : products) {
@@ -542,6 +543,7 @@ public class DeterministicFeedbackExecutor {
                 && !constraints.furnitureType().isBlank()
                 && renderableCatalog.sameFurnitureType(current.getType(), constraints.furnitureType())
                 && (constraints.largerThanCurrent()
+                || constraints.smallerThanCurrent()
                 || constraints.minWidth() != null
                 || !constraints.requiredStyleTags().isEmpty()
                 || !constraints.requiredLifestyleTags().isEmpty()
@@ -549,7 +551,7 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean currentProductMatches(Furniture current, FeedbackReplaceConstraints constraints) {
-        if (current.getProductId() == null || constraints.largerThanCurrent()) return false;
+        if (current.getProductId() == null || constraints.largerThanCurrent() || constraints.smallerThanCurrent()) return false;
         return productRepository.findById(current.getProductId())
                 .filter(product -> constraints.minWidth() == null || product.getWidth() >= constraints.minWidth())
                 .filter(product -> product.getStyleTags().containsAll(constraints.requiredStyleTags()))
@@ -649,6 +651,7 @@ public class DeterministicFeedbackExecutor {
     private String summaryFor(String reason) {
         return switch (reason) {
             case "NO_LARGER_PRODUCT_AVAILABLE" -> "현재 가구가 사용 가능한 제품 중 가장 넓어 기존 배치를 유지했습니다.";
+            case "NO_SMALLER_PRODUCT_AVAILABLE" -> "현재 가구가 사용 가능한 제품 중 가장 작아 기존 배치를 유지했습니다.";
             case "NO_VALID_PRODUCT_PLACEMENT" -> "수납형 책상을 배치할 수 있는 유효한 위치를 찾지 못했습니다.";
             case "NO_MATCHING_PRODUCT", "NO_RENDERABLE_PRODUCT" -> "안전하게 렌더링할 수 있는 조건 일치 제품을 찾지 못했습니다.";
             case "CURRENT_PRODUCT_ALREADY_MATCHES" -> "현재 제품이 이미 요청 조건을 만족해 기존 배치를 유지했습니다.";
@@ -736,21 +739,18 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean samePosition(Furniture first, Furniture second) {
-        return first.getPosition().getX() == second.getPosition().getX()
-                && first.getPosition().getZ() == second.getPosition().getZ();
+        return samePosition(first.getPosition(), second.getPosition());
     }
 
     private boolean samePosition(Position first, Position second) {
-        return Math.abs(first.getX() - second.getX()) < METRIC_TOLERANCE
-                && Math.abs(first.getZ() - second.getZ()) < METRIC_TOLERANCE;
+        return Math.abs(first.getX() - second.getX()) <= METRIC_TOLERANCE
+                && Math.abs(first.getZ() - second.getZ()) <= METRIC_TOLERANCE;
     }
 
     private List<Position> distinctPositions(List<Position> positions) {
         List<Position> distinct = new ArrayList<>();
         for (Position position : positions) {
-            boolean duplicate = distinct.stream().anyMatch(existing ->
-                    Math.abs(existing.getX() - position.getX()) < METRIC_TOLERANCE
-                            && Math.abs(existing.getZ() - position.getZ()) < METRIC_TOLERANCE);
+            boolean duplicate = distinct.stream().anyMatch(existing -> samePosition(existing, position));
             if (!duplicate) distinct.add(position);
         }
         return List.copyOf(distinct);

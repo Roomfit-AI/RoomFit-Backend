@@ -38,6 +38,30 @@ class DeterministicFeedbackExecutorV2Test {
 
     @ParameterizedTest
     @CsvSource({
+            "'책상을 왼쪽으로 옮겨줘',desk,-1",
+            "'책상을 오른쪽으로 옮겨줘',desk,1",
+            "'의자를 좌측으로 옮겨줘',desk_chair,-1",
+            "'의자를 우측으로 옮겨줘',desk_chair,1",
+            "'침대를 왼편으로 옮겨줘',bed,-1",
+            "'침대를 오른편으로 옮겨줘',bed,1"
+    })
+    void parserProducedHorizontalMoveAliasesMatchTheRequestedCoordinateDirection(
+            String feedback, String furnitureType, int direction) {
+        Furniture before = new Furniture(furnitureType + "-1", furnitureType, furnitureType,
+                0.8, 0.5, 0.8, new Position(3, 3), 0, FurnitureStatus.EXISTING);
+        Room room = room(6, 6);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                feedback, room, List.of(before), null);
+
+        FeedbackExecution execution = executor.execute(plan, room, List.of(before));
+
+        assertThat(execution.result().applied()).as(feedback).isTrue();
+        assertThat(execution.furniture().getFirst().getPosition().getX()).as(feedback)
+                .isEqualTo(3.0 + direction * FeedbackPlacementPolicy.movementDistance(FeedbackMagnitude.MEDIUM));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
             "QUARTER_TURN_CW,90",
             "QUARTER_TURN_CCW,270",
             "HALF_TURN,180"
@@ -85,6 +109,69 @@ class DeterministicFeedbackExecutorV2Test {
     }
 
     @Test
+    void selectedCompositeRemoveAndAddChangesOnlyTheSelectedChairAtomically() {
+        List<Furniture> before = List.of(
+                new Furniture("chair-1", "desk_chair", "의자 1", 0.5, 0.5, 0.8,
+                        new Position(1, 1), 0, FurnitureStatus.EXISTING),
+                new Furniture("chair-2", "desk_chair", "의자 2", 0.5, 0.5, 0.8,
+                        new Position(4, 4), 0, FurnitureStatus.EXISTING));
+        Room room = room(6, 6);
+        RuleBasedFeedbackPlanInterpreter interpreter = new RuleBasedFeedbackPlanInterpreter();
+
+        FeedbackPlan noSelection = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room, before, null);
+        FeedbackExecution noSelectionExecution = executor.execute(noSelection, room, before);
+        assertThat(noSelectionExecution.result().applied()).isFalse();
+        assertThat(noSelectionExecution.furniture()).containsExactlyElementsOf(before);
+
+        for (String selectedId : List.of("chair-1", "chair-2")) {
+            FeedbackPlan selected = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘",
+                    room, before, null, selectedId);
+            FeedbackExecution execution = executor.execute(selected, room, before);
+
+            assertThat(execution.result().operationsApplied()).containsExactly("REMOVE_FURNITURE", "ADD_FURNITURE");
+            assertThat(execution.furniture()).extracting(Furniture::getId).doesNotContain(selectedId);
+            assertThat(execution.furniture()).extracting(Furniture::getId)
+                    .contains(selectedId.equals("chair-1") ? "chair-2" : "chair-1");
+            assertThat(execution.furniture()).filteredOn(item -> "nightstand".equals(item.getType())).hasSize(1);
+        }
+    }
+
+    @Test
+    void parserProducedMoveAndRotatePlanAppliesBothOperations() {
+        Furniture before = new Furniture("bed-1", "bed", "침대", 1.0, 1.0, 0.6,
+                new Position(3, 3), 0, FurnitureStatus.EXISTING);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "침대를 모서리로 옮기고 90도 회전해줘", room(6, 6), List.of(before), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
+
+        assertThat(execution.result().operationsApplied()).containsExactly("MOVE", "ROTATE");
+        assertThat(execution.furniture().getFirst().getRotation()).isEqualTo(90);
+    }
+
+    @Test
+    void semanticBindingKeepsSwapTargetTypeAndMovesOnlyThatTargetRelativeToReference() {
+        Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.2,
+                new Position(1.5, 1.5), 0, FurnitureStatus.EXISTING, "legacy-bookshelf", List.of(), null);
+        Furniture desk = desk("desk-1", 4, 3, 0);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "책장을 다른 디자인으로 바꾸고 책상 우측으로 옮겨줘",
+                room(8, 6), List.of(bookshelf, desk), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(8, 6), List.of(bookshelf, desk));
+
+        assertThat(execution.result().operationsApplied()).containsExactly("SWAP_FURNITURE", "MOVE");
+        Furniture changed = execution.furniture().stream()
+                .filter(item -> item.getId().equals("bookshelf-1")).findFirst().orElseThrow();
+        Furniture unchangedDesk = execution.furniture().stream()
+                .filter(item -> item.getId().equals("desk-1")).findFirst().orElseThrow();
+        assertThat(changed.getType()).isEqualTo("bookshelf");
+        assertThat(changed.getPosition().getX()).isGreaterThan(unchangedDesk.getPosition().getX());
+        assertThat(unchangedDesk.getPosition().getX()).isEqualTo(desk.getPosition().getX());
+        assertThat(unchangedDesk.getPosition().getZ()).isEqualTo(desk.getPosition().getZ());
+    }
+
+    @Test
     void furnitureIdTakesPriorityWhenMultipleFurnitureShareTheSameType() {
         Furniture first = desk("desk-1", 1, 1, 0);
         Furniture second = desk("desk-2", 4, 4, 0);
@@ -109,6 +196,158 @@ class DeterministicFeedbackExecutorV2Test {
 
         assertThat(execution.result().applied()).isTrue();
         assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(1.8);
+    }
+
+    @Test
+    void blockedLeftMoveNeverFallsBackToTheOppositeDirection() {
+        Room room = room(3, 4);
+        Furniture prototype = desk("desk-1", 1.5, 2, 0);
+        double safeMinX = FurnitureBoundary.clamp(room, new Position(-10, 2), prototype)
+                .orElseThrow().getX();
+        Furniture before = desk("desk-1", safeMinX, 2, 0);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "책상을 왼쪽으로 옮겨줘", room, List.of(before), null);
+
+        FeedbackExecution execution = executor.execute(plan, room, List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(before);
+        assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(safeMinX);
+    }
+
+    @Test
+    void floatingPointLeftBoundaryNoOpIsNotApplied() {
+        Room room = room(3, 4);
+        Furniture before = boundaryDesk("desk-1", 0.68, 2, 0);
+
+        FeedbackExecution execution = executor.execute(direct(move("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackRelation.LEFT, FeedbackMagnitude.MEDIUM)), room, List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(before);
+        assertThat(execution.operationResults()).singleElement().satisfies(result -> {
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+            assertThat(result.reasonCode()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        });
+    }
+
+    @Test
+    void floatingPointRightBoundaryNoOpIsNotApplied() {
+        Room room = room(3, 4);
+        Furniture prototype = desk("desk-1", 1.5, 2, 0);
+        double safeMaxX = FurnitureBoundary.clamp(room, new Position(10, 2), prototype)
+                .orElseThrow().getX();
+        double oneUlpInsideBoundary = Math.nextDown(safeMaxX);
+        Furniture before = desk("desk-1", oneUlpInsideBoundary, 2, 0);
+
+        FeedbackExecution execution = executor.execute(direct(move("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackRelation.RIGHT, FeedbackMagnitude.MEDIUM)), room, List.of(before));
+
+        assertThat(safeMaxX).isNotEqualTo(oneUlpInsideBoundary);
+        assertThat(safeMaxX - oneUlpInsideBoundary).isLessThan(1.0e-9);
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(before);
+    }
+
+    @Test
+    void movementWithinMetricToleranceUsesTheSameNoOpPolicyAsPositionComparison() {
+        Room room = room(3, 4);
+        Furniture prototype = desk("desk-1", 1.5, 2, 0);
+        double safeMinX = FurnitureBoundary.clamp(room, new Position(-10, 2), prototype)
+                .orElseThrow().getX();
+        Furniture before = desk("desk-1", safeMinX + 5.0e-10, 2, 0);
+
+        FeedbackExecution execution = executor.execute(direct(move("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackRelation.LEFT, FeedbackMagnitude.MEDIUM)), room, List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(before);
+    }
+
+    @Test
+    void movementBeyondMetricToleranceRemainsApplied() {
+        Room room = room(3, 4);
+        Furniture prototype = desk("desk-1", 1.5, 2, 0);
+        double safeMinX = FurnitureBoundary.clamp(room, new Position(-10, 2), prototype)
+                .orElseThrow().getX();
+        Furniture before = desk("desk-1", safeMinX + 2.0e-9, 2, 0);
+
+        FeedbackExecution execution = executor.execute(direct(move("op-1",
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackRelation.LEFT, FeedbackMagnitude.MEDIUM)), room, List.of(before));
+
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(safeMinX);
+        assertThat(execution.operationResults()).singleElement().satisfies(result ->
+                assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.APPLIED));
+    }
+
+    @Test
+    void noOpMovePreventsCompositeRotationFromBeingStored() {
+        Room room = room(3, 4);
+        Furniture before = boundaryDesk("desk-1", 0.68, 2, 0);
+        FeedbackTargetSelector target = new FeedbackTargetSelector("desk-1", "desk", "");
+        FeedbackPlan plan = new FeedbackPlan("2.0", FeedbackRequestKind.COMPOSITE,
+                List.of(
+                        move("op-1", target, FeedbackRelation.LEFT, FeedbackMagnitude.MEDIUM),
+                        rotate("op-2", target, FeedbackOrientation.QUARTER_TURN_CW, List.of("op-1"))),
+                List.of(), null, "move then rotate", FeedbackSource.LLM, false);
+
+        FeedbackExecution execution = executor.execute(plan, room, List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(before);
+        assertThat(execution.furniture().getFirst().getRotation()).isZero();
+        assertThat(execution.operationResults()).singleElement().satisfies(result -> {
+            assertThat(result.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+        });
+    }
+
+    @Test
+    void noOpMoveRollsBackAnEarlierCompositeSwap() {
+        Room room = room(8, 8);
+        Furniture bed = new Furniture("bed-1", "bed", "침대", 0.94, 2.06, 0.85,
+                new Position(4, 4), 0, FurnitureStatus.EXISTING,
+                "bed-fabric-headboard-01", List.of("natural", "minimal"), "bed-fabric-headboard");
+        Furniture desk = boundaryDesk("desk-1", 0.68, 6, 0);
+        List<Furniture> before = List.of(bed, desk);
+        FeedbackOperation swap = new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
+                new FeedbackTargetSelector("bed-1", "bed", ""), null, null, null, null,
+                new FeedbackProductRequirements("bed", FeedbackSizePreference.ANY, false, List.of()), List.of());
+        FeedbackOperation move = new FeedbackOperation("op-2", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                new FeedbackPlacement(FeedbackRelation.LEFT, FeedbackMagnitude.MEDIUM, null),
+                null, List.of("op-1"));
+        FeedbackPlan plan = new FeedbackPlan("2.0", FeedbackRequestKind.COMPOSITE,
+                List.of(swap, move), List.of(), null, "swap then move", FeedbackSource.LLM, false);
+
+        FeedbackExecution execution = executor.execute(plan, room, before);
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.SWAP_FURNITURE, FeedbackOperationType.MOVE);
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactlyElementsOf(before);
+        assertThat(execution.operationResults()).hasSize(2);
+        assertThat(execution.operationResults().get(0)).satisfies(result -> {
+            assertThat(result.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+            assertThat(result.reasonCode()).isEqualTo("ATOMIC_ROLLBACK");
+        });
+        assertThat(execution.operationResults().get(1)).satisfies(result -> {
+            assertThat(result.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+            assertThat(result.reasonCode()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        });
     }
 
     @Test
@@ -406,6 +645,11 @@ class DeterministicFeedbackExecutorV2Test {
         return new Furniture(id, "desk", "책상", 1.0, 0.6, 0.73,
                 new Position(x, z), rotation, FurnitureStatus.RECOMMENDED,
                 "desk-compact-01", List.of("minimal"), "desk-compact");
+    }
+
+    private Furniture boundaryDesk(String id, double x, double z, double rotation) {
+        return new Furniture(id, "desk", "책상", 1.2, 0.6, 0.73,
+                new Position(x, z), rotation, FurnitureStatus.EXISTING);
     }
 
 
