@@ -90,17 +90,20 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             throw new ClarificationRequired("어떤 가구를 말씀하시는지 확인이 필요합니다.", "");
         }
         String operationId = "op-" + sequence;
-        if (containsAny(clause, SWAP_TERMS)) {
+        FeedbackActionIntentResolver.ActionIntent actionIntent =
+                FeedbackActionIntentResolver.resolveFurnitureActionIntent(clause);
+        if (actionIntent == FeedbackActionIntentResolver.ActionIntent.SWAP) {
+            if (mentions.stream().map(FurnitureMention::type).distinct().count() > 1) {
+                throw new ClarificationRequired("교체할 가구를 하나만 알려주세요.", "");
+            }
             FeedbackTargetSelector target = selectorForExisting(mentions.getFirst().type(), clause, furniture);
             validateSelectionMatchesExplicitType(selectedFurnitureId, target.furnitureType(), furniture);
             return sameTypeSwapOperation(operationId, clause, target, target.furnitureType());
         }
-        if (containsAny(clause, REMOVE_TERMS)) {
+        if (actionIntent == FeedbackActionIntentResolver.ActionIntent.REMOVE) {
             return removeOperation(operationId, mentions.getFirst().type(), clause, furniture);
         }
 
-        FeedbackActionIntentResolver.ActionIntent actionIntent =
-                FeedbackActionIntentResolver.resolveFurnitureActionIntent(clause);
         boolean placementExpression = containsAny(clause,
                 List.of("배치", "넣어", "두어", "놓아", "놔", "있었으면 좋겠"));
         int activeCount = activeByType(mentions.getFirst().type(), furniture).size();
@@ -111,6 +114,9 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
                 || (placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
             if (mentions.size() > 1 && !containsAny(clause, List.of("옆", "근처", "가까이"))) {
                 throw new ClarificationRequired("각 가구의 이동 위치를 구분해서 알려주세요.", "");
+            }
+            if (mentions.size() > 1 && hasConflictingReferenceAndAbsoluteDestination(clause)) {
+                throw new ClarificationRequired("기준 가구와 이동 위치를 함께 명확히 알려주세요.", "");
             }
             return moveOperation(operationId, clause, mentions, furniture);
         }
@@ -139,15 +145,14 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
 
     private FeedbackOperation addOperation(String operationId, String feedback, List<FurnitureMention> mentions,
                                            List<Furniture> furniture) {
-        FurnitureMention targetMention = mentions.getLast();
-        FurnitureMention referenceMention = null;
-        if (mentions.size() >= 2 && containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처"))) {
-            referenceMention = mentions.getFirst();
-            if (referenceMention.type().equals(targetMention.type())) {
-                throw new ClarificationRequired("추가할 가구와 기준 가구를 구분해서 알려주세요.", targetMention.type());
-            }
-        } else if (mentions.stream().map(FurnitureMention::type).distinct().count() > 1) {
+        ReferenceRoles roles = referenceRoles(feedback, mentions);
+        FurnitureMention targetMention = roles == null ? mentions.getLast() : roles.target();
+        FurnitureMention referenceMention = roles == null ? null : roles.reference();
+        if (roles == null && mentions.stream().map(FurnitureMention::type).distinct().count() > 1) {
             throw new ClarificationRequired("어떤 가구를 추가할지 하나만 알려주세요.", "");
+        }
+        if (referenceMention != null && referenceMention.type().equals(targetMention.type())) {
+            throw new ClarificationRequired("추가할 가구와 기준 가구를 구분해서 알려주세요.", targetMention.type());
         }
 
         FeedbackRelation relation = addRelation(feedback, referenceMention != null);
@@ -194,13 +199,13 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
 
     private FeedbackOperation moveOperation(String operationId, String feedback, List<FurnitureMention> mentions,
                                             List<Furniture> furniture) {
-        boolean referenceBeforeTarget = mentions.size() >= 2 && feedback.contains("옆에")
-                && mentions.getFirst().index() < feedback.indexOf("옆에")
-                && feedback.indexOf("옆에") < mentions.get(1).index();
-        FurnitureMention targetMention = referenceBeforeTarget ? mentions.get(1) : mentions.getFirst();
+        ReferenceRoles roles = referenceRoles(feedback, mentions);
+        if (mentions.size() > 1 && roles == null) {
+            throw new ClarificationRequired("이동할 가구와 기준 가구를 구분해서 알려주세요.", "");
+        }
+        FurnitureMention targetMention = roles == null ? mentions.getFirst() : roles.target();
         FeedbackTargetSelector target = selectorForExisting(targetMention.type(), feedback, furniture);
-        FurnitureMention referenceMention = mentions.size() >= 2 && containsAny(feedback, List.of("옆", "근처", "가까이"))
-                ? referenceBeforeTarget ? mentions.getFirst() : mentions.get(1) : null;
+        FurnitureMention referenceMention = roles == null ? null : roles.reference();
         if (referenceMention != null && referenceMention.type().equals(targetMention.type())) {
             throw new ClarificationRequired("이동할 가구와 기준 가구를 구분해서 알려주세요.", targetMention.type());
         }
@@ -248,6 +253,33 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         if (containsAny(feedback, List.of("구석", "모서리", "코너"))) return FeedbackRelation.IN_CORNER;
         if (feedback.contains("가운데") || feedback.contains("중앙")) return FeedbackRelation.CENTER;
         return FeedbackRelation.NEAR_WALL;
+    }
+
+    private ReferenceRoles referenceRoles(String feedback, List<FurnitureMention> mentions) {
+        if (mentions.size() != 2 || !containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
+                || hasConflictingReferenceAndAbsoluteDestination(feedback)) {
+            return null;
+        }
+        FurnitureMention first = mentions.getFirst();
+        FurnitureMention second = mentions.get(1);
+        int relationIndex = firstReferenceRelationIndex(feedback);
+        if (relationIndex >= first.index() + first.length() && relationIndex < second.index()) {
+            return new ReferenceRoles(second, first);
+        }
+        if (relationIndex >= second.index() + second.length()) {
+            return new ReferenceRoles(first, second);
+        }
+        return null;
+    }
+
+    private int firstReferenceRelationIndex(String feedback) {
+        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream()
+                .mapToInt(feedback::indexOf).filter(index -> index >= 0).min().orElse(-1);
+    }
+
+    private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {
+        return containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
+                && containsAny(feedback, List.of("창가", "창문", "구석", "모서리", "코너", "가운데", "중앙"));
     }
 
     private FeedbackProductRequirements requirements(String type, String feedback) {
@@ -415,6 +447,9 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private record FurnitureMention(String type, int index, int length) {
+    }
+
+    private record ReferenceRoles(FurnitureMention target, FurnitureMention reference) {
     }
 
     private static final class ClarificationRequired extends RuntimeException {

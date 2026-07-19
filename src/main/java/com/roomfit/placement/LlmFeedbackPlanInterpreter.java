@@ -43,6 +43,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (feedback == null || feedback.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         }
+        selectedFurnitureId = selectedFurnitureId == null ? "" : selectedFurnitureId;
 
         String rawResponse;
         try {
@@ -81,7 +82,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
 
         try {
-            plan = normalizeImplicitProviderAdds(plan, feedback, furniture, selectedFurnitureId);
+            plan = rejectImplicitProviderAdds(plan, feedback);
             planValidator.validate(plan);
         } catch (CustomException e) {
             throw new LlmProviderException(LlmProviderException.OTHER_SAFETY_POLICY, e);
@@ -442,56 +443,14 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
      * semantic safety rule, not a prompt preference, so enforce it after JSON
      * parsing as well.
      */
-    private FeedbackPlan normalizeImplicitProviderAdds(FeedbackPlan plan, String feedback,
-                                                       List<Furniture> furniture, String selectedFurnitureId) {
+    private FeedbackPlan rejectImplicitProviderAdds(FeedbackPlan plan, String feedback) {
         if (FeedbackActionIntentResolver.hasExplicitFurnitureCreationIntent(feedback) || plan.operations().stream()
                 .noneMatch(operation -> operation.type() == FeedbackOperationType.ADD_FURNITURE)) {
             return plan;
         }
-
-        List<FeedbackOperation> normalized = new ArrayList<>();
-        for (FeedbackOperation operation : plan.operations()) {
-            if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
-                normalized.add(operation);
-                continue;
-            }
-            String type = requestedCanonicalType(feedback, furniture, selectedFurnitureId);
-            if (type.isBlank()) {
-                return providerClarification("");
-            }
-            List<Furniture> activeMatches = furniture.stream()
-                    .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
-                    .filter(item -> type.equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType())))
-                    .toList();
-            if (activeMatches.size() != 1) {
-                return providerClarification(type);
-            }
-            Furniture existing = activeMatches.getFirst();
-            normalized.add(new FeedbackOperation(operation.operationId(), FeedbackOperationType.MOVE,
-                    new FeedbackTargetSelector(existing.getId(), type, ""),
-                    null, implicitMovePlacement(feedback), null, null, null, operation.dependsOn()));
-        }
-        return new FeedbackPlan(plan.version(), plan.requestKind(), normalized, plan.goals(), plan.clarification(),
-                plan.reason(), plan.source(), plan.fallbackUsed());
-    }
-
-    private FeedbackPlacement implicitMovePlacement(String feedback) {
-        if (containsAny(feedback, List.of("구석", "모서리", "코너"))) {
-            return new FeedbackPlacement(FeedbackRelation.IN_CORNER, null, null);
-        }
-        FeedbackRelation relation = containsAny(feedback, List.of("창가", "창문")) ? FeedbackRelation.NEAR_WINDOW
-                : feedback.contains("벽") ? FeedbackRelation.NEAR_WALL
-                : feedback.contains("왼쪽") ? FeedbackRelation.LEFT
-                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT
-                : containsAny(feedback, List.of("가운데", "중앙")) ? FeedbackRelation.CENTER
-                : FeedbackRelation.NEAR_WALL;
-        return new FeedbackPlacement(relation, FeedbackMagnitude.MEDIUM, null);
-    }
-
-    private FeedbackPlan providerClarification(String type) {
-        return new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION, List.of(), List.of(),
-                new FeedbackClarification("가구를 새로 추가할지 기존 가구를 옮길지 확인이 필요합니다.", type),
-                "", FeedbackSource.LLM, false);
+        // Do not rewrite an unsafe provider ADD into a different provider operation.
+        // The deterministic fallback owns the conservative MOVE/clarification decision.
+        throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
     }
 
     private boolean containsAny(String value, List<String> terms) {
@@ -500,24 +459,99 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture, String selectedFurnitureId,
                                          String feedback) {
-        List<CanonicalMention> mentions = canonicalMentions(feedback);
+        List<FeedbackIntentContract> contracts = intentContracts(plan, feedback, furniture, selectedFurnitureId);
         for (int index = 0; index < plan.operations().size(); index++) {
             FeedbackOperation operation = plan.operations().get(index);
-            String expectedTargetType = expectedOperationTargetType(plan, index, mentions, furniture, selectedFurnitureId,
-                    feedback);
-            if (expectedTargetType.isBlank()) {
+            FeedbackIntentContract contract = contracts.get(index);
+            if (!operationMatches(contract.action(), operation.type())) {
                 throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
             }
-            validateProviderTarget(operation.target(), furniture, selectedFurnitureId, feedback, true, expectedTargetType);
+            if (!selectedFurnitureId.isBlank() && operation.type() != FeedbackOperationType.ADD_FURNITURE
+                    && !selectedFurnitureId.equals(operation.target().furnitureId())) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            }
+            validateProviderTarget(operation.target(), furniture, selectedFurnitureId, feedback, true,
+                    contract.targetType());
             if (operation.referenceTarget() != null) {
-                String expectedReferenceType = expectedReferenceTargetType(operation, mentions, furniture, selectedFurnitureId);
-                if (expectedReferenceType.isBlank()) {
+                if (contract.referenceType().isBlank() || contract.relation() != operation.placement().relation()) {
                     throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
                 }
                 validateProviderTarget(operation.referenceTarget(), furniture, selectedFurnitureId, feedback, false,
-                        expectedReferenceType);
+                        contract.referenceType());
+            } else if (!contract.referenceType().isBlank()) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
             }
         }
+    }
+
+    private List<FeedbackIntentContract> intentContracts(FeedbackPlan plan, String feedback,
+                                                         List<Furniture> furniture, String selectedFurnitureId) {
+        if (plan.operations().isEmpty()) {
+            return List.of();
+        }
+        List<String> clauses = splitIntentClauses(feedback);
+        if (clauses.size() != plan.operations().size()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        List<FeedbackIntentContract> contracts = new ArrayList<>();
+        String previousTargetType = "";
+        for (int index = 0; index < clauses.size(); index++) {
+            FeedbackIntentContract contract = intentContract(clauses.get(index), furniture, selectedFurnitureId,
+                    plan.operations().get(index).type(), previousTargetType);
+            contracts.add(contract);
+            previousTargetType = contract.targetType();
+        }
+        return contracts;
+    }
+
+    private FeedbackIntentContract intentContract(String clause, List<Furniture> furniture, String selectedFurnitureId,
+                                                  FeedbackOperationType providerOperation, String previousTargetType) {
+        List<CanonicalMention> mentions = canonicalMentions(clause);
+        FeedbackActionIntentResolver.ActionIntent action =
+                FeedbackActionIntentResolver.resolveFurnitureActionIntent(clause);
+        String selectedType = selectedCanonicalType(furniture, selectedFurnitureId);
+        if (!selectedFurnitureId.isBlank() && selectedType.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        ReferenceRoles roles = referenceRoles(clause, mentions, selectedType, providerOperation);
+        String targetType;
+        if (providerOperation != FeedbackOperationType.ADD_FURNITURE && !selectedType.isBlank()) {
+            if (roles != null && !selectedType.equals(roles.targetType())) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            }
+            targetType = selectedType;
+        } else if (roles != null) {
+            targetType = roles.targetType();
+        } else if (mentions.size() == 1) {
+            targetType = mentions.getFirst().type();
+        } else if (mentions.isEmpty() && providerOperation == FeedbackOperationType.SWAP_FURNITURE
+                && clause.contains("수납장") && FeedbackMetadataKeywordNormalizer.containsMetadataRequest(clause)) {
+            targetType = "drawer_chest";
+        } else if (mentions.isEmpty() && !previousTargetType.isBlank()) {
+            targetType = previousTargetType;
+        } else {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        if (mentions.size() > 1 && roles == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        if (hasConflictingReferenceAndAbsoluteDestination(clause)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        return new FeedbackIntentContract(action, targetType, roles == null ? "" : roles.referenceType(),
+                roles == null ? null : roles.relation());
+    }
+
+    private boolean operationMatches(FeedbackActionIntentResolver.ActionIntent action,
+                                     FeedbackOperationType providerOperation) {
+        return switch (action) {
+            case ADD -> providerOperation == FeedbackOperationType.ADD_FURNITURE;
+            case MOVE -> providerOperation == FeedbackOperationType.MOVE;
+            case SWAP -> providerOperation == FeedbackOperationType.SWAP_FURNITURE;
+            case REPLACE -> providerOperation == FeedbackOperationType.REPLACE_PRODUCT;
+            case REMOVE -> providerOperation == FeedbackOperationType.REMOVE_FURNITURE;
+            case UNSPECIFIED -> true;
+        };
     }
 
     private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture,
@@ -571,76 +605,6 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 .anyMatch(compactFeedback::contains);
     }
 
-    private String requestedCanonicalType(String feedback, List<Furniture> furniture, String selectedFurnitureId) {
-        if (selectedFurnitureId != null && !selectedFurnitureId.isBlank()) {
-            return furniture.stream()
-                    .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
-                    .filter(item -> selectedFurnitureId.equals(item.getId()))
-                    .map(item -> FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()))
-                    .findFirst().orElse("");
-        }
-        List<CanonicalMention> mentions = canonicalMentions(feedback);
-        return mentions.size() == 1 ? mentions.getFirst().type() : "";
-    }
-
-    private String expectedOperationTargetType(FeedbackPlan plan, int operationIndex,
-                                               List<CanonicalMention> mentions, List<Furniture> furniture,
-                                               String selectedFurnitureId, String feedback) {
-        FeedbackOperation operation = plan.operations().get(operationIndex);
-        String selectedType = selectedCanonicalType(furniture, selectedFurnitureId);
-        if (operation.type() != FeedbackOperationType.ADD_FURNITURE && !selectedType.isBlank()) {
-            return selectedType;
-        }
-        if (mentions.size() == 1) {
-            return mentions.getFirst().type();
-        }
-        if (mentions.isEmpty() && operation.type() == FeedbackOperationType.SWAP_FURNITURE
-                && feedback.contains("수납장") && FeedbackMetadataKeywordNormalizer.containsMetadataRequest(feedback)) {
-            return "drawer_chest";
-        }
-        if (isReferenceRelation(operation) && mentions.size() == 2) {
-            return operation.type() == FeedbackOperationType.ADD_FURNITURE
-                    ? mentions.get(1).type() : mentions.getFirst().type();
-        }
-        if (plan.operations().size() > 1 && mentions.size() == plan.operations().size()) {
-            return mentions.get(operationIndex).type();
-        }
-        return "";
-    }
-
-    private String expectedReferenceTargetType(FeedbackOperation operation, List<CanonicalMention> mentions,
-                                               List<Furniture> furniture, String selectedFurnitureId) {
-        if (!isReferenceRelation(operation)) {
-            return "";
-        }
-        String selectedType = selectedCanonicalType(furniture, selectedFurnitureId);
-        if (!selectedType.isBlank()) {
-            if (mentions.size() == 1 && !selectedType.equals(mentions.getFirst().type())) {
-                return mentions.getFirst().type();
-            }
-            if (mentions.size() == 2) {
-                return mentions.stream().map(CanonicalMention::type)
-                        .filter(type -> !selectedType.equals(type)).distinct()
-                        .reduce((first, second) -> "").orElse("");
-            }
-            return "";
-        }
-        if (mentions.size() != 2) {
-            return "";
-        }
-        return operation.type() == FeedbackOperationType.ADD_FURNITURE
-                ? mentions.getFirst().type() : mentions.get(1).type();
-    }
-
-    private boolean isReferenceRelation(FeedbackOperation operation) {
-        if (operation.placement() == null) {
-            return false;
-        }
-        FeedbackRelation relation = operation.placement().relation();
-        return relation == FeedbackRelation.NEXT_TO || relation == FeedbackRelation.LEFT_OF
-                || relation == FeedbackRelation.RIGHT_OF;
-    }
-
     private String selectedCanonicalType(List<Furniture> furniture, String selectedFurnitureId) {
         if (selectedFurnitureId == null || selectedFurnitureId.isBlank()) {
             return "";
@@ -649,6 +613,65 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 .filter(item -> selectedFurnitureId.equals(item.getId()))
                 .map(item -> FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()))
                 .findFirst().orElse("");
+    }
+
+    private List<String> splitIntentClauses(String feedback) {
+        String split = feedback.replace("그리고 나서", "|").replace("그리고", "|").replace("그다음", "|").replace(",", "|")
+                .replace("삭제하고", "삭제|").replace("제거하고", "제거|")
+                .replace("없애고", "없애|").replace("치우고", "치워|").replace("빼고", "빼|")
+                .replace("옮겨 주고", "옮겨|").replace("옮겨주고", "옮겨|")
+                .replace("옮긴 다음", "옮겨|").replace("옮긴 뒤", "옮겨|").replace("옮긴 후", "옮겨|")
+                .replace("옮겨서", "옮겨|").replace("옮기고", "옮기|").replace("이동하고", "이동|")
+                .replace("바꿔 주고", "바꿔|").replace("바꿔주고", "바꿔|").replace("바꾸고", "바꿔|")
+                .replace("교체하고", "교체|").replace("추가하고", "추가|").replace("넣고", "넣어|")
+                .replace("한 다음", "|").replace("한 뒤", "|").replace("한 후", "|").replace("하고 나서", "|");
+        return java.util.Arrays.stream(split.split("\\|"))
+                .map(String::trim).filter(value -> !value.isBlank()).toList();
+    }
+
+    private ReferenceRoles referenceRoles(String clause, List<CanonicalMention> mentions, String selectedType,
+                                          FeedbackOperationType providerOperation) {
+        if (!hasReferenceExpression(clause) || hasConflictingReferenceAndAbsoluteDestination(clause)) {
+            return null;
+        }
+        if (mentions.size() == 1 && !selectedType.isBlank()
+                && providerOperation != FeedbackOperationType.ADD_FURNITURE
+                && !selectedType.equals(mentions.getFirst().type())) {
+            return new ReferenceRoles(selectedType, mentions.getFirst().type(), relationFor(clause));
+        }
+        if (mentions.size() != 2) {
+            return null;
+        }
+        CanonicalMention first = mentions.getFirst();
+        CanonicalMention second = mentions.get(1);
+        int relationIndex = firstReferenceRelationIndex(clause.replaceAll("\\s+", ""));
+        if (relationIndex >= first.index() + first.length() && relationIndex < second.index()) {
+            return new ReferenceRoles(second.type(), first.type(), relationFor(clause));
+        }
+        if (relationIndex >= second.index() + second.length()) {
+            return new ReferenceRoles(first.type(), second.type(), relationFor(clause));
+        }
+        return null;
+    }
+
+    private boolean hasReferenceExpression(String feedback) {
+        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream().anyMatch(feedback::contains);
+    }
+
+    private int firstReferenceRelationIndex(String compactFeedback) {
+        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream()
+                .mapToInt(compactFeedback::indexOf).filter(index -> index >= 0).min().orElse(-1);
+    }
+
+    private FeedbackRelation relationFor(String feedback) {
+        return feedback.contains("왼쪽") ? FeedbackRelation.LEFT_OF
+                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
+    }
+
+    private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {
+        return hasReferenceExpression(feedback)
+                && List.of("창가", "창문", "구석", "모서리", "코너", "가운데", "중앙").stream()
+                .anyMatch(feedback::contains);
     }
 
     private List<CanonicalMention> canonicalMentions(String feedback) {
@@ -683,6 +706,13 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
     }
 
     private record CanonicalMention(String type, int index, int length) {
+    }
+
+    private record ReferenceRoles(String targetType, String referenceType, FeedbackRelation relation) {
+    }
+
+    private record FeedbackIntentContract(FeedbackActionIntentResolver.ActionIntent action, String targetType,
+                                          String referenceType, FeedbackRelation relation) {
     }
 
     private Double optionalNumber(JsonNode node, String field) {
