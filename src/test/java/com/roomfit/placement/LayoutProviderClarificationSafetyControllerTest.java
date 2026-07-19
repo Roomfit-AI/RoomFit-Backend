@@ -45,13 +45,14 @@ class LayoutProviderClarificationSafetyControllerTest {
     void neverExposesProviderClarificationTextOrCreatesASnapshot() throws Exception {
         Long layoutId = createLayout();
         long layoutCountBefore = layoutRepository.count();
+        String codeFence = String.valueOf((char) 96).repeat(3);
+        String providerReason = "provider error roomId=00000000-0000-0000-0000-000000000000 "
+                + "position x=12.34 productId=internal-product-x variantId=internal-variant-y "
+                + codeFence + "json";
         FeedbackPlan providerPlan = new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION,
                 List.of(), List.of(),
-                new FeedbackClarification("""
-                        ~~~json {"roomId":"00000000-0000-0000-0000-000000000000",
-                        "position":{"x":12.34},"productId":"internal-product-x"}~~~
-                        """, "desk"),
-                "", FeedbackSource.LLM, false);
+                new FeedbackClarification(providerReason, "desk"),
+                providerReason, FeedbackSource.LLM, false);
         when(feedbackPlanInterpreter.interpret(anyString(), any(Room.class), anyList(), any(AgentContext.class),
                 nullable(String.class))).thenReturn(providerPlan);
 
@@ -65,7 +66,8 @@ class LayoutProviderClarificationSafetyControllerTest {
 
         assertThat(layoutRepository.count()).isEqualTo(layoutCountBefore);
         assertThat(response)
-                .doesNotContain("00000000-0000-0000-0000-000000000000", "12.34", "internal-product-x", "~~~")
+                .doesNotContain("00000000-0000-0000-0000-000000000000", "12.34",
+                        "internal-product-x", "internal-variant-y", codeFence)
                 .contains("책상 중 변경할 가구를 선택해주세요.");
     }
 

@@ -536,7 +536,7 @@ public class LayoutService {
         result.put("targetFurniture", plan.furnitureType());
         result.put("operations", plan.operations().stream().map(operation -> operation.type().name()).toList());
         result.put("operationIds", plan.operations().stream().map(FeedbackOperation::operationId).toList());
-        result.put("reason", plan.reason());
+        result.put("reason", plan.source() == FeedbackSource.LLM ? "" : plan.reason());
         if (plan.clarification() != null) {
             result.put("clarificationQuestion",
                     clarificationQuestion(plan.clarification().targetFurnitureType(), false));

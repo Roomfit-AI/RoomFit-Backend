@@ -135,8 +135,8 @@ class FeedbackPlanEvaluationHarnessTest {
                         List.of(FeedbackOperationType.MOVE), List.of("chair-1"), null, null, wrappedCornerMoveResponse()),
                 fallback("malformed-provider-json", "resilience", "의자를 오른쪽으로 옮겨줘", List.of(chair), null,
                         List.of(FeedbackOperationType.MOVE), List.of("chair-1"), "{not-json"),
-                llmClarification("provider-unrelated-add", "resilience", "의자를 오른쪽으로 옮겨줘", List.of(chair), null,
-                        unrelatedAddResponse()),
+                llm("provider-unrelated-add", "resilience", "의자를 오른쪽으로 옮겨줘", List.of(chair), null,
+                        List.of(FeedbackOperationType.MOVE), List.of("chair-1"), null, null, unrelatedAddResponse()),
                 fallback("provider-same-target-reference", "resilience", "의자를 오른쪽으로 옮겨줘", List.of(chair), null,
                         List.of(FeedbackOperationType.MOVE), List.of("chair-1"), sameTargetReferenceResponse()),
                 fallback("provider-forbidden-coordinate", "resilience", "의자를 오른쪽으로 옮겨줘", List.of(chair), null,
@@ -186,12 +186,6 @@ class FeedbackPlanEvaluationHarnessTest {
                                                  String selectedFurnitureId, String providerResponse) {
         return new EvaluationCase(id, category, feedback, furniture, selectedFurnitureId, true, false,
                 FeedbackSource.RULE_BASED, List.of(), List.of(), null, null, providerResponse);
-    }
-
-    private EvaluationCase llmClarification(String id, String category, String feedback, List<Furniture> furniture,
-                                            String selectedFurnitureId, String providerResponse) {
-        return new EvaluationCase(id, category, feedback, furniture, selectedFurnitureId, true, false,
-                FeedbackSource.LLM, List.of(), List.of(), null, null, providerResponse);
     }
 
     private String wrappedCornerMoveResponse() {

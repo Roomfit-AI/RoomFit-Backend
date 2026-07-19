@@ -153,6 +153,94 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void treatsMovementModifiersAsMoveEvenWhenTheProviderReturnsAdd() {
+        Furniture chair = chair("chair-1", 2, 2);
+        LlmFeedbackPlanInterpreter interpreter = implicitAddInterpreter();
+
+        FeedbackPlan modifiedMove = interpreter.interpret("의자를 추가로 이동해줘", room(), List.of(chair), context());
+        FeedbackPlan quantifiedMove = interpreter.interpret("의자를 하나 더 옮겨줘", room(), List.of(chair), context());
+        FeedbackPlan ambiguousQuantifiedMove = interpreter.interpret("의자를 하나 더 옮겨줘", room(),
+                List.of(chair, chair("chair-2", 4, 4)), context());
+        FeedbackPlan explicitAdd = interpreter.interpret("의자 하나 더 놔줘", room(), List.of(chair), context());
+        FeedbackExecution execution = executor.execute(modifiedMove, room(), List.of(chair), context());
+
+        assertThat(modifiedMove.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+        });
+        assertThat(quantifiedMove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+        assertThat(ambiguousQuantifiedMove.needsClarification()).isTrue();
+        assertThat(ambiguousQuantifiedMove.operations()).isEmpty();
+        assertThat(explicitAdd.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
+        assertThat(execution.furniture()).hasSize(1);
+        assertThat(execution.furniture().getFirst().getId()).isEqualTo("chair-1");
+    }
+
+    @Test
+    void rejectsProviderTargetWithDifferentCanonicalTypeAndUsesRuleFallback() {
+        Furniture chair = chair("chair-1", 2, 2);
+        Furniture bookshelf = bookshelf();
+        LlmFeedbackPlanInterpreter provider = new LlmFeedbackPlanInterpreter(
+                prompt -> moveResponse("bookshelf-1", "bookshelf"), objectMapper);
+
+        assertThatThrownBy(() -> provider.interpret("의자를 구석에 옮겨줘", room(), List.of(chair, bookshelf), context()))
+                .isInstanceOf(LlmProviderException.class);
+
+        FeedbackPlan fallbackPlan = new FallbackFeedbackPlanInterpreter(Optional.of(provider),
+                new RuleBasedFeedbackPlanInterpreter())
+                .interpret("의자를 구석에 옮겨줘", room(), List.of(chair, bookshelf), context());
+        FeedbackExecution execution = executor.execute(fallbackPlan, room(), List.of(chair, bookshelf), context());
+
+        assertThat(fallbackPlan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(fallbackPlan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.target().furnitureType()).isEqualTo("desk_chair");
+        });
+        assertThat(execution.furniture()).hasSize(2);
+        Position bookshelfPosition = execution.furniture().stream()
+                .filter(item -> "bookshelf-1".equals(item.getId()))
+                .findFirst().orElseThrow().getPosition();
+        assertThat(bookshelfPosition.getX()).isEqualTo(4);
+        assertThat(bookshelfPosition.getZ()).isEqualTo(4);
+    }
+
+    @Test
+    void selectedFurnitureCannotBeReplacedByAProviderTargetOfAnotherType() {
+        Furniture chair = chair("chair-1", 2, 2);
+        Furniture bookshelf = bookshelf();
+        FeedbackPlan plan = new FallbackFeedbackPlanInterpreter(
+                Optional.of(new LlmFeedbackPlanInterpreter(prompt -> moveResponse("bookshelf-1", "bookshelf"), objectMapper)),
+                new RuleBasedFeedbackPlanInterpreter())
+                .interpret("가구를 구석에 배치해줘", room(), List.of(chair, bookshelf), context(), "chair-1");
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(plan.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-1"));
+    }
+
+    @Test
+    void matchingProviderTargetTypeStillPassesAndUnknownTypeFallsBack() {
+        Furniture chair = chair("chair-1", 2, 2);
+        FeedbackPlan matching = new LlmFeedbackPlanInterpreter(
+                prompt -> moveResponse("chair-1", "desk_chair"), objectMapper)
+                .interpret("의자를 구석에 옮겨줘", room(), List.of(chair), context());
+        FeedbackPlan unknownFallback = new FallbackFeedbackPlanInterpreter(
+                Optional.of(new LlmFeedbackPlanInterpreter(prompt -> moveResponse("chair-1", "piano"), objectMapper)),
+                new RuleBasedFeedbackPlanInterpreter())
+                .interpret("의자를 구석에 옮겨줘", room(), List.of(chair), context());
+
+        assertThat(matching.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(matching.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureType()).isEqualTo("desk_chair"));
+        assertThat(unknownFallback.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(unknownFallback.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-1"));
+    }
+
+    @Test
     void promptIncludesReferenceMoveContractAndSafeJsonShape() {
         String[] capturedPrompt = new String[1];
         Furniture monitor = monitor();
@@ -578,6 +666,16 @@ class LlmFeedbackPlanInterpreterV2Test {
                 """.formatted(referenceTarget, relation, magnitude);
     }
 
+    private String moveResponse(String furnitureId, String furnitureType) {
+        return """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"MOVE",
+                  "target":{"furnitureId":"%s","furnitureType":"%s"},
+                  "placement":{"relation":"IN_CORNER"},"dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"provider move"}
+                """.formatted(furnitureId, furnitureType);
+    }
+
     private String compositeWithSecondOperation(String secondId, String dependencyJson) {
         return """
                 {
@@ -610,6 +708,12 @@ class LlmFeedbackPlanInterpreterV2Test {
         return new Furniture("monitor-1", "monitor", "기존 모니터", 0.5, 0.25, 0.4,
                 new Position(1, 1), 0, FurnitureStatus.EXISTING,
                 "monitor-basic-01", List.of("minimal"), "monitor-basic");
+    }
+
+    private Furniture bookshelf() {
+        return new Furniture("bookshelf-1", "bookshelf", "기존 책장", 0.8, 0.3, 1.8,
+                new Position(4, 4), 0, FurnitureStatus.EXISTING,
+                "bookshelf-basic-01", List.of("minimal"), "bookshelf-basic");
     }
 
     private Furniture chair(String id, double x, double z) {

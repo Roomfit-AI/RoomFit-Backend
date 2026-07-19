@@ -16,8 +16,6 @@ import java.util.Locale;
 /** A conservative Korean fallback.  It only creates an executable plan when one target is known. */
 public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
-    /** Only expressions that clearly increase the furniture count may create a new item. */
-    private static final List<String> ADD_TERMS = List.of("추가", "하나 더", "한 개 더");
     private static final List<String> REMOVE_TERMS = List.of("삭제", "제거", "없애", "치워", "빼", "필요 없어");
     private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "붙여", "붙이");
     private static final List<String> SWAP_TERMS = List.of("교체", "바꿔", "바꾸", "다른 디자인", "다른 제품");
@@ -101,14 +99,16 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             return removeOperation(operationId, mentions.getFirst().type(), clause, furniture);
         }
 
-        boolean explicitAdd = containsAny(clause, ADD_TERMS);
+        FeedbackActionIntentResolver.ActionIntent actionIntent =
+                FeedbackActionIntentResolver.resolveFurnitureActionIntent(clause);
         boolean placementExpression = containsAny(clause,
                 List.of("배치", "넣어", "두어", "놓아", "놔", "있었으면 좋겠"));
         int activeCount = activeByType(mentions.getFirst().type(), furniture).size();
-        if (explicitAdd) {
+        if (actionIntent == FeedbackActionIntentResolver.ActionIntent.ADD) {
             return addOperation(operationId, clause, mentions, furniture);
         }
-        if ((placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
+        if (actionIntent == FeedbackActionIntentResolver.ActionIntent.MOVE
+                || (placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
             return moveOperation(operationId, clause, mentions, furniture);
         }
         if (placementExpression && activeCount > 1) {

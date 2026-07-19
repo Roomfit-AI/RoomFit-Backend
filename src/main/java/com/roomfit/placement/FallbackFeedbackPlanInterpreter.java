@@ -17,6 +17,10 @@ public class FallbackFeedbackPlanInterpreter implements FeedbackPlanInterpreter 
         this.fallback = fallback;
     }
 
+    public boolean hasPrimaryInterpreter() {
+        return primary.isPresent();
+    }
+
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
         return interpret(feedback, room, furniture, context, "");

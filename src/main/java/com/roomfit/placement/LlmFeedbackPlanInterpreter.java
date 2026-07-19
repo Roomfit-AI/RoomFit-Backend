@@ -81,7 +81,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
 
         try {
-            plan = normalizeImplicitProviderAdds(plan, feedback, furniture);
+            plan = normalizeImplicitProviderAdds(plan, feedback, furniture, selectedFurnitureId);
             planValidator.validate(plan);
         } catch (CustomException e) {
             throw new LlmProviderException(LlmProviderException.OTHER_SAFETY_POLICY, e);
@@ -443,8 +443,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
      * parsing as well.
      */
     private FeedbackPlan normalizeImplicitProviderAdds(FeedbackPlan plan, String feedback,
-                                                       List<Furniture> furniture) {
-        if (hasExplicitAddSignal(feedback) || plan.operations().stream()
+                                                       List<Furniture> furniture, String selectedFurnitureId) {
+        if (FeedbackActionIntentResolver.hasExplicitFurnitureCreationIntent(feedback) || plan.operations().stream()
                 .noneMatch(operation -> operation.type() == FeedbackOperationType.ADD_FURNITURE)) {
             return plan;
         }
@@ -455,12 +455,15 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 normalized.add(operation);
                 continue;
             }
-            String type = operation.target().furnitureType();
+            String type = requestedCanonicalType(feedback, furniture, selectedFurnitureId);
+            if (type.isBlank()) {
+                return providerClarification("");
+            }
             List<Furniture> activeMatches = furniture.stream()
                     .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
                     .filter(item -> type.equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType())))
                     .toList();
-            if (activeMatches.size() != 1 || !hasPlacementExpression(feedback)) {
+            if (activeMatches.size() != 1) {
                 return providerClarification(type);
             }
             Furniture existing = activeMatches.getFirst();
@@ -470,17 +473,6 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
         return new FeedbackPlan(plan.version(), plan.requestKind(), normalized, plan.goals(), plan.clarification(),
                 plan.reason(), plan.source(), plan.fallbackUsed());
-    }
-
-    private boolean hasExplicitAddSignal(String feedback) {
-        return feedback != null && List.of("추가", "하나 더", "한 개 더")
-                .stream().anyMatch(feedback::contains);
-    }
-
-    private boolean hasPlacementExpression(String feedback) {
-        return feedback != null && List.of("구석", "모서리", "코너", "창가", "창문", "벽",
-                        "왼쪽", "오른쪽", "가운데", "중앙", "배치", "넣어", "두어", "놓아", "놔", "있었으면 좋겠")
-                .stream().anyMatch(feedback::contains);
     }
 
     private FeedbackPlacement implicitMovePlacement(String feedback) {
@@ -520,6 +512,11 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture,
                                         String selectedFurnitureId, String feedback, boolean isOperationTarget) {
+        String requestedType = isOperationTarget
+                ? requestedCanonicalType(feedback, furniture, selectedFurnitureId) : "";
+        if (!requestedType.isBlank() && !requestedType.equals(selector.furnitureType())) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
         // A type-only selector remains valid: the deterministic resolver already
         // turns zero or multiple active matches into a safe result.  IDs are
         // different because a fabricated ID could otherwise silently select a
@@ -563,6 +560,26 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                 .filter(entry -> canonicalType.equals(entry.getValue()))
                 .map(entry -> entry.getKey().replace("_", ""))
                 .anyMatch(compactFeedback::contains);
+    }
+
+    private String requestedCanonicalType(String feedback, List<Furniture> furniture, String selectedFurnitureId) {
+        if (selectedFurnitureId != null && !selectedFurnitureId.isBlank()) {
+            return furniture.stream()
+                    .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                    .filter(item -> selectedFurnitureId.equals(item.getId()))
+                    .map(item -> FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()))
+                    .findFirst().orElse("");
+        }
+        if (feedback == null || feedback.isBlank()) {
+            return "";
+        }
+        String compactFeedback = feedback.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        List<String> mentionedTypes = FeedbackVocabularyNormalizer.aliasesByLength().stream()
+                .filter(entry -> compactFeedback.contains(entry.getKey().replace("_", "")))
+                .map(java.util.Map.Entry::getValue)
+                .distinct()
+                .toList();
+        return mentionedTypes.size() == 1 ? mentionedTypes.getFirst() : "";
     }
 
     private Double optionalNumber(JsonNode node, String field) {

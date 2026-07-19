@@ -141,6 +141,9 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         FeedbackPlan sofaMove = interpreter.interpret("소파를 창가에 배치해줘", room(), List.of(sofa), context());
         FeedbackPlan wishMove = interpreter.interpret("의자가 구석에 있었으면 좋겠", room(), List.of(chair), context());
         FeedbackPlan explicitAdd = interpreter.interpret("의자 하나 더 구석에 넣어줘", room(), List.of(chair), context());
+        FeedbackPlan modifiedMove = interpreter.interpret("의자를 추가로 이동해줘", room(), List.of(chair), context());
+        FeedbackPlan quantifiedMove = interpreter.interpret("의자를 하나 더 옮겨줘", room(), List.of(chair), context());
+        FeedbackPlan quantifiedAdd = interpreter.interpret("의자 하나 더 놔줘", room(), List.of(chair), context());
         FeedbackPlan absentChair = interpreter.interpret("의자를 구석에 넣어줘", room(), List.of(), context());
         FeedbackPlan ambiguousChairs = interpreter.interpret("의자를 구석에 넣어줘", room(),
                 List.of(chair, furniture("chair-2", "desk_chair", 4, 4)), context());
@@ -155,6 +158,14 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         assertThat(wishMove.operations()).singleElement().satisfies(operation ->
                 assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
         assertThat(explicitAdd.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
+        assertThat(modifiedMove.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+        });
+        assertThat(quantifiedMove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+        assertThat(quantifiedAdd.operations()).singleElement().satisfies(operation ->
                 assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
         assertThat(absentChair.needsClarification()).isTrue();
         assertThat(ambiguousChairs.needsClarification()).isTrue();
