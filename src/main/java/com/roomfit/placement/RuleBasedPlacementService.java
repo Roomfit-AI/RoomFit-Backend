@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.agent.domain.LifestyleGoal;
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
@@ -14,6 +15,7 @@ import com.roomfit.room.Room;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -80,13 +82,19 @@ public class RuleBasedPlacementService implements PlacementService {
 
         List<String> requestedTypes = new ArrayList<>(context.getRequiredItems());
         requestedTypes.addAll(context.getOptionalItems());
+        int requiredItemCount = context.getRequiredItems().size();
         List<RequestedItem> requestedItems = new ArrayList<>();
         for (int index = 0; index < requestedTypes.size(); index++) {
             String requestedType = requestedTypes.get(index);
             requestedItems.add(new RequestedItem(index, requestedType,
                     GeneratedFurnitureCatalog.get().normalizeType(requestedType)));
         }
-        requestedItems.sort(Comparator.comparingInt(item -> dependencyRank(item.canonicalType())));
+        requestedItems.sort(Comparator
+                .comparingInt((RequestedItem item) -> item.originalIndex() < requiredItemCount ? 0 : 1)
+                .thenComparingInt(item -> dependencyRank(item.canonicalType()))
+                .thenComparingInt(item -> LifestyleFurniturePriority.rank(
+                        context.getLifestyleGoal(), item.canonicalType()))
+                .thenComparingInt(RequestedItem::originalIndex));
         List<UnplacedFurniture> unplaced = new ArrayList<>();
         int placedCount = 0;
         for (RequestedItem requestedItem : requestedItems) {
@@ -199,13 +207,18 @@ public class RuleBasedPlacementService implements PlacementService {
             return new PlacementAttempt(null, null, "NO_RENDERABLE_PRODUCT");
         }
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
-        String lastReason = "NO_VALID_PLACEMENT";
+        // 시도한 모든 후보 위치의 실패 사유를 모아, 가장 흔했던(대표적인) 사유를
+        // 반환한다 — 마지막으로 시도한 위치의 사유만 보면, 후보 20개 중 19개가
+        // 충돌이었어도 우연히 마지막 하나가 경계 실패면 "경계 문제"로 잘못
+        // 보고된다. 빈도가 같으면 validationReason()의 검사 순서(경계 -> 충돌 ->
+        // 문 -> 창문 -> 동선)로 deterministic하게 tie-break한다.
+        Map<String, Integer> reasonCounts = new LinkedHashMap<>();
         for (PlacementCandidate placementCandidate : placementCandidates(itemType, spec, room, placed)) {
             Furniture prototype = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec,
                     placementCandidate.position(), placementCandidate.rotation());
             Position safePosition = FurnitureBoundary.clamp(room, placementCandidate.position(), prototype).orElse(null);
             if (safePosition == null) {
-                lastReason = "NO_VALID_BOUNDARY_PLACEMENT";
+                reasonCounts.merge("NO_VALID_BOUNDARY_PLACEMENT", 1, Integer::sum);
                 continue;
             }
             Furniture candidate = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec,
@@ -215,9 +228,9 @@ public class RuleBasedPlacementService implements PlacementService {
                 placed.add(candidate);
                 return new PlacementAttempt(candidate, product, null);
             }
-            lastReason = validationReason(validation);
+            reasonCounts.merge(validationReason(validation), 1, Integer::sum);
         }
-        return new PlacementAttempt(null, product, lastReason);
+        return new PlacementAttempt(null, product, mostLikelyFailureReason(reasonCounts));
     }
 
     private Furniture createRecommendedFurniture(String id, FurnitureSpec spec, Position position, double rotation) {
@@ -590,6 +603,23 @@ public class RuleBasedPlacementService implements PlacementService {
         if (!result.isWindowClearance()) return "WINDOW_BLOCKED";
         if (!result.isPathSecured()) return "MOVEMENT_PATH_BLOCKED";
         return "NO_VALID_PLACEMENT";
+    }
+
+    // validationReason()과 동일한 순서 — 빈도가 같을 때 이 순서로 deterministic하게
+    // tie-break한다.
+    private static final List<String> FAILURE_REASON_TIE_BREAK_ORDER = List.of(
+            "NO_VALID_BOUNDARY_PLACEMENT", "COLLISION_DETECTED", "DOOR_BLOCKED",
+            "WINDOW_BLOCKED", "MOVEMENT_PATH_BLOCKED", "NO_VALID_PLACEMENT");
+
+    private String mostLikelyFailureReason(Map<String, Integer> reasonCounts) {
+        if (reasonCounts.isEmpty()) {
+            return "NO_VALID_PLACEMENT";
+        }
+        return reasonCounts.entrySet().stream()
+                .max(Comparator.<Map.Entry<String, Integer>>comparingInt(Map.Entry::getValue)
+                        .thenComparing(entry -> -FAILURE_REASON_TIE_BREAK_ORDER.indexOf(entry.getKey())))
+                .map(Map.Entry::getKey)
+                .orElse("NO_VALID_PLACEMENT");
     }
 
     private UnplacedFurniture unplaced(int index, String type, MockProduct product, String reasonCode) {

@@ -9,7 +9,7 @@ public class AgentContextRequest {
 
     @Schema(description = "추천 대상 방 ID", example = "1")
     private Long roomId;
-    @Schema(description = "생활 목표", example = "STUDY_FOCUSED", allowableValues = {"STUDY_FOCUSED", "RELAX_FOCUSED", "STORAGE_FOCUSED", "WFH_FOCUSED"})
+    @Schema(description = "생활 목표", example = "STUDY_FOCUSED", allowableValues = {"STUDY_FOCUSED", "RELAX_FOCUSED", "STORAGE_FOCUSED", "WFH_FOCUSED", "HOBBY_FOCUSED"})
     private String lifestyleGoal;
     @Schema(description = "디자인 스타일 목록", example = "[\"MINIMAL\", \"WHITE_TONE\"]")
     private List<String> designStyle;
@@ -22,7 +22,7 @@ public class AgentContextRequest {
     @Schema(description = "선택한 Mock Product ID 목록. 추천 가구 크기/productId/variantId/styleTags에 반영됩니다.", example = "[\"desk-01\", \"chair-01\", \"lamp-01\"]")
     private List<String> selectedProductIds;
     @Schema(description = "선호 색감 톤 (선택 항목, 값을 보내지 않으면 반영하지 않습니다). "
-            + "이번 버전의 Product 추천 점수에는 반영되지 않고 저장/응답과 LLM 프롬프트 전달까지만 지원합니다.",
+            + "지원되는 material tag가 있는 Product 추천의 동점 해소 기준으로 반영됩니다.",
             example = "GRAY", nullable = true,
             allowableValues = {"WHITE_IVORY", "BEIGE_SAND", "GRAY", "BROWN_WOOD",
                     "GREEN_OLIVE", "BLUE_NAVY", "PINK_CORAL", "BLACK_DARK"})

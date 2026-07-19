@@ -76,17 +76,17 @@ public class MockProduct {
     // desk 4종만 실제 값을 갖고, 나머지 Product는 기존 생성자를 통해 빈 리스트로
     // 남는다(전체 92종 Catalog 반영은 별도 작업).
     public MockProduct(String productId, String variantId, String type, String name, String brand,
-                       double width, double depth, double height, Integer price,
-                       List<String> styleTags, String imageUrl, String purchaseUrl,
-                       RequiredClearance requiredClearance, List<String> lifestyleTags) {
+                        double width, double depth, double height, Integer price,
+                        List<String> styleTags, String imageUrl, String purchaseUrl,
+                        RequiredClearance requiredClearance, List<String> lifestyleTags) {
         this(productId, variantId, type, name, brand, width, depth, height, price, styleTags, imageUrl,
                 purchaseUrl, requiredClearance, lifestyleTags, List.of());
     }
 
     public MockProduct(String productId, String variantId, String type, String name, String brand,
-                       double width, double depth, double height, Integer price,
-                       List<String> styleTags, String imageUrl, String purchaseUrl,
-                       RequiredClearance requiredClearance, List<String> lifestyleTags, List<String> materials) {
+                        double width, double depth, double height, Integer price,
+                        List<String> styleTags, String imageUrl, String purchaseUrl,
+                        RequiredClearance requiredClearance, List<String> lifestyleTags, List<String> materials) {
         this.productId = productId;
         this.variantId = VariantIdValidator.validateNullable(variantId);
         this.type = type;
@@ -182,6 +182,10 @@ public class MockProduct {
 
     public List<String> getLifestyleTags() {
         return lifestyleTags;
+    }
+
+    public List<String> getMaterialTags() {
+        return materials;
     }
 
     public List<String> getMaterials() {

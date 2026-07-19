@@ -935,7 +935,7 @@ components:
           example: 1
         lifestyleGoal:
           type: string
-          enum: [STUDY_FOCUSED, RELAX_FOCUSED, STORAGE_FOCUSED, WFH_FOCUSED]
+          enum: [STUDY_FOCUSED, RELAX_FOCUSED, STORAGE_FOCUSED, WFH_FOCUSED, HOBBY_FOCUSED]
         designStyle:
           type: array
           items:
