@@ -85,6 +85,81 @@ class DeterministicFeedbackExecutorV2Test {
     }
 
     @Test
+    void selectedCompositeRemoveAndAddChangesOnlyTheSelectedChairAtomically() {
+        List<Furniture> before = List.of(
+                new Furniture("chair-1", "desk_chair", "의자 1", 0.5, 0.5, 0.8,
+                        new Position(1, 1), 0, FurnitureStatus.EXISTING),
+                new Furniture("chair-2", "desk_chair", "의자 2", 0.5, 0.5, 0.8,
+                        new Position(4, 4), 0, FurnitureStatus.EXISTING));
+        Room room = room(6, 6);
+        RuleBasedFeedbackPlanInterpreter interpreter = new RuleBasedFeedbackPlanInterpreter();
+
+        FeedbackPlan noSelection = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room, before, null);
+        FeedbackExecution noSelectionExecution = executor.execute(noSelection, room, before);
+        assertThat(noSelectionExecution.result().applied()).isFalse();
+        assertThat(noSelectionExecution.furniture()).containsExactlyElementsOf(before);
+
+        for (String selectedId : List.of("chair-1", "chair-2")) {
+            FeedbackPlan selected = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room, before, null, selectedId);
+            FeedbackExecution execution = executor.execute(selected, room, before);
+            assertThat(execution.result().operationsApplied()).containsExactly("REMOVE_FURNITURE", "ADD_FURNITURE");
+            assertThat(execution.furniture()).extracting(Furniture::getId).doesNotContain(selectedId);
+            assertThat(execution.furniture()).extracting(Furniture::getId)
+                    .contains(selectedId.equals("chair-1") ? "chair-2" : "chair-1");
+            assertThat(execution.furniture()).filteredOn(item -> "nightstand".equals(item.getType())).hasSize(1);
+        }
+    }
+
+    @Test
+    void parserProducedMoveAndRotatePlanAppliesBothOperations() {
+        Furniture before = new Furniture("bed-1", "bed", "침대", 1.2, 1.8, 0.6,
+                new Position(3, 3), 0, FurnitureStatus.EXISTING);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "침대를 모서리로 옮기고 90도 회전해줘", room(6, 6), List.of(before), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
+
+        assertThat(execution.result().operationsApplied()).containsExactly("MOVE", "ROTATE");
+        assertThat(execution.furniture().getFirst().getRotation()).isEqualTo(90);
+    }
+
+    @Test
+    void moveThenRotateFailureRollsBackAndNeverLeavesPartialSnapshot() {
+        Furniture before = desk("desk-1", 2, 2, 0);
+        FeedbackOperation move = move("op-1", new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL);
+        FeedbackOperation rotateMissingTarget = rotate("op-2", new FeedbackTargetSelector("missing", "desk", ""),
+                FeedbackOrientation.QUARTER_TURN_CW, List.of("op-1"));
+        FeedbackPlan plan = new FeedbackPlan("2.0", FeedbackRequestKind.COMPOSITE, List.of(move, rotateMissingTarget),
+                List.of(), null, "test", FeedbackSource.RULE_BASED, true);
+
+        FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.furniture()).containsExactly(before);
+        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
+                .containsExactly("ATOMIC_ROLLBACK", "TARGET_NOT_FOUND");
+    }
+
+    @Test
+    void moveFailurePreventsSubsequentRotateFromBeingApplied() {
+        Furniture before = desk("desk-1", 2, 2, 0);
+        FeedbackOperation moveMissingTarget = move("op-1", new FeedbackTargetSelector("missing", "desk", ""),
+                FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL);
+        FeedbackOperation rotate = rotate("op-2", new FeedbackTargetSelector("desk-1", "desk", ""),
+                FeedbackOrientation.QUARTER_TURN_CW, List.of("op-1"));
+        FeedbackPlan plan = new FeedbackPlan("2.0", FeedbackRequestKind.COMPOSITE, List.of(moveMissingTarget, rotate),
+                List.of(), null, "test", FeedbackSource.RULE_BASED, true);
+
+        FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.furniture()).containsExactly(before);
+        assertThat(execution.operationResults()).singleElement().satisfies(result ->
+                assertThat(result.reasonCode()).isEqualTo("TARGET_NOT_FOUND"));
+    }
+
+    @Test
     void furnitureIdTakesPriorityWhenMultipleFurnitureShareTheSameType() {
         Furniture first = desk("desk-1", 1, 1, 0);
         Furniture second = desk("desk-2", 4, 4, 0);

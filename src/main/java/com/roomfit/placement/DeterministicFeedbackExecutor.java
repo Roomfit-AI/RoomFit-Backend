@@ -239,7 +239,7 @@ public class DeterministicFeedbackExecutor {
         return bestCandidate(validCandidates)
                 .map(candidate -> OperationAttempt.applied(candidate.snapshot(), candidate.affectedFurnitureId()))
                 .orElseGet(() -> OperationAttempt.failed(boundaryFitAvailable
-                        ? "NO_VALID_SWAP_PLACEMENT" : "NO_VALID_BOUNDARY_PLACEMENT"));
+                        ? "NO_SAFE_SWAP_CANDIDATE" : "NO_VALID_BOUNDARY_PLACEMENT"));
     }
 
     private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
@@ -263,6 +263,9 @@ public class DeterministicFeedbackExecutor {
         FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(item);
         double x = item.getPosition().getX();
         double z = item.getPosition().getZ();
+        if (placement.relation() == FeedbackRelation.IN_CORNER) {
+            return cornerPositions(room, footprint);
+        }
         Position delta = switch (placement.relation()) {
             case LEFT -> new Position(x - distance, z);
             case RIGHT -> new Position(x + distance, z);
@@ -281,6 +284,19 @@ public class DeterministicFeedbackExecutor {
         };
         Position clamped = FurnitureBoundary.clamp(room, delta, footprint).orElse(null);
         return clamped == null || samePosition(delta, clamped) ? List.of(delta) : List.of(delta, clamped);
+    }
+
+    private List<Position> cornerPositions(Room room, FurnitureBoundary.Footprint footprint) {
+        double clearance = FurnitureBoundary.WALL_CLEARANCE_METERS;
+        return List.of(
+                new Position(footprint.effectiveWidth() / 2.0 + clearance,
+                        footprint.effectiveDepth() / 2.0 + clearance),
+                new Position(room.getWidth() - footprint.effectiveWidth() / 2.0 - clearance,
+                        footprint.effectiveDepth() / 2.0 + clearance),
+                new Position(footprint.effectiveWidth() / 2.0 + clearance,
+                        room.getDepth() - footprint.effectiveDepth() / 2.0 - clearance),
+                new Position(room.getWidth() - footprint.effectiveWidth() / 2.0 - clearance,
+                        room.getDepth() - footprint.effectiveDepth() / 2.0 - clearance));
     }
 
     private OperationAttempt rotate(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
@@ -570,7 +586,7 @@ public class DeterministicFeedbackExecutor {
             case "CURRENT_PRODUCT_ALREADY_MATCHES" -> "현재 제품이 이미 요청 조건을 만족해 기존 배치를 유지했습니다.";
             case "INVALID_REPLACE_CONSTRAINTS" -> "제품 교체 조건을 안전하게 해석하지 못해 기존 배치를 유지했습니다.";
             case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾지 못했습니다.";
-            case "NO_VALID_SWAP_PLACEMENT" -> "교체 가구를 놓을 유효한 위치를 찾지 못했습니다.";
+            case "NO_SAFE_SWAP_CANDIDATE" -> "안전하게 배치할 수 있는 교체 후보를 찾지 못했습니다.";
             case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구 전체가 방 안에 들어오는 위치를 찾지 못했습니다.";
             case "ROTATION_OUT_OF_BOUNDS" -> "회전 후 가구가 방 경계를 벗어나 기존 배치를 유지했습니다.";
             case "AMBIGUOUS_TARGET", "AMBIGUOUS_REFERENCE_TARGET", "NEEDS_CLARIFICATION" ->

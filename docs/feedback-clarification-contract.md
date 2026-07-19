@@ -16,7 +16,13 @@ ordinal fallback), never the ID.
 | Ambiguous target | `AMBIGUOUS_TARGET` | `targetFurnitureId` | active matching furniture, max 10 | Send selected `furnitureId` once as `selectedFurnitureId` |
 | Ambiguous reference | `AMBIGUOUS_REFERENCE_TARGET` | `referenceTargetFurnitureId` | active matching reference furniture | Do not send `selectedFurnitureId`; ask for a clearer reference expression |
 | Other target details needed | `NEEDS_CLARIFICATION` | `targetFurnitureId` | may be empty | Do not infer an ID |
-| Product/catalog failure | `NO_MATCHING_PRODUCT`, `NO_RENDERABLE_PRODUCT`, `NO_LARGER_PRODUCT_AVAILABLE`, `NO_SMALLER_PRODUCT_AVAILABLE`, or placement failure | absent | absent | Do not treat as target ambiguity or send `selectedFurnitureId` |
+| Product/catalog failure | `NO_MATCHING_PRODUCT`, `NO_RENDERABLE_PRODUCT`, `NO_SAFE_SWAP_CANDIDATE`, `NO_LARGER_PRODUCT_AVAILABLE`, `NO_SMALLER_PRODUCT_AVAILABLE`, or placement failure | absent | absent | Do not treat as target ambiguity or send `selectedFurnitureId` |
+
+`NO_SAFE_SWAP_CANDIDATE` is emitted only after a target has been resolved and
+same-type replacement products have been considered, but no candidate can be
+placed safely. It is not an ambiguity response; `requiredField` and
+`candidates` remain absent. Size-only candidate exhaustion continues to use
+`NO_LARGER_PRODUCT_AVAILABLE` or `NO_SMALLER_PRODUCT_AVAILABLE`.
 
 ## Layout and operation semantics
 

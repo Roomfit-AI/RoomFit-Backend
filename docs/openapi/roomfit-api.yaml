@@ -447,7 +447,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 사용자 피드백 기반 재추천
-      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 일부 작업만 성공하면 성공한 변경만 새 snapshot으로 저장합니다.
+      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 원자적으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 모든 작업이 성공한 경우에만 새 snapshot을 저장하며, clarification 또는 failure는 source layout을 그대로 반환합니다.
       requestBody:
         required: true
         content:
@@ -1255,14 +1255,17 @@ components:
               $ref: "#/components/schemas/ValidationResult"
     FeedbackRequest:
       type: object
-      description: 사용자 자연어 피드백 기반 재추천 요청
+      description: 사용자 자연어 피드백 기반 재추천 요청. selectedFurnitureId는 AMBIGUOUS_TARGET 후보를 사용자가 명시적으로 선택한 뒤 한 번의 재시도에만 사용한다.
       properties:
         layoutId:
           type: integer
           format: int64
         feedback:
           type: string
-          enum: [책상 더 크게, 수납 늘려줘, 방이 넓어 보이게]
+        selectedFurnitureId:
+          type: string
+          nullable: true
+          description: AMBIGUOUS_TARGET 재시도용 선택된 target furniture id. reference/product ambiguity에는 사용하지 않는다.
     FeedbackCommonResponse:
       allOf:
         - $ref: "#/components/schemas/CommonResponse"

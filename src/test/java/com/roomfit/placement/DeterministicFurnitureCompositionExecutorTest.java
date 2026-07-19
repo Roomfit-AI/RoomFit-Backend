@@ -324,7 +324,7 @@ class DeterministicFurnitureCompositionExecutorTest {
                 room(6, 6), before);
 
         assertThat(execution.result().applied()).isFalse();
-        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_SWAP_PLACEMENT");
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_SAFE_SWAP_CANDIDATE");
         assertThat(execution.furniture()).containsExactlyElementsOf(before);
     }
 

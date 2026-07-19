@@ -127,6 +127,87 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         assertThat(smaller.operations().getFirst().constraints().smallerThanCurrent()).isTrue();
     }
 
+    @Test
+    void selectedChairResolvesWholeRemoveAndAddCompositeWithoutTouchingOtherChair() {
+        List<Furniture> chairs = List.of(
+                furniture("chair-1", "desk_chair", 1, 1),
+                furniture("chair-2", "desk_chair", 4, 4));
+
+        FeedbackPlan noSelection = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room(), chairs, context());
+        FeedbackPlan selected = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room(), chairs, context(), "chair-1");
+
+        assertThat(noSelection.needsClarification()).isTrue();
+        assertThat(noSelection.operations()).isEmpty();
+        assertThat(selected.requestKind()).isEqualTo(FeedbackRequestKind.COMPOSITE);
+        assertThat(selected.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REMOVE_FURNITURE, FeedbackOperationType.ADD_FURNITURE);
+        assertThat(selected.operations().getFirst().target().furnitureId()).isEqualTo("chair-1");
+        assertThat(selected.operations().get(1).dependsOn()).containsExactly("op-1");
+    }
+
+    @Test
+    void repeatedUnselectedCompositeRequestsNeverProduceAnExecutablePlan() {
+        List<Furniture> chairs = List.of(
+                furniture("chair-1", "desk_chair", 1, 1),
+                furniture("chair-2", "desk_chair", 4, 4));
+
+        for (int attempt = 0; attempt < 20; attempt++) {
+            FeedbackPlan plan = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room(), chairs, context());
+            assertThat(plan.needsClarification()).isTrue();
+            assertThat(plan.operations()).isEmpty();
+        }
+    }
+
+    @Test
+    void rejectsMissingOrWrongTypeSelectedFurnitureForCompositeTargetClarification() {
+        List<Furniture> furniture = List.of(
+                furniture("chair-1", "desk_chair", 1, 1),
+                furniture("desk-1", "desk", 4, 4));
+
+        FeedbackPlan missing = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room(), furniture, context(), "missing");
+        FeedbackPlan wrongType = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room(), furniture, context(), "desk-1");
+
+        assertThat(missing.needsClarification()).isTrue();
+        assertThat(missing.operations()).isEmpty();
+        assertThat(wrongType.needsClarification()).isTrue();
+        assertThat(wrongType.operations()).isEmpty();
+    }
+
+    @Test
+    void preservesBothMoveAndRotateOperationsForSupportedCompoundFeedback() {
+        List<Furniture> unique = List.of(furniture("bed-1", "bed", 3, 3));
+
+        for (String feedback : List.of("침대를 모서리로 옮기고 90도 회전해줘",
+                "책상을 창가로 옮기고 180도 회전해줘", "소파를 뒤로 옮기고 시계 방향으로 돌려줘")) {
+            String type = feedback.startsWith("침대") ? "bed" : feedback.startsWith("책상") ? "desk" : "sofa";
+            FeedbackPlan plan = interpreter.interpret(feedback, room(), List.of(furniture(type + "-1", type, 3, 3)), context());
+            assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                    .as(feedback).containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ROTATE);
+            assertThat(plan.operations().get(1).dependsOn()).as(feedback).containsExactly("op-1");
+        }
+    }
+
+    @Test
+    void preservesAllSupportedReplaceAndSwapCompoundOperations() {
+        FeedbackPlan replaceAndMove = interpreter.interpret("책상을 더 큰 제품으로 바꾸고 창가로 옮겨줘", room(),
+                List.of(furniture("desk-1", "desk", 3, 3)), context());
+        FeedbackPlan swapAndMove = interpreter.interpret("책장을 행거로 바꾸고 뒤로 옮겨줘", room(),
+                List.of(furniture("bookshelf-1", "bookshelf", 3, 3)), context());
+
+        assertThat(replaceAndMove.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.REPLACE_PRODUCT, FeedbackOperationType.MOVE);
+        assertThat(swapAndMove.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.SWAP_FURNITURE, FeedbackOperationType.MOVE);
+        assertThat(swapAndMove.operations().get(1).target().furnitureId()).isEqualTo("bookshelf-1");
+    }
+
+    @Test
+    void rejectsUnsupportedCompoundInsteadOfDroppingItsFirstAction() {
+        assertThatThrownBy(() -> interpreter.interpret("침대를 파란색으로 바꾸고 90도 회전해줘", room(),
+                List.of(furniture("bed-1", "bed", 3, 3)), context()))
+                .isInstanceOf(com.roomfit.common.CustomException.class);
+    }
+
     private FeedbackPlan interpret(String feedback) {
         return interpreter.interpret(feedback, room(), List.of(
                 furniture("bed-1", "bed", 1.5, 2),

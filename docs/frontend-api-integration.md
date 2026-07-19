@@ -641,13 +641,16 @@ POST /api/layouts/feedback
 용도
 
 사용자의 자연어 피드백을 바탕으로 기존 배치를 조정하거나 재추천합니다.
-현재 MVP에서는 "책상 더 크게", "수납 늘려줘", "방이 넓어 보이게" 문장을 지원합니다.
+Plan v2 지원 문장은 단일 또는 지원되는 복합 operation으로 해석됩니다. 복합 요청은 모두 성공할 때만 새 layout이 저장됩니다.
 
 Request
 {
   "layoutId": 1,
-  "feedback": "책상 더 크게"
+  "feedback": "의자를 삭제하고 협탁을 추가해줘",
+  "selectedFurnitureId": "chair-1"
 }
+
+`selectedFurnitureId`는 `AMBIGUOUS_TARGET` 후보를 사용자가 선택한 후에만 보냅니다. reference ambiguity나 product failure에는 보내지 않습니다. clarification/failure 응답은 source `layoutId`를 유지하며 새 layout을 만들지 않습니다.
 Response
 {
   "success": true,

@@ -458,7 +458,7 @@ public class LayoutService {
             case "REFERENCE_TARGET_NOT_FOUND" -> "기준 가구를 찾을 수 없습니다.";
             case "NO_RENDERABLE_PRODUCT" -> "렌더링 가능한 제품을 찾을 수 없습니다.";
             case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
-            case "NO_VALID_SWAP_PLACEMENT" -> "교체 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
+            case "NO_SAFE_SWAP_CANDIDATE" -> "안전하게 배치할 수 있는 교체 후보를 찾을 수 없습니다.";
             case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구를 방 경계 안에 배치할 수 없습니다.";
             case "ROTATION_OUT_OF_BOUNDS" -> "회전하면 가구가 방 경계를 벗어납니다.";
             case "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT" ->
