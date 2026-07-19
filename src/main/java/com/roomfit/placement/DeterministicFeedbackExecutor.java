@@ -602,9 +602,13 @@ public class DeterministicFeedbackExecutor {
         if (!validationService.isSafeStandalonePlacement(room, added)) {
             return false;
         }
+        if (FurnitureDomainPolicy.isRug(added)) {
+            return true;
+        }
         FurnitureBoundary.Footprint addedFootprint = FurnitureBoundary.footprint(added);
         return base.stream()
                 .filter(this::active)
+                .filter(existing -> !FurnitureDomainPolicy.isRug(existing))
                 .noneMatch(existing -> overlaps(existing, added, FurnitureBoundary.footprint(existing), addedFootprint));
     }
 

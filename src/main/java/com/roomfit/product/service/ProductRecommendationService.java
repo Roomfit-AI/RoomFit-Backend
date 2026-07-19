@@ -119,8 +119,11 @@ public class ProductRecommendationService {
     }
 
     private boolean fitsInRoom(MockProduct product, Room room) {
-        double requiredWidth = product.getWidth() + product.getRequiredClearance().getSide() * 2;
-        double requiredDepth = product.getDepth() + product.getRequiredClearance().getFront();
+        boolean floorOverlay = "rug".equals(GeneratedFurnitureCatalog.get().normalizeType(product.getType()));
+        double requiredWidth = product.getWidth()
+                + (floorOverlay ? 0 : product.getRequiredClearance().getSide() * 2);
+        double requiredDepth = product.getDepth()
+                + (floorOverlay ? 0 : product.getRequiredClearance().getFront());
         return requiredWidth <= room.getWidth() && requiredDepth <= room.getDepth();
     }
 }

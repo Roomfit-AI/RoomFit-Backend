@@ -33,6 +33,7 @@ public enum ErrorCode {
     ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 배치입니다."),
     LAYOUT_NOT_CONFIRMED(HttpStatus.CONFLICT, "확정된 배치만 편집 Draft로 복제할 수 있습니다."),
     FURNITURE_ADDITION_FAILED(HttpStatus.UNPROCESSABLE_ENTITY, "선택한 추가 가구를 안전하게 배치할 수 없습니다."),
+    FURNITURE_DOMAIN_CONFLICT(HttpStatus.UNPROCESSABLE_ENTITY, "로프트 침대와 일반 책상은 동시에 배치할 수 없습니다."),
     RECOMMENDATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "배치 추천에 실패했습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 처리 중 오류가 발생했습니다.");
 

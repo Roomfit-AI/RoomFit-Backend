@@ -5,6 +5,9 @@ import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
+import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.agent.domain.DesignStyle;
+import com.roomfit.agent.domain.LifestyleGoal;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -86,6 +89,69 @@ class ValidationServiceTest {
         ValidationResult result = validationService.validate(room, List.of(desk, chair));
 
         assertThat(result.isCollisionFree()).isFalse();
+    }
+
+    @Test
+    void rugCanOverlapBedSofaAndDeskWithoutFurnitureCollision() {
+        for (String type : List.of("bed", "sofa", "desk")) {
+            Furniture furniture = furniture(type + "-1", type, 1.2, 1.2, 2.0, 2.0);
+            Furniture rug = furniture("rug-1", "RUG", 1.8, 1.8, 2.0, 2.0);
+
+            assertThat(validationService.validate(room, List.of(furniture, rug)).isCollisionFree())
+                    .as("rug overlapping %s", type)
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void rugDoesNotBlockMovementPathOrReduceCollisionScore() {
+        Furniture rug = furniture("rug-1", "rug", 2.0, 2.0, 1.6, 2.2);
+
+        ValidationResult validation = validationService.validate(room, List.of(rug));
+        AgentContext context = new AgentContext(1L, LifestyleGoal.RELAX_FOCUSED,
+                List.of(DesignStyle.MINIMAL), List.of(), List.of(), List.of(), List.of(), List.of());
+        ScoreSummary score = new ScoreService().calculate(context, List.of(rug), validation);
+
+        assertThat(validation.isPathSecured()).isTrue();
+        assertThat(validation.isCollisionFree()).isTrue();
+        assertThat(score.getCollisionScore()).isEqualTo(100);
+    }
+
+    @Test
+    void rugOutsideRoomBoundaryIsStillRejected() {
+        Furniture rug = furniture("rug-1", "rug", 1.8, 1.8, 0.5, 0.5);
+
+        assertThat(validationService.validate(room, List.of(rug)).isBoundaryValid()).isFalse();
+    }
+
+    @Test
+    void rugDoesNotHideCollisionBetweenTwoOtherFurnitureItems() {
+        Furniture bed = furniture("bed-1", "bed", 1.5, 1.5, 2.0, 2.0);
+        Furniture sofa = furniture("sofa-1", "sofa", 1.5, 1.5, 2.1, 2.0);
+        Furniture rug = furniture("rug-1", "rug", 2.0, 2.0, 2.0, 2.0);
+
+        assertThat(validationService.validate(room, List.of(bed, sofa, rug)).isCollisionFree()).isFalse();
+    }
+
+    @Test
+    void rugIsExcludedFromDoorAndWindowClearanceButStillBoundaryChecked() {
+        Room roomWithOpenings = new Room(null, 3.2, 4.5, 2.4, "meter", List.of(
+                new com.roomfit.room.Opening("door-1", "door", "south", 1.0, 0.9, 2.0, null),
+                new com.roomfit.room.Opening("window-1", "window", "north", 1.0, 1.0, 1.0, 0.8)
+        ), List.of());
+        Furniture rugAtDoor = furniture("rug-door", "rug", 0.8, 0.6, 1.4, 0.55);
+        Furniture rugAtWindow = furniture("rug-window", "rug", 0.8, 0.2, 1.4, 4.15);
+
+        ValidationResult validation = validationService.validate(roomWithOpenings, List.of(rugAtDoor, rugAtWindow));
+
+        assertThat(validation.isBoundaryValid()).isTrue();
+        assertThat(validation.isDoorClearance()).isTrue();
+        assertThat(validation.isWindowClearance()).isTrue();
+    }
+
+    private Furniture furniture(String id, String type, double width, double depth, double x, double z) {
+        return new Furniture(id, type, type, width, depth, 0.5,
+                new Position(x, z), 0, FurnitureStatus.RECOMMENDED);
     }
 
     private Furniture rotatedDeskAt(double z) {

@@ -31,12 +31,15 @@ public class ValidationService {
         List<Furniture> activeFurniture = furniture.stream()
                 .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
                 .toList();
+        List<Furniture> physicalObstacles = activeFurniture.stream()
+                .filter(item -> !FurnitureDomainPolicy.isRug(item))
+                .toList();
 
-        boolean collisionFree = checkCollisionFree(activeFurniture, warnings);
+        boolean collisionFree = checkCollisionFree(physicalObstacles, warnings);
         boolean boundaryValid = checkBoundaryValid(room, activeFurniture, warnings);
-        boolean doorClearance = checkOpeningClearance(room, activeFurniture, "door", warnings);
-        boolean windowClearance = checkOpeningClearance(room, activeFurniture, "window", warnings);
-        boolean pathSecured = checkPathSecured(room, activeFurniture, warnings);
+        boolean doorClearance = checkOpeningClearance(room, physicalObstacles, "door", warnings);
+        boolean windowClearance = checkOpeningClearance(room, physicalObstacles, "window", warnings);
+        boolean pathSecured = checkPathSecured(room, physicalObstacles, warnings);
 
         List<ValidationItem> validationItems = List.of(
                 new ValidationItem("collision", collisionFree, collisionFree ? "가구 충돌 없음" : "가구 충돌 발생"),
@@ -53,7 +56,11 @@ public class ValidationService {
     boolean isSafeStandalonePlacement(Room room, Furniture furniture) {
         List<Furniture> standalone = List.of(furniture);
         List<String> warnings = new ArrayList<>();
-        return checkBoundaryValid(room, standalone, warnings)
+        boolean boundaryValid = checkBoundaryValid(room, standalone, warnings);
+        if (FurnitureDomainPolicy.isRug(furniture)) {
+            return boundaryValid;
+        }
+        return boundaryValid
                 && checkOpeningClearance(room, standalone, "door", warnings)
                 && checkOpeningClearance(room, standalone, "window", warnings)
                 && checkPathSecured(room, standalone, warnings);
