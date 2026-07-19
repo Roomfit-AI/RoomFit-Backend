@@ -21,4 +21,9 @@ class LifestyleGoalTest {
     void toLifestyleTag_mapsRelaxFocusedToRest() {
         assertThat(LifestyleGoal.RELAX_FOCUSED.toLifestyleTag()).isEqualTo("REST");
     }
+
+    @Test
+    void toLifestyleTag_mapsHobbyFocusedToHobbyLeisure() {
+        assertThat(LifestyleGoal.HOBBY_FOCUSED.toLifestyleTag()).isEqualTo("HOBBY_LEISURE");
+    }
 }

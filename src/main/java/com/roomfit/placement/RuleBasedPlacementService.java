@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.agent.domain.LifestyleGoal;
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.service.MockProductService;
@@ -12,6 +13,8 @@ import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -76,8 +79,17 @@ public class RuleBasedPlacementService implements PlacementService {
                         Function.identity(),
                         (first, ignored) -> first));
 
-        List<String> requestedItems = new ArrayList<>(context.getRequiredItems());
-        requestedItems.addAll(context.getOptionalItems());
+        // required는 optional보다 항상 먼저 시도한다 — lifestyleGoal 우선순위는 그
+        // 원칙을 넘어서지 않고, 각 그룹 "안에서만" 더 관련 있는 타입을 앞으로
+        // 당긴다(안정 정렬이라 우선순위가 같은 항목끼리는 사용자가 보낸 원래
+        // 순서를 유지한다). 공간이나 12개 제한 때문에 전부 배치하지 못할 때,
+        // 이 lifestyle과 더 관련된 항목이 먼저 배치를 시도하게 하기 위함이다.
+        List<String> requiredItems = new ArrayList<>(context.getRequiredItems());
+        List<String> optionalItems = new ArrayList<>(context.getOptionalItems());
+        sortByLifestyleRelevance(requiredItems, context.getLifestyleGoal());
+        sortByLifestyleRelevance(optionalItems, context.getLifestyleGoal());
+        List<String> requestedItems = new ArrayList<>(requiredItems);
+        requestedItems.addAll(optionalItems);
         List<UnplacedFurniture> unplaced = new ArrayList<>();
         int placedCount = 0;
         for (int index = 0; index < requestedItems.size(); index++) {
@@ -106,6 +118,16 @@ public class RuleBasedPlacementService implements PlacementService {
                 : "선택한 가구를 안전하게 배치할 공간을 찾지 못했습니다.";
         return new PlacementResult(RecommendationStatus.SUCCESS, recommended, ScoreSummary.defaultSummary(),
                 requestedItems.size(), placedCount, unplaced, outcome, warningCode, message);
+    }
+
+    /**
+     * 사용자가 이미 보낸 항목들의 순서만 재배열한다 — 새 항목을 추가하지 않는다.
+     * 안정 정렬이라 lifestyle 우선순위가 같은(또는 없는) 항목끼리는 원래 순서를
+     * 유지한다.
+     */
+    private void sortByLifestyleRelevance(List<String> itemTypes, LifestyleGoal lifestyleGoal) {
+        itemTypes.sort(Comparator.comparingInt(itemType ->
+                LifestyleFurniturePriority.rank(lifestyleGoal, GeneratedFurnitureCatalog.get().normalizeType(itemType))));
     }
 
     private List<Furniture> midCenturyCollectorRecommendation() {
@@ -189,12 +211,17 @@ public class RuleBasedPlacementService implements PlacementService {
             return new PlacementAttempt(null, null, "NO_RENDERABLE_PRODUCT");
         }
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
-        String lastReason = "NO_VALID_PLACEMENT";
+        // 시도한 모든 후보 위치의 실패 사유를 모아, 가장 흔했던(대표적인) 사유를
+        // 반환한다 — 마지막으로 시도한 위치의 사유만 보면, 후보 20개 중 19개가
+        // 충돌이었어도 우연히 마지막 하나가 경계 실패면 "경계 문제"로 잘못
+        // 보고된다. 빈도가 같으면 validationReason()의 검사 순서(경계 -> 충돌 ->
+        // 문 -> 창문 -> 동선)로 deterministic하게 tie-break한다.
+        Map<String, Integer> reasonCounts = new LinkedHashMap<>();
         for (Position position : candidatePositions(itemType, spec, room, placed)) {
             Furniture prototype = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec, position);
             Position safePosition = FurnitureBoundary.clamp(room, position, prototype).orElse(null);
             if (safePosition == null) {
-                lastReason = "NO_VALID_BOUNDARY_PLACEMENT";
+                reasonCounts.merge("NO_VALID_BOUNDARY_PLACEMENT", 1, Integer::sum);
                 continue;
             }
             Furniture candidate = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec, safePosition);
@@ -203,9 +230,9 @@ public class RuleBasedPlacementService implements PlacementService {
                 placed.add(candidate);
                 return new PlacementAttempt(candidate, product, null);
             }
-            lastReason = validationReason(validation);
+            reasonCounts.merge(validationReason(validation), 1, Integer::sum);
         }
-        return new PlacementAttempt(null, product, lastReason);
+        return new PlacementAttempt(null, product, mostLikelyFailureReason(reasonCounts));
     }
 
     private Furniture createRecommendedFurniture(String id, FurnitureSpec spec, Position position) {
@@ -343,6 +370,23 @@ public class RuleBasedPlacementService implements PlacementService {
         if (!result.isWindowClearance()) return "WINDOW_BLOCKED";
         if (!result.isPathSecured()) return "MOVEMENT_PATH_BLOCKED";
         return "NO_VALID_PLACEMENT";
+    }
+
+    // validationReason()과 동일한 순서 — 빈도가 같을 때 이 순서로 deterministic하게
+    // tie-break한다.
+    private static final List<String> FAILURE_REASON_TIE_BREAK_ORDER = List.of(
+            "NO_VALID_BOUNDARY_PLACEMENT", "COLLISION_DETECTED", "DOOR_BLOCKED",
+            "WINDOW_BLOCKED", "MOVEMENT_PATH_BLOCKED", "NO_VALID_PLACEMENT");
+
+    private String mostLikelyFailureReason(Map<String, Integer> reasonCounts) {
+        if (reasonCounts.isEmpty()) {
+            return "NO_VALID_PLACEMENT";
+        }
+        return reasonCounts.entrySet().stream()
+                .max(Comparator.<Map.Entry<String, Integer>>comparingInt(Map.Entry::getValue)
+                        .thenComparing(entry -> -FAILURE_REASON_TIE_BREAK_ORDER.indexOf(entry.getKey())))
+                .map(Map.Entry::getKey)
+                .orElse("NO_VALID_PLACEMENT");
     }
 
     private UnplacedFurniture unplaced(int index, String type, MockProduct product, String reasonCode) {
