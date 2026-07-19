@@ -305,6 +305,53 @@ class LlmFeedbackPlanInterpreterV2Test {
         assertThat(plan.clarification().question()).contains("어떤 책상");
     }
 
+    @Test
+    void providerConcreteIdsCannotBypassAmbiguousCompositeTargetSafety() {
+        Furniture first = chair("chair-1", 2, 2);
+        Furniture second = chair("chair-2", 4, 2);
+        List<Furniture> chairs = List.of(first, second);
+        java.util.concurrent.atomic.AtomicInteger attempt = new java.util.concurrent.atomic.AtomicInteger();
+        LlmFeedbackPlanInterpreter primary = new LlmFeedbackPlanInterpreter(prompt -> removeAndAddResponse(
+                attempt.getAndIncrement() % 2 == 0 ? "chair-1" : "chair-2"), objectMapper);
+        FallbackFeedbackPlanInterpreter interpreter = new FallbackFeedbackPlanInterpreter(
+                Optional.of(primary), new RuleBasedFeedbackPlanInterpreter());
+        DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
+                new ValidationService(), new com.roomfit.product.repository.MockProductRepository());
+
+        for (int index = 0; index < 20; index++) {
+            FeedbackPlan plan = interpreter.interpret("의자를 삭제하고 협탁을 추가해줘", room(), chairs, context());
+            FeedbackExecution execution = executor.execute(plan, room(), chairs, context());
+
+            assertThat(plan.needsClarification()).isTrue();
+            assertThat(execution.result().applied()).isFalse();
+            assertThat(execution.result().operationsApplied()).isEmpty();
+            assertThat(execution.furniture()).containsExactlyElementsOf(chairs);
+        }
+    }
+
+    @Test
+    void selectedFurnitureIdAllowsOnlyTheSelectedDuplicateFurnitureToChange() {
+        Furniture first = chair("chair-1", 2, 2);
+        Furniture second = chair("chair-2", 4, 2);
+        List<Furniture> chairs = List.of(first, second);
+        LlmFeedbackPlanInterpreter primary = new LlmFeedbackPlanInterpreter(
+                prompt -> removeResponse("chair-2"), objectMapper);
+        FallbackFeedbackPlanInterpreter interpreter = new FallbackFeedbackPlanInterpreter(
+                Optional.of(primary), new RuleBasedFeedbackPlanInterpreter());
+        DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
+                new ValidationService(), new com.roomfit.product.repository.MockProductRepository());
+
+        FeedbackPlan plan = interpreter.interpret("의자를 삭제해줘", room(), chairs, context(), "chair-2");
+        FeedbackExecution execution = executor.execute(plan, room(), chairs, context());
+
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture()).containsExactly(first);
+        assertThat(execution.operationResults()).singleElement().satisfies(result -> {
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.APPLIED);
+            assertThat(result.affectedFurnitureId()).isEqualTo("chair-2");
+        });
+    }
+
     private FeedbackPlan interpret(String feedback, String response) {
         return new LlmFeedbackPlanInterpreter(prompt -> response, objectMapper)
                 .interpret(feedback, room(), List.of(desk()), context());
@@ -351,6 +398,28 @@ class LlmFeedbackPlanInterpreterV2Test {
                 """.formatted(secondId, dependencyJson);
     }
 
+    private String removeResponse(String id) {
+        return """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"REMOVE_FURNITURE",
+                  "target":{"furnitureId":"%s","furnitureType":"desk_chair"},"dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"remove chair"}
+                """.formatted(id);
+    }
+
+    private String removeAndAddResponse(String id) {
+        return """
+                {"version":"2.0","requestKind":"COMPOSITE","operations":[
+                  {"operationId":"op-1","type":"REMOVE_FURNITURE",
+                   "target":{"furnitureId":"%s","furnitureType":"desk_chair"},"dependsOn":[]},
+                  {"operationId":"op-2","type":"ADD_FURNITURE","target":{"furnitureType":"nightstand"},
+                   "placement":{"relation":"NEAR_WALL"},
+                   "productRequirements":{"furnitureType":"nightstand","sizePreference":"ANY","styleKeywords":[]},
+                   "dependsOn":["op-1"]}
+                ],"goals":[],"clarification":null,"reason":"remove and add"}
+                """.formatted(id);
+    }
+
     private Room room() {
         return new Room(null, 6, 6, 2.4, "meter", List.of(), List.of());
     }
@@ -359,6 +428,12 @@ class LlmFeedbackPlanInterpreterV2Test {
         return new Furniture("desk-1", "desk", "컴팩트 책상", 1.2, 0.6, 0.73,
                 new Position(2, 2), 0, FurnitureStatus.RECOMMENDED,
                 "desk-compact-01", List.of("minimal"), "desk-compact");
+    }
+
+    private Furniture chair(String id, double x, double z) {
+        return new Furniture(id, "desk_chair", "의자", 0.5, 0.5, 0.8,
+                new Position(x, z), 0, FurnitureStatus.EXISTING,
+                "desk-chair-basic-01", List.of("minimal"), "desk-chair-basic");
     }
 
     private AgentContext context() {

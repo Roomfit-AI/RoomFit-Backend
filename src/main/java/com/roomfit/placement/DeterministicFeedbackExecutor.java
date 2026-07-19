@@ -86,39 +86,44 @@ public class DeterministicFeedbackExecutor {
         }
 
         List<Furniture> working = new ArrayList<>(original);
-        List<String> applied = new ArrayList<>();
         List<FeedbackOperationExecution> operationResults = new ArrayList<>();
         Set<String> appliedOperationIds = new HashSet<>();
-        String lastFailureReason = null;
 
         for (FeedbackOperation operation : plan.operations()) {
             if (!appliedOperationIds.containsAll(operation.dependsOn())) {
-                lastFailureReason = "DEPENDENCY_NOT_APPLIED";
-                operationResults.add(FeedbackOperationExecution.skipped(operation, lastFailureReason));
-                continue;
+                operationResults.add(FeedbackOperationExecution.skipped(operation, "DEPENDENCY_NOT_APPLIED"));
+                return atomicFailure(original, plan, requested, "DEPENDENCY_NOT_APPLIED", operationResults);
             }
 
             OperationAttempt attempt = applyOperation(operation, room, working, context);
             if (!attempt.applied()) {
-                lastFailureReason = attempt.reasonCode();
                 operationResults.add(FeedbackOperationExecution.failed(operation, attempt.reasonCode()));
-                continue;
+                return atomicFailure(original, plan, requested, attempt.reasonCode(), operationResults);
             }
 
             working = new ArrayList<>(attempt.snapshot());
-            applied.add(operation.type().name());
             appliedOperationIds.add(operation.operationId());
             operationResults.add(FeedbackOperationExecution.applied(operation, attempt.affectedFurnitureId()));
         }
 
-        if (applied.isEmpty()) {
-            String reason = lastFailureReason == null ? "NO_CHANGE" : lastFailureReason;
-            return noChange(original, plan, requested, reason, summaryFor(reason), operationResults);
-        }
         return new FeedbackExecution(working,
                 new FeedbackResult(true, plan.source(), plan.fallbackUsed(),
-                        "적용 가능한 배치 변경을 반영했습니다.", requested, applied, null),
+                        "적용 가능한 배치 변경을 반영했습니다.", requested,
+                        plan.operations().stream().map(operation -> operation.type().name()).toList(), null),
                 operationResults);
+    }
+
+    /** Any failed operation invalidates the whole feedback transaction. */
+    private FeedbackExecution atomicFailure(List<Furniture> original, FeedbackPlan plan, List<String> requested,
+                                            String failureReason,
+                                            List<FeedbackOperationExecution> operationResults) {
+        List<FeedbackOperationExecution> rolledBack = operationResults.stream()
+                .map(result -> result.status() == FeedbackOperationExecution.Status.APPLIED
+                        ? new FeedbackOperationExecution(result.operationId(), result.type(),
+                                FeedbackOperationExecution.Status.FAILED, "ATOMIC_ROLLBACK", null)
+                        : result)
+                .toList();
+        return noChange(original, plan, requested, failureReason, summaryFor(failureReason), rolledBack);
     }
 
     private OperationAttempt applyOperation(FeedbackOperation operation, Room room,

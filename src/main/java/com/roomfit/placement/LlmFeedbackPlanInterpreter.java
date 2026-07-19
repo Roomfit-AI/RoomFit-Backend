@@ -36,13 +36,20 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
+        return interpret(feedback, room, furniture, context, "");
+    }
+
+    @Override
+    public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context,
+                                  String selectedFurnitureId) {
         if (feedback == null || feedback.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         }
+        String selection = selectedFurnitureId == null ? "" : selectedFurnitureId.trim();
 
         String rawResponse;
         try {
-            rawResponse = llmClient.complete(buildPrompt(feedback, room, furniture, context));
+            rawResponse = llmClient.complete(buildPrompt(feedback, room, furniture, context, selection));
         } catch (RuntimeException e) {
             throw new LlmProviderException(e);
         }
@@ -61,12 +68,90 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     false
             );
             planValidator.validate(plan);
+            validateProviderTargets(plan, furniture, feedback, selection);
             return plan;
         } catch (CustomException e) {
             // Invalid provider output is a provider failure. The caller may safely use the
             // existing rule-based interpreter without making a second LLM request.
             throw new LlmProviderException(e);
         }
+    }
+
+    /**
+     * A concrete provider id is only a transport detail, never evidence that
+     * the user selected that furniture.  With duplicate active canonical
+     * types, require an actual user-visible discriminator or an exact UI
+     * selection before the executor can see the operation.
+     */
+    private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture, String feedback,
+                                         String selectedFurnitureId) {
+        for (FeedbackOperation operation : plan.operations()) {
+            if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
+                validateProviderTarget(operation.target(), furniture, feedback, selectedFurnitureId);
+            }
+            if (operation.referenceTarget() != null) {
+                validateProviderTarget(operation.referenceTarget(), furniture, feedback, "");
+            }
+        }
+    }
+
+    private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture, String feedback,
+                                        String selectedFurnitureId) {
+        List<Furniture> active = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .toList();
+        if (!selector.furnitureId().isBlank()) {
+            Furniture matched = active.stream().filter(item -> selector.furnitureId().equals(item.getId()))
+                    .findFirst().orElseThrow(() -> new CustomException(ErrorCode.INVALID_REQUEST_BODY));
+            String matchedType = normalizeFurnitureType(matched.getType());
+            if (!selector.furnitureType().isBlank() && !selector.furnitureType().equals(matchedType)) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            }
+            if (!selectedFurnitureId.isBlank() && !selectedFurnitureId.equals(matched.getId())) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            }
+        }
+
+        String canonicalType = selector.furnitureType();
+        if (canonicalType.isBlank() && !selector.furnitureId().isBlank()) {
+            canonicalType = active.stream().filter(item -> selector.furnitureId().equals(item.getId()))
+                    .map(item -> normalizeFurnitureType(item.getType())).findFirst().orElse("");
+        }
+        String targetType = canonicalType;
+        long sameType = active.stream().map(item -> normalizeFurnitureType(item.getType()))
+                .filter(targetType::equals).count();
+        if (sameType > 1 && selectedFurnitureId.isBlank() && !hasUserDiscriminator(selector, feedback)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+    }
+
+    private boolean hasUserDiscriminator(FeedbackTargetSelector selector, String feedback) {
+        if (feedback == null || feedback.isBlank()) return false;
+        String compact = feedback.replaceAll("\\s+", "").trim().toLowerCase(java.util.Locale.ROOT);
+        if (!selector.labelKeyword().isBlank() && compact.contains(selector.labelKeyword().toLowerCase(java.util.Locale.ROOT))) {
+            return true;
+        }
+        if (selector.ordinal() != null) {
+            return compact.contains(selector.ordinal() + "번째")
+                    || compact.contains(toKoreanOrdinal(selector.ordinal()) + " 번째");
+        }
+        if (selector.locationHint() == null) return false;
+        return switch (selector.locationHint()) {
+            case NEAR_WINDOW -> compact.contains("창가") || compact.contains("창문");
+            case CENTER -> compact.contains("가운데") || compact.contains("중앙");
+            case LARGEST -> compact.contains("가장 큰") || compact.contains("큰 ");
+            case SMALLEST -> compact.contains("가장 작은") || compact.contains("작은 ");
+        };
+    }
+
+    private String toKoreanOrdinal(int ordinal) {
+        return switch (ordinal) {
+            case 1 -> "첫";
+            case 2 -> "두";
+            case 3 -> "세";
+            case 4 -> "네";
+            default -> String.valueOf(ordinal);
+        };
     }
 
     private List<FeedbackOperation> parseOperations(JsonNode node, String feedback) {
@@ -222,9 +307,16 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
     }
 
-    private String buildPrompt(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
+    private String buildPrompt(String feedback, Room room, List<Furniture> furniture, AgentContext context,
+                               String selectedFurnitureId) {
+        String activeSelectionId = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .map(Furniture::getId)
+                .filter(selectedFurnitureId::equals)
+                .findFirst().orElse("");
         Map<String, Object> payload = Map.of(
                 "feedback", feedback,
+                "selectedFurnitureId", activeSelectionId,
                 "room", Map.of("width", room.getWidth(), "depth", room.getDepth(), "height", room.getHeight(),
                         "openings", room.getOpenings().stream().map(this::opening).toList()),
                 "furniture", furniture.stream()

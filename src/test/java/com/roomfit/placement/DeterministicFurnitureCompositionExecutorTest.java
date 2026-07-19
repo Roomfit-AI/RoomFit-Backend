@@ -347,7 +347,7 @@ class DeterministicFurnitureCompositionExecutorTest {
     }
 
     @Test
-    void failedDependencyIsSkippedAndInternalOperationResultsKeepReasons() {
+    void failedFirstOperationStopsTheCompositeBeforeAnyDependentMutation() {
         DeterministicFeedbackExecutor executor = executor(List.of(product("lamp-01", null, "lamp", "조명",
                 0.2, 0.2, 1.0, List.of())));
         FeedbackOperation missingRemove = remove("op-1", new FeedbackTargetSelector("", "sofa", ""));
@@ -358,14 +358,15 @@ class DeterministicFurnitureCompositionExecutorTest {
 
         FeedbackExecution execution = executor.execute(composite(missingRemove, dependentAdd), room(6, 6), List.of());
 
-        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::status)
-                .containsExactly(FeedbackOperationExecution.Status.FAILED, FeedbackOperationExecution.Status.SKIPPED);
-        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
-                .containsExactly("TARGET_NOT_FOUND", "DEPENDENCY_NOT_APPLIED");
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.operationResults()).singleElement().satisfies(result -> {
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+            assertThat(result.reasonCode()).isEqualTo("TARGET_NOT_FOUND");
+        });
     }
 
     @Test
-    void independentSuccessIsKeptWhenLaterOperationFails() {
+    void laterFailureRollsBackAnEarlierSuccessfulOperation() {
         DeterministicFeedbackExecutor executor = executor(List.of());
         Furniture chair = furniture("chair-1", "chair", "의자", 0.5, 0.5, 0.8, 2, 2, 0);
         FeedbackOperation removeChair = remove("op-1", new FeedbackTargetSelector("chair-1", "", ""));
@@ -375,11 +376,13 @@ class DeterministicFurnitureCompositionExecutorTest {
         FeedbackExecution execution = executor.execute(composite(removeChair, removeMissingSofa),
                 room(6, 6), List.of(chair));
 
-        assertThat(execution.result().applied()).isTrue();
-        assertThat(execution.result().operationsApplied()).containsExactly("REMOVE_FURNITURE");
-        assertThat(execution.furniture()).isEmpty();
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().operationsApplied()).isEmpty();
+        assertThat(execution.furniture()).containsExactly(chair);
         assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::status)
-                .containsExactly(FeedbackOperationExecution.Status.APPLIED, FeedbackOperationExecution.Status.FAILED);
+                .containsExactly(FeedbackOperationExecution.Status.FAILED, FeedbackOperationExecution.Status.FAILED);
+        assertThat(execution.operationResults()).extracting(FeedbackOperationExecution::reasonCode)
+                .containsExactly("ATOMIC_ROLLBACK", "TARGET_NOT_FOUND");
     }
 
     private DeterministicFeedbackExecutor executor(List<MockProduct> products) {

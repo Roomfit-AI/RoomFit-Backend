@@ -283,7 +283,8 @@ public class LayoutService {
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
         Room room = roomAccessService.findWritableRoom(baseLayout.getRoomId());
 
-        FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context);
+        FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context,
+                request.getSelectedFurnitureId());
         FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
         furnitureDomainPolicy.validateFinalState(execution.furniture());
         ValidationResult validationResult = validationService.validate(room, execution.furniture());

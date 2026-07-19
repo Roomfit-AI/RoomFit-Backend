@@ -3,6 +3,7 @@ package com.roomfit.placement;
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Room;
@@ -17,7 +18,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
 
     private static final Map<String, String> FURNITURE_TERMS = furnitureTerms();
     private static final List<String> ADD_TERMS = List.of("추가", "놓아", "놓아줘", "놓고", "놓기", "넣어", "배치");
-    private static final List<String> REMOVE_TERMS = List.of("제거", "빼줘", "빼고", "없애", "치워");
+    private static final List<String> REMOVE_TERMS = List.of("제거", "삭제", "빼줘", "빼고", "없애", "치워");
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
@@ -33,6 +34,10 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             }
 
             List<FurnitureMention> mentions = mentions(normalized);
+            if (containsAny(normalized, REMOVE_TERMS) && containsAny(normalized, ADD_TERMS)
+                    && !normalized.contains("빼고") && !normalized.contains("대신") && mentions.size() >= 2) {
+                return clarification("삭제할 가구를 하나로 특정해주세요.", mentions.getFirst().type());
+            }
             if (isClearSwapRequest(normalized) && mentions.size() >= 2) {
                 return direct(normalized, swapOperation(normalized, mentions));
             }
@@ -51,6 +56,50 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
                     FeedbackSource.RULE_BASED, true);
         }
         throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
+    }
+
+    @Override
+    public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context,
+                                  String selectedFurnitureId) {
+        FeedbackPlan plan = interpret(feedback, room, furniture, context);
+        if (selectedFurnitureId == null || selectedFurnitureId.isBlank() || plan.needsClarification()) {
+            return plan;
+        }
+        Furniture selected = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> selectedFurnitureId.equals(item.getId()))
+                .findFirst().orElse(null);
+        if (selected == null) {
+            return clarification("선택한 가구를 현재 배치에서 찾을 수 없습니다.", "");
+        }
+        String selectedType = GeneratedFurnitureCatalog.get().normalizeType(selected.getType());
+        boolean mismatchedSelection = plan.operations().stream().anyMatch(operation -> {
+            FeedbackTargetSelector target = operation.target();
+            return operation.type() != FeedbackOperationType.ADD_FURNITURE && target.furnitureId().isBlank()
+                    && target.labelKeyword().isBlank() && target.locationHint() == null && target.ordinal() == null
+                    && !selectedType.equals(target.furnitureType());
+        });
+        if (mismatchedSelection) {
+            return clarification("선택한 가구와 요청한 가구 종류가 다릅니다.", "");
+        }
+        List<FeedbackOperation> operations = plan.operations().stream().map(operation -> {
+            FeedbackTargetSelector target = operation.target();
+            boolean genericExistingTarget = operation.type() != FeedbackOperationType.ADD_FURNITURE
+                    && target.furnitureId().isBlank() && target.labelKeyword().isBlank()
+                    && target.locationHint() == null && target.ordinal() == null;
+            if (!genericExistingTarget) return operation;
+            return new FeedbackOperation(operation.operationId(), operation.type(),
+                    new FeedbackTargetSelector(selected.getId(), selectedType, ""), operation.referenceTarget(),
+                    operation.placement(), operation.constraints(), operation.productRequirements(),
+                    operation.replacementRequirements(), operation.dependsOn());
+        }).toList();
+        return new FeedbackPlan(plan.version(), plan.requestKind(), operations, plan.goals(), plan.clarification(),
+                plan.reason(), plan.source(), plan.fallbackUsed());
+    }
+
+    private FeedbackPlan clarification(String question, String type) {
+        return new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION, List.of(), List.of(),
+                new FeedbackClarification(question, type), question, FeedbackSource.RULE_BASED, true);
     }
 
     private FeedbackOperation legacyDeskOperation(String feedback, List<Furniture> furniture) {
