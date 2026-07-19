@@ -11,7 +11,7 @@ import java.util.Set;
 
 public class FeedbackPlanValidator {
 
-    private static final int MAX_OPERATIONS = 4;
+    static final int MAX_FEEDBACK_OPERATIONS = 4;
     private static final Set<FeedbackRelation> MOVE_RELATIONS = Set.of(
             FeedbackRelation.LEFT, FeedbackRelation.RIGHT, FeedbackRelation.FORWARD,
             FeedbackRelation.BACKWARD, FeedbackRelation.NEAR_WINDOW, FeedbackRelation.NEAR_WALL,
@@ -33,9 +33,13 @@ public class FeedbackPlanValidator {
     }
 
     public void validate(FeedbackPlan plan) {
+        validate(plan, MAX_FEEDBACK_OPERATIONS);
+    }
+
+    public void validate(FeedbackPlan plan, int maxOperations) {
         require(plan != null && "2.0".equals(plan.version()));
         require(plan.requestKind() != null);
-        require(plan.operations().size() <= MAX_OPERATIONS);
+        require(maxOperations > 0 && plan.operations().size() <= maxOperations);
         require(plan.goals().isEmpty());
 
         switch (plan.requestKind()) {

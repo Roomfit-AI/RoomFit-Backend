@@ -12,7 +12,7 @@ import java.util.List;
 
 final class FeedbackPlacementCandidateGenerator {
 
-    static final int MAX_POSITIONS_PER_PRODUCT = 8;
+    static final int MAX_POSITIONS_PER_PRODUCT = 16;
     private static final int MAX_SWAP_POSITIONS_PER_PRODUCT = 12;
     private static final double FURNITURE_GAP = 0.1;
     private static final double OPENING_CLEARANCE_DEPTH = 0.45;
@@ -116,13 +116,20 @@ final class FeedbackPlacementCandidateGenerator {
     private List<Position> nearWallPositions(Room room, FurnitureBoundary.Footprint footprint) {
         double halfWidth = footprint.effectiveWidth() / 2.0;
         double halfDepth = footprint.effectiveDepth() / 2.0;
+        double quarterWidth = room.getWidth() / 4.0;
         return List.of(
-                new Position(halfWidth + FurnitureBoundary.WALL_CLEARANCE_METERS, room.getDepth() / 2.0),
-                new Position(room.getWidth() - halfWidth - FurnitureBoundary.WALL_CLEARANCE_METERS,
-                        room.getDepth() / 2.0),
+                new Position(quarterWidth, halfDepth + FurnitureBoundary.WALL_CLEARANCE_METERS),
                 new Position(room.getWidth() / 2.0, halfDepth + FurnitureBoundary.WALL_CLEARANCE_METERS),
+                new Position(room.getWidth() - quarterWidth, halfDepth + FurnitureBoundary.WALL_CLEARANCE_METERS),
+                new Position(quarterWidth, room.getDepth() - halfDepth - FurnitureBoundary.WALL_CLEARANCE_METERS),
                 new Position(room.getWidth() / 2.0,
-                        room.getDepth() - halfDepth - FurnitureBoundary.WALL_CLEARANCE_METERS)
+                        room.getDepth() - halfDepth - FurnitureBoundary.WALL_CLEARANCE_METERS),
+                new Position(room.getWidth() - quarterWidth,
+                        room.getDepth() - halfDepth - FurnitureBoundary.WALL_CLEARANCE_METERS),
+                new Position(halfWidth + FurnitureBoundary.WALL_CLEARANCE_METERS,
+                        room.getDepth() / 2.0),
+                new Position(room.getWidth() - halfWidth - FurnitureBoundary.WALL_CLEARANCE_METERS,
+                        room.getDepth() / 2.0)
         );
     }
 
