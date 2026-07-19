@@ -43,7 +43,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (feedback == null || feedback.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         }
-        selectedFurnitureId = selectedFurnitureId == null ? "" : selectedFurnitureId;
+        selectedFurnitureId = selectedFurnitureId == null ? "" : selectedFurnitureId.trim();
 
         String rawResponse;
         try {

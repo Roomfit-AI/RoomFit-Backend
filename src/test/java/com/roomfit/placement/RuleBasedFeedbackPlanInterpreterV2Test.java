@@ -238,6 +238,46 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void selectedFurnitureIdResolvesOnlyAnActiveMatchingOperationTarget() {
+        Furniture first = furniture("chair-1", "desk_chair", 1, 1);
+        Furniture second = furniture("chair-2", "desk_chair", 3, 3);
+        Furniture sofa = furniture("sofa-1", "sofa", 5, 3);
+        Furniture deleted = new Furniture("chair-deleted", "desk_chair", "deleted", 0.8, 0.5, 0.8,
+                new Position(4, 2), 0, FurnitureStatus.DELETED);
+        List<Furniture> furniture = List.of(first, second, sofa, deleted);
+
+        FeedbackPlan firstMove = interpreter.interpret("의자를 왼쪽으로 옮겨줘", room(), furniture, context(), "chair-1");
+        FeedbackPlan secondRemove = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "chair-2");
+        FeedbackPlan missing = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "missing");
+        FeedbackPlan inactive = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "chair-deleted");
+        FeedbackPlan wrongType = interpreter.interpret("의자를 삭제해줘", room(), furniture, context(), "sofa-1");
+
+        assertThat(firstMove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-1"));
+        assertThat(secondRemove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.target().furnitureId()).isEqualTo("chair-2"));
+        assertThat(missing.needsClarification()).isTrue();
+        assertThat(inactive.needsClarification()).isTrue();
+        assertThat(wrongType.needsClarification()).isTrue();
+        assertThat(missing.operations()).isEmpty();
+        assertThat(inactive.operations()).isEmpty();
+        assertThat(wrongType.operations()).isEmpty();
+    }
+
+    @Test
+    void selectedFurnitureIdNeverResolvesReferenceAmbiguity() {
+        Furniture chair = furniture("chair-1", "desk_chair", 1, 1);
+        Furniture firstDesk = furniture("desk-1", "desk", 3, 2);
+        Furniture secondDesk = furniture("desk-2", "desk", 5, 2);
+
+        FeedbackPlan plan = interpreter.interpret("의자를 책상 옆으로 옮겨줘", room(),
+                List.of(chair, firstDesk, secondDesk), context(), "chair-1");
+
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.operations()).isEmpty();
+    }
+
+    @Test
     void clarifiesWhenSeveralFurnitureTypesAreMovedWithoutSeparateTargets() {
         Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
         Furniture desk = furniture("desk-1", "desk", 4, 2);
