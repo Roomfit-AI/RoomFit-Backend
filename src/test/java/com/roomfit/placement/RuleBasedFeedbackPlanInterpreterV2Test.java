@@ -205,6 +205,17 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void clarifiesWhenSeveralFurnitureTypesAreMovedWithoutSeparateTargets() {
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+        Furniture desk = furniture("desk-1", "desk", 4, 2);
+
+        FeedbackPlan plan = interpreter.interpret("의자와 책상을 옮겨줘", room(), List.of(chair, desk), context());
+
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.operations()).isEmpty();
+    }
+
+    @Test
     void mapsKnownToneAndMaterialTermsToActualCatalogMetadataKeywords() {
         Furniture drawer = furniture("drawer-1", "drawer_chest", 2, 2);
         Furniture chair = furniture("chair-1", "desk_chair", 4, 2);

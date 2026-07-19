@@ -500,21 +500,30 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture, String selectedFurnitureId,
                                          String feedback) {
-        for (FeedbackOperation operation : plan.operations()) {
-            if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
-                validateProviderTarget(operation.target(), furniture, selectedFurnitureId, feedback, true);
+        List<CanonicalMention> mentions = canonicalMentions(feedback);
+        for (int index = 0; index < plan.operations().size(); index++) {
+            FeedbackOperation operation = plan.operations().get(index);
+            String expectedTargetType = expectedOperationTargetType(plan, index, mentions, furniture, selectedFurnitureId,
+                    feedback);
+            if (expectedTargetType.isBlank()) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
             }
+            validateProviderTarget(operation.target(), furniture, selectedFurnitureId, feedback, true, expectedTargetType);
             if (operation.referenceTarget() != null) {
-                validateProviderTarget(operation.referenceTarget(), furniture, selectedFurnitureId, feedback, false);
+                String expectedReferenceType = expectedReferenceTargetType(operation, mentions, furniture, selectedFurnitureId);
+                if (expectedReferenceType.isBlank()) {
+                    throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+                }
+                validateProviderTarget(operation.referenceTarget(), furniture, selectedFurnitureId, feedback, false,
+                        expectedReferenceType);
             }
         }
     }
 
     private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture,
-                                        String selectedFurnitureId, String feedback, boolean isOperationTarget) {
-        String requestedType = isOperationTarget
-                ? requestedCanonicalType(feedback, furniture, selectedFurnitureId) : "";
-        if (!requestedType.isBlank() && !requestedType.equals(selector.furnitureType())) {
+                                        String selectedFurnitureId, String feedback, boolean isOperationTarget,
+                                        String expectedType) {
+        if (!expectedType.equals(selector.furnitureType())) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
         // A type-only selector remains valid: the deterministic resolver already
@@ -570,16 +579,110 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     .map(item -> FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()))
                     .findFirst().orElse("");
         }
-        if (feedback == null || feedback.isBlank()) {
+        List<CanonicalMention> mentions = canonicalMentions(feedback);
+        return mentions.size() == 1 ? mentions.getFirst().type() : "";
+    }
+
+    private String expectedOperationTargetType(FeedbackPlan plan, int operationIndex,
+                                               List<CanonicalMention> mentions, List<Furniture> furniture,
+                                               String selectedFurnitureId, String feedback) {
+        FeedbackOperation operation = plan.operations().get(operationIndex);
+        String selectedType = selectedCanonicalType(furniture, selectedFurnitureId);
+        if (operation.type() != FeedbackOperationType.ADD_FURNITURE && !selectedType.isBlank()) {
+            return selectedType;
+        }
+        if (mentions.size() == 1) {
+            return mentions.getFirst().type();
+        }
+        if (mentions.isEmpty() && operation.type() == FeedbackOperationType.SWAP_FURNITURE
+                && feedback.contains("수납장") && FeedbackMetadataKeywordNormalizer.containsMetadataRequest(feedback)) {
+            return "drawer_chest";
+        }
+        if (isReferenceRelation(operation) && mentions.size() == 2) {
+            return operation.type() == FeedbackOperationType.ADD_FURNITURE
+                    ? mentions.get(1).type() : mentions.getFirst().type();
+        }
+        if (plan.operations().size() > 1 && mentions.size() == plan.operations().size()) {
+            return mentions.get(operationIndex).type();
+        }
+        return "";
+    }
+
+    private String expectedReferenceTargetType(FeedbackOperation operation, List<CanonicalMention> mentions,
+                                               List<Furniture> furniture, String selectedFurnitureId) {
+        if (!isReferenceRelation(operation)) {
             return "";
         }
-        String compactFeedback = feedback.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
-        List<String> mentionedTypes = FeedbackVocabularyNormalizer.aliasesByLength().stream()
-                .filter(entry -> compactFeedback.contains(entry.getKey().replace("_", "")))
-                .map(java.util.Map.Entry::getValue)
-                .distinct()
-                .toList();
-        return mentionedTypes.size() == 1 ? mentionedTypes.getFirst() : "";
+        String selectedType = selectedCanonicalType(furniture, selectedFurnitureId);
+        if (!selectedType.isBlank()) {
+            if (mentions.size() == 1 && !selectedType.equals(mentions.getFirst().type())) {
+                return mentions.getFirst().type();
+            }
+            if (mentions.size() == 2) {
+                return mentions.stream().map(CanonicalMention::type)
+                        .filter(type -> !selectedType.equals(type)).distinct()
+                        .reduce((first, second) -> "").orElse("");
+            }
+            return "";
+        }
+        if (mentions.size() != 2) {
+            return "";
+        }
+        return operation.type() == FeedbackOperationType.ADD_FURNITURE
+                ? mentions.getFirst().type() : mentions.get(1).type();
+    }
+
+    private boolean isReferenceRelation(FeedbackOperation operation) {
+        if (operation.placement() == null) {
+            return false;
+        }
+        FeedbackRelation relation = operation.placement().relation();
+        return relation == FeedbackRelation.NEXT_TO || relation == FeedbackRelation.LEFT_OF
+                || relation == FeedbackRelation.RIGHT_OF;
+    }
+
+    private String selectedCanonicalType(List<Furniture> furniture, String selectedFurnitureId) {
+        if (selectedFurnitureId == null || selectedFurnitureId.isBlank()) {
+            return "";
+        }
+        return furniture.stream().filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> selectedFurnitureId.equals(item.getId()))
+                .map(item -> FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()))
+                .findFirst().orElse("");
+    }
+
+    private List<CanonicalMention> canonicalMentions(String feedback) {
+        if (feedback == null || feedback.isBlank()) {
+            return List.of();
+        }
+        String compact = feedback.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        List<CanonicalMention> found = new ArrayList<>();
+        for (Map.Entry<String, String> alias : FeedbackVocabularyNormalizer.aliasesByLength()) {
+            String term = alias.getKey().replace("_", "");
+            int from = 0;
+            while (from < compact.length()) {
+                int index = compact.indexOf(term, from);
+                if (index < 0) {
+                    break;
+                }
+                found.add(new CanonicalMention(alias.getValue(), index, term.length()));
+                from = index + term.length();
+            }
+        }
+        found.sort(java.util.Comparator.comparingInt(CanonicalMention::index)
+                .thenComparing(java.util.Comparator.comparingInt(CanonicalMention::length).reversed()));
+        List<CanonicalMention> nonOverlapping = new ArrayList<>();
+        int end = -1;
+        for (CanonicalMention mention : found) {
+            if (mention.index() >= end) {
+                nonOverlapping.add(mention);
+                end = mention.index() + mention.length();
+            }
+        }
+        return nonOverlapping;
+    }
+
+    private record CanonicalMention(String type, int index, int length) {
     }
 
     private Double optionalNumber(JsonNode node, String field) {

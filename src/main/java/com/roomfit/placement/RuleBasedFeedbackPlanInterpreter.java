@@ -109,6 +109,9 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         if (actionIntent == FeedbackActionIntentResolver.ActionIntent.MOVE
                 || (placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
+            if (mentions.size() > 1 && !containsAny(clause, List.of("옆", "근처", "가까이"))) {
+                throw new ClarificationRequired("각 가구의 이동 위치를 구분해서 알려주세요.", "");
+            }
             return moveOperation(operationId, clause, mentions, furniture);
         }
         if (placementExpression && activeCount > 1) {
