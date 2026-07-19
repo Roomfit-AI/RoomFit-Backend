@@ -567,10 +567,6 @@ public class RuleBasedPlacementService implements PlacementService {
         return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 
-    private boolean fitsInRoom(Room room, Furniture candidate) {
-        return FurnitureBoundary.isInside(room, candidate);
-    }
-
     private boolean supportedType(String type) {
         return "storage".equals(type) || GeneratedFurnitureCatalog.get().products().stream()
                 .anyMatch(product -> type.equals(product.getType()));
@@ -620,22 +616,6 @@ public class RuleBasedPlacementService implements PlacementService {
         Set<String> ids = furniture.stream().map(Furniture::getId).collect(Collectors.toSet());
         while (ids.contains(prefix + sequence)) sequence++;
         return prefix + sequence;
-    }
-
-    private boolean doesNotCollide(List<Furniture> placed, Furniture candidate) {
-        if (FurnitureDomainPolicy.isRug(candidate)) {
-            return true;
-        }
-        Rect candidateRect = Rect.from(candidate);
-        return placed.stream()
-                .filter(this::isCollisionTarget)
-                .map(Rect::from)
-                .noneMatch(candidateRect::overlaps);
-    }
-
-    private boolean isCollisionTarget(Furniture furniture) {
-        return furniture.getStatus() != FurnitureStatus.DELETED
-                && !FurnitureDomainPolicy.isRug(furniture);
     }
 
     private Furniture copyFurniture(Furniture furniture) {
@@ -721,23 +701,5 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private record PlacementAttempt(Furniture furniture, MockProduct product, String reasonCode) {
-    }
-
-    private record Rect(double minX, double maxX, double minZ, double maxZ) {
-
-        private static Rect from(Furniture furniture) {
-            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(furniture);
-            return new Rect(
-                    furniture.getPosition().getX() + footprint.minX(),
-                    furniture.getPosition().getX() + footprint.maxX(),
-                    furniture.getPosition().getZ() + footprint.minZ(),
-                    furniture.getPosition().getZ() + footprint.maxZ()
-            );
-        }
-
-        private boolean overlaps(Rect other) {
-            return minX < other.maxX && maxX > other.minX
-                    && minZ < other.maxZ && maxZ > other.minZ;
-        }
     }
 }

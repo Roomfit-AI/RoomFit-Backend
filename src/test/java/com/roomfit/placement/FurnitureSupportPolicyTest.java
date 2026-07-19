@@ -36,6 +36,15 @@ class FurnitureSupportPolicyTest {
     }
 
     @Test
+    void rotatedAabbContainmentWithoutPolygonContainmentIsNotStrictStack() {
+        Furniture desk = furniture("desk", 2.0, 1.0, 0.75, 2.0, 2.0, 45);
+        Furniture monitor = furniture("monitor", 1.4, 1.4, 0.35, 2.0, 2.0, 0);
+
+        assertThat(FurnitureSupportPolicy.isStrictStack(desk, monitor)).isFalse();
+        assertThat(FurnitureSupportPolicy.isStrictStack(monitor, desk)).isFalse();
+    }
+
+    @Test
     void unsupportedTypePairIsNotStrictStack() {
         Furniture desk = furniture("desk", 1.2, 0.7, 0.75, 2.0, 2.0, 0);
         Furniture tv = furniture("tv", 0.9, 0.2, 0.7, 2.0, 2.0, 0);

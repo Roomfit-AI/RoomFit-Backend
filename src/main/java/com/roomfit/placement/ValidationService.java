@@ -26,6 +26,7 @@ public class ValidationService {
     private static final double DOOR_SIDE_MARGIN = 0.1;
     private static final double WINDOW_CLEARANCE_DEPTH = 0.4;
     private static final double WINDOW_SIDE_MARGIN = 0.1;
+    private static final double WINDOW_ATTACHMENT_EPSILON = 1.0e-6;
 
     public ValidationResult validate(Room room, List<Furniture> furniture) {
         List<String> warnings = new ArrayList<>();
@@ -103,8 +104,7 @@ public class ValidationService {
 
             Rect clearance = clearanceRect(room, opening, openingType);
             for (Furniture item : furniture) {
-                if ("window".equals(openingType)
-                        && GeneratedFurnitureCatalog.get().sameType("curtain_blind", item.getType())) {
+                if ("window".equals(openingType) && isAttachedWindowTreatment(room, opening, item)) {
                     continue;
                 }
                 if ("window".equals(openingType) && item.getHeight() < windowSillHeight(opening)) {
@@ -117,6 +117,52 @@ public class ValidationService {
             }
         }
         return true;
+    }
+
+    private boolean isAttachedWindowTreatment(Room room, Opening opening, Furniture item) {
+        if (!GeneratedFurnitureCatalog.get().sameType("curtain_blind", item.getType())) {
+            return false;
+        }
+        FurnitureBoundary.UsableBounds usable = FurnitureBoundary.usableBounds(room).orElse(null);
+        if (usable == null) return false;
+        FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(item);
+        double openingCenter = opening.getOffset() + opening.getWidth() / 2.0;
+        return switch (opening.getWall()) {
+            case "south" -> cardinalRotation(item, 0)
+                    && near(item.getPosition().getZ() + footprint.minZ(), usable.minZ())
+                    && alignedSpan(item.getPosition().getX(), openingCenter,
+                    item.getPosition().getX() + footprint.minX(), item.getPosition().getX() + footprint.maxX(), opening);
+            case "east" -> cardinalRotation(item, 90)
+                    && near(item.getPosition().getX() + footprint.maxX(), usable.maxX())
+                    && alignedSpan(item.getPosition().getZ(), openingCenter,
+                    item.getPosition().getZ() + footprint.minZ(), item.getPosition().getZ() + footprint.maxZ(), opening);
+            case "north" -> cardinalRotation(item, 180)
+                    && near(item.getPosition().getZ() + footprint.maxZ(), usable.maxZ())
+                    && alignedSpan(item.getPosition().getX(), openingCenter,
+                    item.getPosition().getX() + footprint.minX(), item.getPosition().getX() + footprint.maxX(), opening);
+            case "west" -> cardinalRotation(item, 270)
+                    && near(item.getPosition().getX() + footprint.minX(), usable.minX())
+                    && alignedSpan(item.getPosition().getZ(), openingCenter,
+                    item.getPosition().getZ() + footprint.minZ(), item.getPosition().getZ() + footprint.maxZ(), opening);
+            default -> false;
+        };
+    }
+
+    private boolean alignedSpan(double itemCenter, double openingCenter,
+                                double itemMin, double itemMax, Opening opening) {
+        return near(itemCenter, openingCenter)
+                && itemMax >= opening.getOffset() - WINDOW_ATTACHMENT_EPSILON
+                && itemMin <= opening.getOffset() + opening.getWidth() + WINDOW_ATTACHMENT_EPSILON;
+    }
+
+    private boolean cardinalRotation(Furniture item, double expected) {
+        double normalized = item.getRotation() % 360.0;
+        if (normalized < 0) normalized += 360.0;
+        return near(normalized, expected);
+    }
+
+    private boolean near(double first, double second) {
+        return Math.abs(first - second) <= WINDOW_ATTACHMENT_EPSILON;
     }
 
     private boolean checkPathSecured(Room room, List<Furniture> furniture, List<String> warnings) {
