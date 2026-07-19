@@ -182,6 +182,35 @@ class DeterministicFeedbackExecutorV2Test {
         assertThat(execution.furniture()).containsExactly(before);
     }
 
+    @Test
+    void furnitureAdditionPathAllowsCanonicalRugToOverlapExistingFurniture() {
+        Furniture bed = oversizedBedCoveringCandidateArea();
+        FeedbackOperation addRug = add("op-1", "rug");
+
+        FeedbackExecution execution = executor.execute(direct(addRug), room(6, 6), List.of(bed), null,
+                FurnitureAdditionPolicy.MAX_NEW_ADDITIONS);
+
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture()).anyMatch(FurnitureDomainPolicy::isRug);
+        assertThat(new ValidationService().validate(room(6, 6), execution.furniture()).isCollisionFree()).isTrue();
+    }
+
+    @Test
+    void naturalLanguageFeedbackPathUsesTheSameRugOverlayPolicy() {
+        Furniture bed = oversizedBedCoveringCandidateArea();
+        Room room = room(6, 6);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "러그를 하나 추가해줘", room, List.of(bed), null);
+
+        FeedbackExecution execution = executor.execute(plan, room, List.of(bed), null);
+
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.ADD_FURNITURE);
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture()).anyMatch(FurnitureDomainPolicy::isRug);
+        assertThat(new ValidationService().validate(room, execution.furniture()).isCollisionFree()).isTrue();
+    }
+
     private FeedbackPlan direct(FeedbackOperation operation) {
         return new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(operation), List.of(), null,
                 "test", FeedbackSource.LLM, false);
@@ -197,6 +226,19 @@ class DeterministicFeedbackExecutorV2Test {
                                      FeedbackOrientation orientation, List<String> dependsOn) {
         return new FeedbackOperation(operationId, FeedbackOperationType.ROTATE, target,
                 new FeedbackPlacement(null, null, orientation), null, dependsOn);
+    }
+
+    private FeedbackOperation add(String operationId, String type) {
+        return new FeedbackOperation(operationId, FeedbackOperationType.ADD_FURNITURE,
+                new FeedbackTargetSelector("", type, ""), null,
+                new FeedbackPlacement(FeedbackRelation.NEAR_WALL, null, null, null), null,
+                new FeedbackProductRequirements(type, FeedbackSizePreference.ANY, false, List.of()),
+                null, List.of());
+    }
+
+    private Furniture oversizedBedCoveringCandidateArea() {
+        return new Furniture("bed-1", "bed", "큰 침대", 5.0, 5.0, 0.5,
+                new Position(3.0, 3.0), 0, FurnitureStatus.EXISTING);
     }
 
     private Furniture desk(String id, double x, double z, double rotation) {

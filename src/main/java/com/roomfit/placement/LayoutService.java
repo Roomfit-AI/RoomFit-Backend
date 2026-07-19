@@ -38,6 +38,7 @@ public class LayoutService {
     private final DeterministicFeedbackExecutor feedbackExecutor;
     private final ScoreService scoreService;
     private final FurnitureAdditionPolicy furnitureAdditionPolicy;
+    private final FurnitureDomainPolicy furnitureDomainPolicy;
 
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
@@ -48,7 +49,8 @@ public class LayoutService {
                           FeedbackPlanInterpreter feedbackPlanInterpreter,
                           DeterministicFeedbackExecutor feedbackExecutor,
                           ScoreService scoreService,
-                          FurnitureAdditionPolicy furnitureAdditionPolicy) {
+                          FurnitureAdditionPolicy furnitureAdditionPolicy,
+                          FurnitureDomainPolicy furnitureDomainPolicy) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
@@ -59,6 +61,7 @@ public class LayoutService {
         this.feedbackExecutor = feedbackExecutor;
         this.scoreService = scoreService;
         this.furnitureAdditionPolicy = furnitureAdditionPolicy;
+        this.furnitureDomainPolicy = furnitureDomainPolicy;
     }
 
     public LayoutResponse recommend(RecommendRequest request) {
@@ -79,6 +82,7 @@ public class LayoutService {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
 
+        furnitureDomainPolicy.validateFinalState(placementResult.getRecommendedFurniture());
         ValidationResult validationResult = validationService.validate(room, placementResult.getRecommendedFurniture());
         // A PlacementService may use a provisional summary while it constructs a
         // candidate. The API must always expose the score calculated from this
@@ -152,9 +156,11 @@ public class LayoutService {
         Room room = roomAccessService.findReadableRoom(layout.getRoomId());
 
         List<Furniture> mergedFurniture = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
+        furnitureDomainPolicy.validateFinalState(mergedFurniture);
         return validationService.validate(room, mergedFurniture);
     }
 
+    @Transactional
     public LayoutResponse updateLayout(Long layoutId, LayoutUpdateRequest request) {
         Layout layout = findLayoutOrThrow(layoutId);
         roomAccessService.findWritableRoom(layout.getRoomId());
@@ -166,11 +172,11 @@ public class LayoutService {
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
 
         List<Furniture> updated = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
-        layout.setFurniture(updated);
-        layoutRepository.save(layout);
-
+        furnitureDomainPolicy.validateFinalState(updated);
         ValidationResult validationResult = validationService.validate(room, updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
+        layout.setFurniture(updated);
+        layoutRepository.save(layout);
         return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
     }
 
@@ -235,6 +241,7 @@ public class LayoutService {
             updated = deepCopyFurniture(execution.furniture());
         }
 
+        furnitureDomainPolicy.validateFinalState(updated);
         ValidationResult validationResult = validationService.validate(room, updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         layout.setContextId(context.getId());
@@ -243,9 +250,11 @@ public class LayoutService {
         return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
     }
 
+    @Transactional
     public ConfirmResponse confirmLayout(Long layoutId) {
         Layout layout = findLayoutOrThrow(layoutId);
         roomAccessService.findWritableRoom(layout.getRoomId());
+        furnitureDomainPolicy.validateFinalState(layout.getFurniture());
         if (layout.isConfirmed()) {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
@@ -266,6 +275,7 @@ public class LayoutService {
         return ConfirmResponse.from(layout);
     }
 
+    @Transactional
     public FeedbackResponse feedback(FeedbackRequest request) {
         Layout baseLayout = findLayoutOrThrow(request.getLayoutId());
         roomAccessService.findWritableRoom(baseLayout.getRoomId());
@@ -275,6 +285,9 @@ public class LayoutService {
 
         FeedbackPlan plan = feedbackPlanInterpreter.interpret(request.getFeedback(), room, baseLayout.getFurniture(), context);
         FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
+        furnitureDomainPolicy.validateFinalState(execution.furniture());
+        ValidationResult validationResult = validationService.validate(room, execution.furniture());
+        ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
             responseLayout = new Layout(baseLayout.getRoomId(), baseLayout.getContextId(),
@@ -282,8 +295,6 @@ public class LayoutService {
             layoutRepository.save(responseLayout);
         }
 
-        ValidationResult validationResult = validationService.validate(room, execution.furniture());
-        ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         return FeedbackResponse.of(responseLayout, RecommendationStatus.SUCCESS,
                 scoreSummary, validationResult, interpretedPlan(plan), execution.result(),
                 feedbackStatus(plan, execution), operationResults(plan, execution, baseLayout.getFurniture()),

@@ -372,6 +372,9 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private boolean doesNotCollide(List<Furniture> placed, Furniture candidate) {
+        if (FurnitureDomainPolicy.isRug(candidate)) {
+            return true;
+        }
         Rect candidateRect = Rect.from(candidate);
         return placed.stream()
                 .filter(this::isCollisionTarget)
@@ -380,7 +383,8 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private boolean isCollisionTarget(Furniture furniture) {
-        return furniture.getStatus() != FurnitureStatus.DELETED;
+        return furniture.getStatus() != FurnitureStatus.DELETED
+                && !FurnitureDomainPolicy.isRug(furniture);
     }
 
     private Furniture copyFurniture(Furniture furniture) {
