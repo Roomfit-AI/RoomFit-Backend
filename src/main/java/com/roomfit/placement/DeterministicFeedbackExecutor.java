@@ -139,7 +139,7 @@ public class DeterministicFeedbackExecutor {
         int targetIndex = resolution.index();
 
         return switch (operation.type()) {
-            case MOVE -> move(room, working, targetIndex, operation);
+            case MOVE -> move(room, working, targetIndex, operation, resolveReference(operation, working, room));
             case ROTATE -> rotate(room, working, targetIndex, operation);
             case REPLACE_PRODUCT -> replace(room, working, targetIndex, operation.constraints());
             case REMOVE_FURNITURE -> remove(working, targetIndex);
@@ -148,6 +148,13 @@ public class DeterministicFeedbackExecutor {
             case ADD_FURNITURE -> throw new IllegalStateException("ADD is handled before target resolution");
             case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> OperationAttempt.failed("UNSUPPORTED_OPERATION");
         };
+    }
+
+    private Furniture resolveReference(FeedbackOperation operation, List<Furniture> working, Room room) {
+        if (operation.referenceTarget() == null) return null;
+        TargetResolution resolution = resolveTarget(operation.referenceTarget(), working, room);
+        if (resolution.status() != TargetResolutionStatus.RESOLVED) return null;
+        return working.get(resolution.index());
     }
 
     private OperationAttempt add(Room room, List<Furniture> base, FeedbackOperation operation, AgentContext context) {
@@ -205,9 +212,13 @@ public class DeterministicFeedbackExecutor {
     private OperationAttempt swap(Room room, List<Furniture> base, int targetIndex,
                                   FeedbackProductRequirements requirements, AgentContext context) {
         Furniture current = base.get(targetIndex);
+        if (!renderableCatalog.sameFurnitureType(current.getType(), requirements.furnitureType())) {
+            return OperationAttempt.failed("INVALID_SWAP_TYPE");
+        }
         RenderableProductCatalog.FurnitureSize referenceSize = new RenderableProductCatalog.FurnitureSize(
                 current.getWidth(), current.getDepth(), current.getHeight());
         List<MockProduct> products = renderableCatalog.findCandidates(requirements, referenceSize).stream()
+                .filter(product -> renderableCatalog.sameFurnitureType(current.getType(), product.getType()))
                 .filter(product -> !product.getProductId().equals(current.getProductId()))
                 .toList();
         if (products.isEmpty()) {
@@ -242,12 +253,21 @@ public class DeterministicFeedbackExecutor {
                         ? "NO_SAFE_SWAP_CANDIDATE" : "NO_VALID_BOUNDARY_PLACEMENT"));
     }
 
-    private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
+    private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation,
+                                  Furniture reference) {
         Furniture current = base.get(index);
+        if (operation.referenceTarget() != null && reference == null) {
+            TargetResolution resolution = resolveTarget(operation.referenceTarget(), base, room);
+            return OperationAttempt.failed(targetFailureReason(resolution.status(), true));
+        }
+        if (operation.placement().relation() == FeedbackRelation.NEAR_WINDOW
+                && room.getOpenings().stream().noneMatch(opening -> "window".equals(opening.getType()))) {
+            return OperationAttempt.failed("UNSUPPORTED_LOCATION_HINT");
+        }
         if (FurnitureBoundary.clamp(room, current.getPosition(), current).isEmpty()) {
             return OperationAttempt.failed("NO_VALID_BOUNDARY_PLACEMENT");
         }
-        for (Position position : movePositions(room, current, operation)) {
+        for (Position position : movePositions(room, current, operation, reference)) {
             Furniture updated = copy(current, position, current.getRotation());
             List<Furniture> snapshot = replace(base, index, updated);
             if (!samePosition(current, updated) && valid(room, snapshot)) {
@@ -257,7 +277,7 @@ public class DeterministicFeedbackExecutor {
         return OperationAttempt.failed("NO_VALID_MOVE_PLACEMENT");
     }
 
-    private List<Position> movePositions(Room room, Furniture item, FeedbackOperation operation) {
+    private List<Position> movePositions(Room room, Furniture item, FeedbackOperation operation, Furniture reference) {
         FeedbackPlacement placement = operation.placement();
         double distance = FeedbackPlacementPolicy.movementDistance(placement.magnitude());
         FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(item);
@@ -279,24 +299,37 @@ public class DeterministicFeedbackExecutor {
             case AWAY_FROM_DOOR -> new Position(x,
                     Math.min(room.getDepth() - footprint.effectiveDepth() / 2.0
                             - FurnitureBoundary.WALL_CLEARANCE_METERS, z + distance));
-            case NEXT_TO, LEFT_OF, RIGHT_OF, IN_CORNER ->
+            case LEFT_OF, RIGHT_OF, NEXT_TO -> relativeMovePosition(item, reference, footprint, placement.relation());
+            case IN_CORNER ->
                     throw new IllegalArgumentException("Unsupported MOVE relation: " + placement.relation());
         };
         Position clamped = FurnitureBoundary.clamp(room, delta, footprint).orElse(null);
         return clamped == null || samePosition(delta, clamped) ? List.of(delta) : List.of(delta, clamped);
     }
 
+    private Position relativeMovePosition(Furniture item, Furniture reference, FurnitureBoundary.Footprint itemFootprint,
+                                          FeedbackRelation relation) {
+        FurnitureBoundary.Footprint referenceFootprint = FurnitureBoundary.footprint(reference);
+        double xDistance = referenceFootprint.effectiveWidth() / 2.0 + itemFootprint.effectiveWidth() / 2.0 + 0.1;
+        double zDistance = referenceFootprint.effectiveDepth() / 2.0 + itemFootprint.effectiveDepth() / 2.0 + 0.1;
+        return switch (relation) {
+            case LEFT_OF -> new Position(reference.getPosition().getX() - xDistance, reference.getPosition().getZ());
+            case RIGHT_OF -> new Position(reference.getPosition().getX() + xDistance, reference.getPosition().getZ());
+            case NEXT_TO -> new Position(reference.getPosition().getX() + xDistance, reference.getPosition().getZ());
+            default -> throw new IllegalArgumentException("Unsupported relative MOVE relation: " + relation);
+        };
+    }
+
     private List<Position> cornerPositions(Room room, FurnitureBoundary.Footprint footprint) {
-        double clearance = FurnitureBoundary.WALL_CLEARANCE_METERS;
+        FurnitureBoundary.UsableBounds bounds = FurnitureBoundary.usableBounds(room).orElse(null);
+        if (bounds == null) return List.of();
+        double minX = bounds.minX() - footprint.minX();
+        double maxX = bounds.maxX() - footprint.maxX();
+        double minZ = bounds.minZ() - footprint.minZ();
+        double maxZ = bounds.maxZ() - footprint.maxZ();
         return List.of(
-                new Position(footprint.effectiveWidth() / 2.0 + clearance,
-                        footprint.effectiveDepth() / 2.0 + clearance),
-                new Position(room.getWidth() - footprint.effectiveWidth() / 2.0 - clearance,
-                        footprint.effectiveDepth() / 2.0 + clearance),
-                new Position(footprint.effectiveWidth() / 2.0 + clearance,
-                        room.getDepth() - footprint.effectiveDepth() / 2.0 - clearance),
-                new Position(room.getWidth() - footprint.effectiveWidth() / 2.0 - clearance,
-                        room.getDepth() - footprint.effectiveDepth() / 2.0 - clearance));
+                new Position(minX, minZ), new Position(maxX, minZ),
+                new Position(minX, maxZ), new Position(maxX, maxZ));
     }
 
     private OperationAttempt rotate(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
@@ -587,6 +620,7 @@ public class DeterministicFeedbackExecutor {
             case "INVALID_REPLACE_CONSTRAINTS" -> "제품 교체 조건을 안전하게 해석하지 못해 기존 배치를 유지했습니다.";
             case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾지 못했습니다.";
             case "NO_SAFE_SWAP_CANDIDATE" -> "안전하게 배치할 수 있는 교체 후보를 찾지 못했습니다.";
+            case "INVALID_SWAP_TYPE" -> "교체 제품은 기존 가구와 같은 종류여야 합니다.";
             case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구 전체가 방 안에 들어오는 위치를 찾지 못했습니다.";
             case "ROTATION_OUT_OF_BOUNDS" -> "회전 후 가구가 방 경계를 벗어나 기존 배치를 유지했습니다.";
             case "AMBIGUOUS_TARGET", "AMBIGUOUS_REFERENCE_TARGET", "NEEDS_CLARIFICATION" ->

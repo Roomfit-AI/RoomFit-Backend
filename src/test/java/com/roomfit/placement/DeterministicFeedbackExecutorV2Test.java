@@ -77,7 +77,9 @@ class DeterministicFeedbackExecutorV2Test {
         FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(before));
         Furniture after = execution.furniture().getFirst();
 
-        assertThat(execution.result().operationsApplied()).containsExactly("MOVE", "ROTATE");
+        assertThat(execution.result().noChangeReason()).isNull();
+        assertThat(execution.result().operationsApplied()).as(execution.result().noChangeReason())
+                .containsExactly("MOVE", "ROTATE");
         assertThat(after.getPosition().getX()).isEqualTo(2.4);
         assertThat(after.getRotation()).isEqualTo(90);
         assertThat(before.getPosition().getX()).isEqualTo(2);
@@ -112,7 +114,7 @@ class DeterministicFeedbackExecutorV2Test {
 
     @Test
     void parserProducedMoveAndRotatePlanAppliesBothOperations() {
-        Furniture before = new Furniture("bed-1", "bed", "침대", 1.2, 1.8, 0.6,
+        Furniture before = new Furniture("bed-1", "bed", "침대", 1.0, 1.0, 0.6,
                 new Position(3, 3), 0, FurnitureStatus.EXISTING);
         FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
                 "침대를 모서리로 옮기고 90도 회전해줘", room(6, 6), List.of(before), null);
@@ -157,6 +159,40 @@ class DeterministicFeedbackExecutorV2Test {
         assertThat(execution.furniture()).containsExactly(before);
         assertThat(execution.operationResults()).singleElement().satisfies(result ->
                 assertThat(result.reasonCode()).isEqualTo("TARGET_NOT_FOUND"));
+    }
+
+    @Test
+    void semanticBindingKeepsSwapTargetTypeAndMovesOnlyThatTargetRelativeToReference() {
+        Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.2,
+                new Position(1.5, 1.5), 0, FurnitureStatus.EXISTING, "legacy-bookshelf", List.of(), null);
+        Furniture desk = desk("desk-1", 4, 3, 0);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "책장을 우드톤으로 바꾸고 책상 오른쪽으로 옮겨줘", room(8, 6), List.of(bookshelf, desk), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(8, 6), List.of(bookshelf, desk));
+
+        assertThat(execution.result().operationsApplied()).containsExactly("SWAP_FURNITURE", "MOVE");
+        Furniture changed = execution.furniture().stream().filter(item -> item.getId().equals("bookshelf-1")).findFirst().orElseThrow();
+        Furniture unchangedDesk = execution.furniture().stream().filter(item -> item.getId().equals("desk-1")).findFirst().orElseThrow();
+        assertThat(changed.getType()).isEqualTo("bookshelf");
+        assertThat(changed.getPosition().getX()).isGreaterThan(unchangedDesk.getPosition().getX());
+        assertThat(unchangedDesk.getType()).isEqualTo("desk");
+        assertThat(unchangedDesk.getPosition().getX()).isEqualTo(desk.getPosition().getX());
+        assertThat(unchangedDesk.getPosition().getZ()).isEqualTo(desk.getPosition().getZ());
+    }
+
+    @Test
+    void semanticValidatorRejectsForcedCrossTypeSwapBeforeMutation() {
+        FeedbackOperation swap = new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
+                new FeedbackTargetSelector("bookshelf-1", "bookshelf", ""), null, null, null, null,
+                new FeedbackProductRequirements("desk", FeedbackSizePreference.SIMILAR, false, List.of()), List.of());
+        FeedbackPlan plan = new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(swap), List.of(), null,
+                "test", FeedbackSource.RULE_BASED, true);
+        Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.2,
+                new Position(2, 2), 0, FurnitureStatus.EXISTING);
+
+        org.junit.jupiter.api.Assertions.assertThrows(com.roomfit.common.CustomException.class,
+                () -> executor.execute(plan, room(6, 6), List.of(bookshelf)));
     }
 
     @Test

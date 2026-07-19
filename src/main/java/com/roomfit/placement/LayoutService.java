@@ -360,8 +360,8 @@ public class LayoutService {
             FeedbackOperationExecution executionResult = executions.get(operation.operationId());
             if (executionResult == null) {
                 return new FeedbackOperationResult(operation.operationId(), operation.type(),
-                        FeedbackOperationResult.Status.FAILED, "INVALID_OPERATION",
-                        operationMessage(operation.type(), FeedbackOperationResult.Status.FAILED, "INVALID_OPERATION"),
+                        FeedbackOperationResult.Status.SKIPPED_DEPENDENCY, "DEPENDENCY_NOT_APPLIED",
+                        operationMessage(operation.type(), FeedbackOperationResult.Status.SKIPPED_DEPENDENCY, "DEPENDENCY_NOT_APPLIED"),
                         targetFurnitureId(operation, null), null, null, null);
             }
             FeedbackOperationResult.Status status = publicOperationStatus(executionResult);
@@ -388,9 +388,10 @@ public class LayoutService {
             FeedbackClarification clarification = plan.clarification();
             String type = clarification == null ? "" : clarification.targetFurnitureType();
             List<FeedbackClarificationResponse.Candidate> candidates = clarificationCandidates(type, "", originalFurniture);
-            result.add(new FeedbackClarificationResponse(candidates.size() > 1 ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
+            boolean ambiguous = candidates.size() > 1;
+            result.add(new FeedbackClarificationResponse(ambiguous ? "AMBIGUOUS_TARGET" : "NEEDS_CLARIFICATION",
                     clarificationQuestion(type, false), null, "targetFurnitureId",
-                    candidates));
+                    ambiguous ? candidates : List.of()));
         }
         Map<String, FeedbackOperation> operations = plan.operations().stream()
                 .collect(Collectors.toMap(FeedbackOperation::operationId, operation -> operation,
@@ -403,10 +404,12 @@ public class LayoutService {
             FeedbackTargetSelector target = reference ? operation.referenceTarget() : operation.target();
             String type = target == null ? "" : target.furnitureType();
             String keyword = target == null ? "" : target.labelKeyword();
+            boolean ambiguous = "AMBIGUOUS_TARGET".equals(executionResult.reasonCode())
+                    || "AMBIGUOUS_REFERENCE_TARGET".equals(executionResult.reasonCode());
             result.add(new FeedbackClarificationResponse(executionResult.reasonCode(),
                     clarificationQuestion(type, reference), operation.operationId(),
-                    reference ? "referenceTargetFurnitureId" : "targetFurnitureId",
-                    clarificationCandidates(type, keyword, originalFurniture)));
+                    ambiguous ? reference ? "referenceTargetFurnitureId" : "targetFurnitureId" : null,
+                    ambiguous ? clarificationCandidates(type, keyword, originalFurniture) : List.of()));
         }
         return List.copyOf(result);
     }
@@ -487,6 +490,7 @@ public class LayoutService {
             case "NO_RENDERABLE_PRODUCT" -> "렌더링 가능한 제품을 찾을 수 없습니다.";
             case "NO_VALID_ADD_PLACEMENT" -> "추가 가구를 놓을 유효한 위치를 찾을 수 없습니다.";
             case "NO_SAFE_SWAP_CANDIDATE" -> "안전하게 배치할 수 있는 교체 후보를 찾을 수 없습니다.";
+            case "INVALID_SWAP_TYPE" -> "교체 제품은 기존 가구와 같은 종류여야 합니다.";
             case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구를 방 경계 안에 배치할 수 없습니다.";
             case "ROTATION_OUT_OF_BOUNDS" -> "회전하면 가구가 방 경계를 벗어납니다.";
             case "UNSUPPORTED_LOCATION_HINT", "UNSUPPORTED_REFERENCE_LOCATION_HINT" ->

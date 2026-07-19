@@ -24,6 +24,21 @@ placed safely. It is not an ambiguity response; `requiredField` and
 `candidates` remain absent. Size-only candidate exhaustion continues to use
 `NO_LARGER_PRODUCT_AVAILABLE` or `NO_SMALLER_PRODUCT_AVAILABLE`.
 
+## Composite semantic binding
+
+- `SWAP_FURNITURE` is valid only within the target's canonical furniture type.
+  A cross-type plan is rejected before execution, so an ID, label, or product
+  can never change a bookshelf into a desk (or another canonical type).
+- A `referenceTarget` identifies only the positional reference of a later
+  `MOVE`; it never supplies a replacement product type.
+- `모서리`, `구석`, `방 모서리`, and `방 구석` normalize to `IN_CORNER`.
+- Each failure is attached to the operation that failed. In an atomic failure,
+  prior applied operations become `ATOMIC_ROLLBACK` and later dependent
+  operations are `SKIPPED_DEPENDENCY`; they are never reported as an unrelated
+  invalid operation.
+- Candidates and `requiredField` are supplied only for an actual target or
+  reference ambiguity. A unique target does not produce a one-item chooser.
+
 ## Layout and operation semantics
 
 - A successful execution persists a new layout and returns its newest `layoutId`.

@@ -270,26 +270,27 @@ class DeterministicFurnitureCompositionExecutorTest {
     }
 
     @Test
-    void swapBookshelfToHangerKeepsIdAndUsesCatalogMetadataAtOriginalPosition() {
-        MockProduct hanger = new MockProductRepository().findById("hanger-basic-01").orElseThrow();
-        DeterministicFeedbackExecutor executor = executor(List.of(hanger));
+    void swapBookshelfWithinCanonicalTypeKeepsIdAndUsesCatalogMetadataAtOriginalPosition() {
+        MockProduct replacement = product("bookshelf-alt-01", "bookshelf-high", "bookshelf", "대체 책장",
+                0.8, 0.4, 1.8, List.of("minimal"));
+        DeterministicFeedbackExecutor executor = executor(List.of(replacement));
         Furniture bookshelf = new Furniture("bookshelf-1", "bookshelf", "책장", 1.2, 0.4, 1.8,
                 new Position(3, 3), 0, FurnitureStatus.EXISTING,
                 "bookshelf-01", List.of("classic"), null);
 
-        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "hanger")),
+        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "bookshelf")),
                 room(8, 6), List.of(bookshelf));
 
         Furniture swapped = execution.furniture().getFirst();
         assertThat(swapped.getId()).isEqualTo("bookshelf-1");
-        assertThat(swapped.getType()).isEqualTo("hanger");
-        assertThat(swapped.getLabel()).isEqualTo("기본 스탠드형 행거");
-        assertThat(swapped.getProductId()).isEqualTo("hanger-basic-01");
-        assertThat(swapped.getVariantId()).isEqualTo("hanger-basic");
-        assertThat(swapped.getStyleTags()).containsExactly("minimal", "modern");
-        assertThat(swapped.getWidth()).isEqualTo(1.11);
-        assertThat(swapped.getDepth()).isEqualTo(0.51);
-        assertThat(swapped.getHeight()).isEqualTo(1.75);
+        assertThat(swapped.getType()).isEqualTo("bookshelf");
+        assertThat(swapped.getLabel()).isEqualTo("대체 책장");
+        assertThat(swapped.getProductId()).isEqualTo("bookshelf-alt-01");
+        assertThat(swapped.getVariantId()).isEqualTo("bookshelf-high");
+        assertThat(swapped.getStyleTags()).containsExactly("minimal");
+        assertThat(swapped.getWidth()).isEqualTo(0.8);
+        assertThat(swapped.getDepth()).isEqualTo(0.4);
+        assertThat(swapped.getHeight()).isEqualTo(1.8);
         assertThat(swapped.getPosition().getX()).isEqualTo(3);
         assertThat(swapped.getPosition().getZ()).isEqualTo(3);
         assertThat(swapped.getStatus()).isEqualTo(FurnitureStatus.EXISTING);
@@ -298,12 +299,12 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void swapSearchesAlternativePositionWhenOriginalPositionCollides() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
+        DeterministicFeedbackExecutor executor = executor(List.of(product("bookshelf-alt-01", "bookshelf-high", "bookshelf", "대체 책장",
                 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
         Furniture blocker = furniture("blocker", "chair", "의자", 0.4, 0.4, 0.8, 3, 3, 0);
 
-        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "hanger")),
+        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "bookshelf")),
                 room(6, 6), List.of(bookshelf, blocker));
 
         Furniture swapped = execution.furniture().stream()
@@ -314,13 +315,13 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void allInvalidSwapCandidatesKeepOriginalFurniture() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
+        DeterministicFeedbackExecutor executor = executor(List.of(product("bookshelf-alt-01", "bookshelf-high", "bookshelf", "대체 책장",
                 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 3, 3, 0);
         Furniture blocker = furniture("blocker", "bed", "방 전체", 6, 6, 1, 3, 3, 0);
         List<Furniture> before = List.of(bookshelf, blocker);
 
-        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "hanger")),
+        FeedbackExecution execution = executor.execute(direct(swap("op-1", "bookshelf", "bookshelf")),
                 room(6, 6), before);
 
         assertThat(execution.result().applied()).isFalse();
@@ -330,19 +331,19 @@ class DeterministicFurnitureCompositionExecutorTest {
 
     @Test
     void operationAfterSwapCanTargetThePreservedFurnitureId() {
-        DeterministicFeedbackExecutor executor = executor(List.of(product("hanger-basic-01", "hanger-basic", "hanger", "행거",
+        DeterministicFeedbackExecutor executor = executor(List.of(product("bookshelf-alt-01", "bookshelf-high", "bookshelf", "대체 책장",
                 0.4, 0.4, 1.5, List.of())));
         Furniture bookshelf = furniture("bookshelf-1", "bookshelf", "책장", 0.8, 0.4, 1.5, 2, 2, 0);
-        FeedbackOperation swap = swap("op-1", "bookshelf", "hanger");
+        FeedbackOperation swap = swap("op-1", "bookshelf", "bookshelf");
         FeedbackOperation move = new FeedbackOperation("op-2", FeedbackOperationType.MOVE,
-                new FeedbackTargetSelector("bookshelf-1", "hanger", ""),
+                new FeedbackTargetSelector("bookshelf-1", "bookshelf", ""),
                 new FeedbackPlacement(FeedbackRelation.RIGHT, FeedbackMagnitude.SMALL, null), null, List.of("op-1"));
 
         FeedbackExecution execution = executor.execute(composite(swap, move), room(6, 6), List.of(bookshelf));
 
         assertThat(execution.result().operationsApplied()).containsExactly("SWAP_FURNITURE", "MOVE");
         assertThat(execution.furniture().getFirst().getId()).isEqualTo("bookshelf-1");
-        assertThat(execution.furniture().getFirst().getType()).isEqualTo("hanger");
+        assertThat(execution.furniture().getFirst().getType()).isEqualTo("bookshelf");
         assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(2.2);
     }
 

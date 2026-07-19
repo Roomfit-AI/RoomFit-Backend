@@ -191,14 +191,18 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     void preservesAllSupportedReplaceAndSwapCompoundOperations() {
         FeedbackPlan replaceAndMove = interpreter.interpret("책상을 더 큰 제품으로 바꾸고 창가로 옮겨줘", room(),
                 List.of(furniture("desk-1", "desk", 3, 3)), context());
-        FeedbackPlan swapAndMove = interpreter.interpret("책장을 행거로 바꾸고 뒤로 옮겨줘", room(),
-                List.of(furniture("bookshelf-1", "bookshelf", 3, 3)), context());
+        FeedbackPlan swapAndMove = interpreter.interpret("책장을 우드톤으로 바꾸고 책상 오른쪽으로 옮겨줘", room(),
+                List.of(furniture("bookshelf-1", "bookshelf", 3, 3), furniture("desk-1", "desk", 1, 1)), context());
 
         assertThat(replaceAndMove.operations()).extracting(FeedbackOperation::type)
                 .containsExactly(FeedbackOperationType.REPLACE_PRODUCT, FeedbackOperationType.MOVE);
+        assertThat(replaceAndMove.operations().getFirst().target().locationHint()).isNull();
+        assertThat(replaceAndMove.operations().get(1).target().locationHint()).isNull();
+        assertThat(replaceAndMove.operations().get(1).placement().relation()).isEqualTo(FeedbackRelation.NEAR_WINDOW);
         assertThat(swapAndMove.operations()).extracting(FeedbackOperation::type)
                 .containsExactly(FeedbackOperationType.SWAP_FURNITURE, FeedbackOperationType.MOVE);
-        assertThat(swapAndMove.operations().get(1).target().furnitureId()).isEqualTo("bookshelf-1");
+        assertThat(swapAndMove.operations().getFirst().replacementRequirements().furnitureType()).isEqualTo("bookshelf");
+        assertThat(swapAndMove.operations().get(1).referenceTarget().furnitureType()).isEqualTo("desk");
     }
 
     @Test
@@ -206,6 +210,26 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
         assertThatThrownBy(() -> interpreter.interpret("침대를 파란색으로 바꾸고 90도 회전해줘", room(),
                 List.of(furniture("bed-1", "bed", 3, 3)), context()))
                 .isInstanceOf(com.roomfit.common.CustomException.class);
+    }
+
+    @Test
+    void normalizesEveryCornerAliasToInCornerBeforeDirectionalFallback() {
+        for (String feedback : List.of("침대를 모서리로 옮겨줘", "침대를 구석으로 옮겨줘", "소파를 방 모서리로 옮겨줘")) {
+            String type = feedback.startsWith("소파") ? "sofa" : "bed";
+            FeedbackPlan plan = interpreter.interpret(feedback, room(),
+                    List.of(furniture(type + "-1", type, 3, 3)), context());
+            assertThat(plan.operations().getFirst().placement().relation()).as(feedback)
+                    .isEqualTo(FeedbackRelation.IN_CORNER);
+        }
+    }
+
+    @Test
+    void rejectsCrossTypeSwapAndNeverUsesMoveReferenceAsReplacementType() {
+        FeedbackPlan crossType = interpreter.interpret("책장을 행거로 바꾸고 뒤로 옮겨줘", room(),
+                List.of(furniture("bookshelf-1", "bookshelf", 3, 3)), context());
+
+        assertThat(crossType.needsClarification()).isTrue();
+        assertThat(crossType.operations()).isEmpty();
     }
 
     private FeedbackPlan interpret(String feedback) {

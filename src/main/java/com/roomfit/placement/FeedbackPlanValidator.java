@@ -3,6 +3,7 @@ package com.roomfit.placement;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 
 import java.util.HashSet;
 import java.util.Iterator;
@@ -15,7 +16,8 @@ public class FeedbackPlanValidator {
     private static final Set<FeedbackRelation> MOVE_RELATIONS = Set.of(
             FeedbackRelation.LEFT, FeedbackRelation.RIGHT, FeedbackRelation.FORWARD,
             FeedbackRelation.BACKWARD, FeedbackRelation.NEAR_WINDOW, FeedbackRelation.NEAR_WALL,
-            FeedbackRelation.AWAY_FROM_DOOR, FeedbackRelation.CENTER
+            FeedbackRelation.AWAY_FROM_DOOR, FeedbackRelation.CENTER, FeedbackRelation.IN_CORNER,
+            FeedbackRelation.NEXT_TO, FeedbackRelation.LEFT_OF, FeedbackRelation.RIGHT_OF
     );
     private static final Set<FeedbackRelation> ADD_RELATIONS = Set.of(
             FeedbackRelation.NEXT_TO, FeedbackRelation.LEFT_OF, FeedbackRelation.RIGHT_OF,
@@ -80,7 +82,10 @@ public class FeedbackPlanValidator {
                 require(operation.placement().orientation() == null);
                 require(operation.placement().side() == null);
                 require(operation.constraints() == null);
-                require(operation.referenceTarget() == null);
+                boolean requiresReference = operation.placement().relation() == FeedbackRelation.NEXT_TO
+                        || operation.placement().relation() == FeedbackRelation.LEFT_OF
+                        || operation.placement().relation() == FeedbackRelation.RIGHT_OF;
+                require(requiresReference == (operation.referenceTarget() != null));
                 require(operation.productRequirements() == null);
                 require(operation.replacementRequirements() == null);
             }
@@ -136,6 +141,9 @@ public class FeedbackPlanValidator {
                 require(operation.productRequirements() == null);
                 require(operation.replacementRequirements() != null);
                 validateProductRequirements(operation.replacementRequirements());
+                String targetType = operation.target().furnitureType();
+                String replacementType = operation.replacementRequirements().furnitureType();
+                require(targetType.isBlank() || GeneratedFurnitureCatalog.get().sameType(targetType, replacementType));
             }
             case CHANGE_MATERIAL, CHANGE_COLOR_TONE -> invalid();
         }

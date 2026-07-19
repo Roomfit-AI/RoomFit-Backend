@@ -651,6 +651,8 @@ Request
 }
 
 `selectedFurnitureId`는 `AMBIGUOUS_TARGET` 후보를 사용자가 선택한 후에만 보냅니다. reference ambiguity나 product failure에는 보내지 않습니다. clarification/failure 응답은 source `layoutId`를 유지하며 새 layout을 만들지 않습니다.
+
+복합 요청의 `operationResults`는 실제 실패 operation에 귀속됩니다. `모서리`/`구석` 계열 위치 표현은 `IN_CORNER`로 처리하며, 후보 버튼은 실제 target/reference ambiguity일 때만 표시합니다.
 Response
 {
   "success": true,

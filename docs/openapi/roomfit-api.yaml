@@ -447,7 +447,7 @@ paths:
     post:
       tags: [Layouts]
       summary: 사용자 피드백 기반 재추천
-      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 원자적으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 모든 작업이 성공한 경우에만 새 snapshot을 저장하며, clarification 또는 failure는 source layout을 그대로 반환합니다.
+      description: 사용자의 자연어 피드백을 Plan v2 Operation으로 원자적으로 실행합니다. 기존 status는 유지하며 feedbackStatus와 plan 순서의 operationResults를 additive하게 반환합니다. 모든 작업이 성공한 경우에만 새 snapshot을 저장하며, clarification 또는 failure는 source layout을 그대로 반환합니다. SWAP_FURNITURE는 target과 같은 canonical type 안에서만 허용되고, MOVE referenceTarget은 위치 기준일 뿐 교체 제품 유형을 결정하지 않습니다.
       requestBody:
         required: true
         content:

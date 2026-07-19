@@ -103,17 +103,17 @@ class LlmFeedbackPlanInterpreterV2Test {
 
     @Test
     void parsesSwapWithoutCatalogIdentifiers() {
-        FeedbackPlan plan = interpret("책장 대신 행거를 넣어줘", """
+        FeedbackPlan plan = interpret("책장을 다른 디자인으로 바꿔줘", """
                 {"version":"2.0","requestKind":"DIRECT","operations":[{
                   "operationId":"op-1","type":"SWAP_FURNITURE",
                   "target":{"furnitureType":"bookshelf"},
-                  "replacementRequirements":{"furnitureType":"hanger","sizePreference":"SIMILAR","styleKeywords":[]},
+                  "replacementRequirements":{"furnitureType":"bookshelf","sizePreference":"SIMILAR","styleKeywords":[]},
                   "dependsOn":[]
                 }],"goals":[],"clarification":null,"reason":"swap furniture"}
                 """);
 
         FeedbackProductRequirements requirements = plan.operations().getFirst().replacementRequirements();
-        assertThat(requirements.furnitureType()).isEqualTo("hanger");
+        assertThat(requirements.furnitureType()).isEqualTo("bookshelf");
         assertThat(requirements.sizePreference()).isEqualTo(FeedbackSizePreference.SIMILAR);
     }
 
