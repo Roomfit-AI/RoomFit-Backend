@@ -739,21 +739,18 @@ public class DeterministicFeedbackExecutor {
     }
 
     private boolean samePosition(Furniture first, Furniture second) {
-        return first.getPosition().getX() == second.getPosition().getX()
-                && first.getPosition().getZ() == second.getPosition().getZ();
+        return samePosition(first.getPosition(), second.getPosition());
     }
 
     private boolean samePosition(Position first, Position second) {
-        return Math.abs(first.getX() - second.getX()) < METRIC_TOLERANCE
-                && Math.abs(first.getZ() - second.getZ()) < METRIC_TOLERANCE;
+        return Math.abs(first.getX() - second.getX()) <= METRIC_TOLERANCE
+                && Math.abs(first.getZ() - second.getZ()) <= METRIC_TOLERANCE;
     }
 
     private List<Position> distinctPositions(List<Position> positions) {
         List<Position> distinct = new ArrayList<>();
         for (Position position : positions) {
-            boolean duplicate = distinct.stream().anyMatch(existing ->
-                    Math.abs(existing.getX() - position.getX()) < METRIC_TOLERANCE
-                            && Math.abs(existing.getZ() - position.getZ()) < METRIC_TOLERANCE);
+            boolean duplicate = distinct.stream().anyMatch(existing -> samePosition(existing, position));
             if (!duplicate) distinct.add(position);
         }
         return List.copyOf(distinct);
