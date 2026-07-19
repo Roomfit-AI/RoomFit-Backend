@@ -22,6 +22,7 @@ public class MockProduct {
     private final String purchaseUrl;
     private final RequiredClearance requiredClearance;
     private final List<String> lifestyleTags;
+    private final List<String> materials;
 
     public MockProduct(String productId, String type, String name, String brand,
                        double width, double depth, double height, int price,
@@ -78,6 +79,14 @@ public class MockProduct {
                        double width, double depth, double height, Integer price,
                        List<String> styleTags, String imageUrl, String purchaseUrl,
                        RequiredClearance requiredClearance, List<String> lifestyleTags) {
+        this(productId, variantId, type, name, brand, width, depth, height, price, styleTags, imageUrl,
+                purchaseUrl, requiredClearance, lifestyleTags, List.of());
+    }
+
+    public MockProduct(String productId, String variantId, String type, String name, String brand,
+                       double width, double depth, double height, Integer price,
+                       List<String> styleTags, String imageUrl, String purchaseUrl,
+                       RequiredClearance requiredClearance, List<String> lifestyleTags, List<String> materials) {
         this.productId = productId;
         this.variantId = VariantIdValidator.validateNullable(variantId);
         this.type = type;
@@ -95,6 +104,7 @@ public class MockProduct {
         }
         this.requiredClearance = requiredClearance;
         this.lifestyleTags = lifestyleTags == null ? List.of() : List.copyOf(lifestyleTags);
+        this.materials = materials == null ? List.of() : List.copyOf(materials);
     }
 
     private static String validatePurchaseUrl(String purchaseUrl) {
@@ -172,5 +182,9 @@ public class MockProduct {
 
     public List<String> getLifestyleTags() {
         return lifestyleTags;
+    }
+
+    public List<String> getMaterials() {
+        return materials;
     }
 }

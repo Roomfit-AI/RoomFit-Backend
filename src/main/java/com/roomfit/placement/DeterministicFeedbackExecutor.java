@@ -84,6 +84,11 @@ public class DeterministicFeedbackExecutor {
             return noChange(original, plan, requested, "UNSUPPORTED_OPERATION",
                     "이번 피드백에서는 요청한 작업을 지원하지 않습니다.", List.of());
         }
+        FeedbackOperationExecution unsafeCompositeSwap = unsafeCompositeMetadataSwap(plan, room, original);
+        if (unsafeCompositeSwap != null) {
+            return noChange(original, plan, requested, unsafeCompositeSwap.reasonCode(),
+                    summaryFor(unsafeCompositeSwap.reasonCode()), List.of(unsafeCompositeSwap));
+        }
 
         List<Furniture> working = new ArrayList<>(original);
         List<String> applied = new ArrayList<>();
@@ -121,6 +126,32 @@ public class DeterministicFeedbackExecutor {
                 operationResults);
     }
 
+    /** A metadata-constrained swap must be decidable before a preceding composite operation mutates the layout. */
+    private FeedbackOperationExecution unsafeCompositeMetadataSwap(FeedbackPlan plan, Room room,
+                                                                    List<Furniture> original) {
+        if (plan.requestKind() != FeedbackRequestKind.COMPOSITE) return null;
+        for (FeedbackOperation operation : plan.operations()) {
+            if (operation.type() != FeedbackOperationType.SWAP_FURNITURE
+                    || operation.replacementRequirements().styleKeywords().isEmpty()) {
+                continue;
+            }
+            TargetResolution target = resolveTarget(operation.target(), original, room);
+            if (target.status() != TargetResolutionStatus.RESOLVED) {
+                return FeedbackOperationExecution.failed(operation, targetFailureReason(target.status(), false));
+            }
+            Furniture current = original.get(target.index());
+            RenderableProductCatalog.FurnitureSize size = new RenderableProductCatalog.FurnitureSize(
+                    current.getWidth(), current.getDepth(), current.getHeight());
+            long candidateCount = renderableCatalog.findSwapCandidates(operation.replacementRequirements(), size).stream()
+                    .filter(product -> !product.getProductId().equals(current.getProductId()))
+                    .count();
+            if (candidateCount != 1) {
+                return FeedbackOperationExecution.failed(operation, "NO_SAFE_SWAP_CANDIDATE");
+            }
+        }
+        return null;
+    }
+
     private OperationAttempt applyOperation(FeedbackOperation operation, Room room,
                                             List<Furniture> working, AgentContext context) {
         if (operation.type() == FeedbackOperationType.ADD_FURNITURE) {
@@ -133,8 +164,20 @@ public class DeterministicFeedbackExecutor {
         }
         int targetIndex = resolution.index();
 
+        Furniture reference = null;
+        if (operation.type() == FeedbackOperationType.MOVE && operation.referenceTarget() != null) {
+            TargetResolution referenceResolution = resolveTarget(operation.referenceTarget(), working, room);
+            if (referenceResolution.status() != TargetResolutionStatus.RESOLVED) {
+                return OperationAttempt.failed(targetFailureReason(referenceResolution.status(), true));
+            }
+            if (referenceResolution.index() == targetIndex) {
+                return OperationAttempt.failed("INVALID_MOVE_REFERENCE");
+            }
+            reference = working.get(referenceResolution.index());
+        }
+
         return switch (operation.type()) {
-            case MOVE -> move(room, working, targetIndex, operation);
+            case MOVE -> move(room, working, targetIndex, operation, reference);
             case ROTATE -> rotate(room, working, targetIndex, operation);
             case REPLACE_PRODUCT -> replace(room, working, targetIndex, operation.constraints());
             case REMOVE_FURNITURE -> remove(working, targetIndex);
@@ -202,9 +245,12 @@ public class DeterministicFeedbackExecutor {
         Furniture current = base.get(targetIndex);
         RenderableProductCatalog.FurnitureSize referenceSize = new RenderableProductCatalog.FurnitureSize(
                 current.getWidth(), current.getDepth(), current.getHeight());
-        List<MockProduct> products = renderableCatalog.findCandidates(requirements, referenceSize).stream()
+        List<MockProduct> products = renderableCatalog.findSwapCandidates(requirements, referenceSize).stream()
                 .filter(product -> !product.getProductId().equals(current.getProductId()))
                 .toList();
+        if (!requirements.styleKeywords().isEmpty() && products.size() != 1) {
+            return OperationAttempt.failed("NO_SAFE_SWAP_CANDIDATE");
+        }
         if (products.isEmpty()) {
             return OperationAttempt.failed("NO_RENDERABLE_PRODUCT");
         }
@@ -237,10 +283,22 @@ public class DeterministicFeedbackExecutor {
                         ? "NO_VALID_SWAP_PLACEMENT" : "NO_VALID_BOUNDARY_PLACEMENT"));
     }
 
-    private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation) {
+    private OperationAttempt move(Room room, List<Furniture> base, int index, FeedbackOperation operation,
+                                  Furniture reference) {
         Furniture current = base.get(index);
         if (FurnitureBoundary.clamp(room, current.getPosition(), current).isEmpty()) {
             return OperationAttempt.failed("NO_VALID_BOUNDARY_PLACEMENT");
+        }
+        if (semanticMove(operation.placement().relation())) {
+            for (FeedbackPlacementCandidateGenerator.PlacementCandidate candidate
+                    : candidateGenerator.forMove(room, current, operation.placement(), reference)) {
+                Furniture updated = copy(current, candidate.position(), candidate.rotation());
+                List<Furniture> snapshot = replace(base, index, updated);
+                if (!samePosition(current, updated) && valid(room, snapshot)) {
+                    return OperationAttempt.applied(snapshot, current.getId());
+                }
+            }
+            return OperationAttempt.failed("NO_VALID_MOVE_PLACEMENT");
         }
         for (Position position : movePositions(room, current, operation)) {
             Furniture updated = copy(current, position, current.getRotation());
@@ -250,6 +308,11 @@ public class DeterministicFeedbackExecutor {
             }
         }
         return OperationAttempt.failed("NO_VALID_MOVE_PLACEMENT");
+    }
+
+    private boolean semanticMove(FeedbackRelation relation) {
+        return relation == FeedbackRelation.IN_CORNER || relation == FeedbackRelation.NEXT_TO
+                || relation == FeedbackRelation.LEFT_OF || relation == FeedbackRelation.RIGHT_OF;
     }
 
     private List<Position> movePositions(Room room, Furniture item, FeedbackOperation operation) {

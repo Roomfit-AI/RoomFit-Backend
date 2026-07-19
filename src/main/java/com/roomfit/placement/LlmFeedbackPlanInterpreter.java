@@ -34,21 +34,33 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
+        return interpret(feedback, room, furniture, context, "");
+    }
+
+    @Override
+    public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context,
+                                  String selectedFurnitureId) {
         if (feedback == null || feedback.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         }
 
         String rawResponse;
         try {
-            rawResponse = llmClient.complete(buildPrompt(feedback, room, furniture, context));
+            rawResponse = llmClient.complete(buildPrompt(feedback, room, furniture, context, selectedFurnitureId));
         } catch (RuntimeException e) {
-            throw new LlmProviderException(e);
+            throw new LlmProviderException(LlmProviderException.PROVIDER_CALL, e);
         }
 
+        JsonNode root = parseObject(rawResponse);
         try {
-            JsonNode root = parseObject(rawResponse);
             planValidator.validateProviderResponse(root);
-            FeedbackPlan plan = new FeedbackPlan(
+        } catch (CustomException e) {
+            throw new LlmProviderException(LlmProviderException.OTHER_SAFETY_POLICY, e);
+        }
+
+        FeedbackPlan plan;
+        try {
+            plan = new FeedbackPlan(
                     text(root, "version"),
                     enumValue(FeedbackRequestKind.class, text(root, "requestKind")),
                     parseOperations(root.path("operations"), feedback),
@@ -58,14 +70,60 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     FeedbackSource.LLM,
                     false
             );
+        } catch (CustomException e) {
+            throw new LlmProviderException(LlmProviderException.PLAN_SCHEMA_OR_ENUM, e);
+        }
+
+        try {
             planValidator.validate(plan);
-            validateProviderTargets(plan, furniture);
-            return plan;
+        } catch (CustomException e) {
+            throw new LlmProviderException(semanticValidationStage(plan), e);
+        }
+
+        try {
+            validateProviderSafety(plan, feedback);
+        } catch (CustomException e) {
+            throw new LlmProviderException(LlmProviderException.OTHER_SAFETY_POLICY, e);
+        }
+        try {
+            validateProviderTargets(plan, furniture, selectedFurnitureId, feedback);
         } catch (CustomException e) {
             // Invalid provider output is a provider failure. The caller may safely use the
             // existing rule-based interpreter without making a second LLM request.
-            throw new LlmProviderException(e);
+            throw new LlmProviderException(LlmProviderException.SEMANTIC_TARGET_REFERENCE_UNRESOLVED, e);
         }
+        return plan;
+    }
+
+    private String semanticValidationStage(FeedbackPlan plan) {
+        if (plan.operations().size() > FeedbackPlanValidator.MAX_FEEDBACK_OPERATIONS) {
+            return LlmProviderException.SEMANTIC_OPERATION_LIMIT;
+        }
+        for (FeedbackOperation operation : plan.operations()) {
+            if (operation.target() == null || operation.target().isEmpty()) {
+                return LlmProviderException.SEMANTIC_TARGET_EMPTY;
+            }
+            FeedbackTargetSelector reference = operation.referenceTarget();
+            if (reference != null && (reference.isEmpty() || sameTarget(operation.target(), reference))) {
+                return LlmProviderException.SEMANTIC_REFERENCE_EMPTY_OR_SAME;
+            }
+            if (operation.type() == FeedbackOperationType.MOVE && operation.placement() != null) {
+                FeedbackRelation relation = operation.placement().relation();
+                boolean referenceRelation = relation == FeedbackRelation.NEXT_TO
+                        || relation == FeedbackRelation.LEFT_OF || relation == FeedbackRelation.RIGHT_OF;
+                if (reference != null && !referenceRelation) {
+                    return LlmProviderException.SEMANTIC_REFERENCE_PRESENT_WITH_NON_REFERENCE_RELATION;
+                }
+                if (reference == null && referenceRelation) {
+                    return LlmProviderException.SEMANTIC_REFERENCE_RELATION_WITHOUT_REFERENCE;
+                }
+            }
+        }
+        return LlmProviderException.SEMANTIC_OPERATION;
+    }
+
+    private boolean sameTarget(FeedbackTargetSelector target, FeedbackTargetSelector reference) {
+        return !target.furnitureId().isBlank() && target.furnitureId().equals(reference.furnitureId());
     }
 
     private List<FeedbackOperation> parseOperations(JsonNode node, String feedback) {
@@ -76,6 +134,18 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         for (JsonNode item : node) {
             FeedbackOperationType type = enumValue(FeedbackOperationType.class, text(item, "type"));
             FeedbackTargetSelector target = parseTarget(item.path("target"));
+            FeedbackProductRequirements replacementRequirements = parseProductRequirements(
+                    item.path("replacementRequirements"), target.furnitureType());
+            if (type == FeedbackOperationType.SWAP_FURNITURE
+                    && FeedbackMetadataKeywordNormalizer.containsMetadataRequest(feedback)) {
+                List<String> metadataKeywords = FeedbackMetadataKeywordNormalizer.keywordsFor(feedback);
+                if (metadataKeywords.isEmpty() || replacementRequirements == null
+                        || !target.furnitureType().equals(replacementRequirements.furnitureType())) {
+                    throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+                }
+                replacementRequirements = new FeedbackProductRequirements(target.furnitureType(),
+                        replacementRequirements.sizePreference(), replacementRequirements.storagePreferred(), metadataKeywords);
+            }
             operations.add(new FeedbackOperation(
                     text(item, "operationId"),
                     type,
@@ -84,7 +154,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     parsePlacement(item.path("placement")),
                     parseConstraints(item.path("constraints"), target.furnitureType(), feedback),
                     parseProductRequirements(item.path("productRequirements"), target.furnitureType()),
-                    parseProductRequirements(item.path("replacementRequirements"), ""),
+                    replacementRequirements,
                     stringList(item.path("dependsOn"))
             ));
         }
@@ -221,14 +291,20 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
     }
 
     private JsonNode parseObject(String rawResponse) {
+        String jsonObject;
         try {
-            JsonNode root = objectMapper.readTree(extractJsonObject(rawResponse));
+            jsonObject = extractJsonObject(rawResponse);
+        } catch (CustomException e) {
+            throw new LlmProviderException(LlmProviderException.RESPONSE_NOT_JSON_OBJECT, e);
+        }
+        try {
+            JsonNode root = objectMapper.readTree(jsonObject);
             if (root == null || !root.isObject()) {
-                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+                throw new LlmProviderException(LlmProviderException.RESPONSE_NOT_JSON_OBJECT, null);
             }
             return root;
         } catch (JsonProcessingException e) {
-            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            throw new LlmProviderException(LlmProviderException.JSON_PARSE, e);
         }
     }
 
@@ -254,9 +330,16 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return value.substring(first, last + 1);
     }
 
-    private String buildPrompt(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
+    private String buildPrompt(String feedback, Room room, List<Furniture> furniture, AgentContext context,
+                               String selectedFurnitureId) {
+        String activeSelectionId = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .map(Furniture::getId)
+                .filter(id -> id.equals(selectedFurnitureId))
+                .findFirst().orElse("");
         Map<String, Object> payload = Map.of(
                 "feedback", feedback,
+                "selectedFurnitureId", activeSelectionId,
                 "room", Map.of("hasWindow", room.getOpenings().stream()
                         .anyMatch(opening -> "window".equals(opening.getType()))),
                 "furniture", furniture.stream()
@@ -279,9 +362,17 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     and ordinal. Use only the fields needed to identify one item. locationHint may be NEAR_WINDOW,
                     CENTER, LARGEST, or SMALLEST. ordinal is one-based.
                     MOVE uses placement.relation from LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW,
-                    AWAY_FROM_DOOR, CENTER and placement.magnitude from SMALL, MEDIUM, LARGE.
-                    IN_CORNER and beside/reference relations are ADD-only. For a requested move to a corner or beside
-                    another item, return CLARIFICATION; never convert it into an ADD operation.
+                    AWAY_FROM_DOOR, CENTER with magnitude SMALL, MEDIUM, or LARGE. MOVE may also use IN_CORNER
+                    without magnitude, or NEXT_TO, LEFT_OF, RIGHT_OF with referenceTarget and without magnitude.
+                    Only NEXT_TO may use placement.side LEFT, RIGHT, FRONT, or BACK. Do not convert a MOVE into ADD.
+                    For "A를 B 가까이/옆에/주변에 옮겨줘", target is A, referenceTarget is B, and
+                    placement.relation is NEXT_TO with no magnitude. For example, "모니터를 책상 가까이 옮겨줘"
+                    must use this JSON operation shape (choose only active supplied selectors; never invent IDs):
+                    {"operationId":"op-1","type":"MOVE","target":{"furnitureType":"monitor"},"referenceTarget":{"furnitureType":"desk"},"placement":{"relation":"NEXT_TO"},"dependsOn":[]}.
+                    If referenceTarget is present, placement.relation MUST be NEXT_TO, LEFT_OF, or RIGHT_OF.
+                    Conversely, NEXT_TO, LEFT_OF, and RIGHT_OF require referenceTarget. NEAR_WALL, NEAR_WINDOW,
+                    IN_CORNER, CENTER, LEFT, RIGHT, FORWARD, and BACKWARD must not include referenceTarget.
+                    target and referenceTarget must identify different existing furniture.
                     ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
                     REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
                     requiredStyleTags, requiredLifestyleTags, and storagePreferred.
@@ -289,10 +380,12 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     furnitureType, sizePreference (SMALL, LARGE, SIMILAR, ANY), storagePreferred, and styleKeywords,
                     and uses placement.relation from NEXT_TO, LEFT_OF, RIGHT_OF, NEAR_WALL, NEAR_WINDOW,
                     IN_CORNER, CENTER. NEXT_TO may use placement.side LEFT, RIGHT, FRONT, or BACK.
-                    NEXT_TO, LEFT_OF, and RIGHT_OF require referenceTarget.
                     REMOVE_FURNITURE selects one existing target and has no placement or product requirements.
                     SWAP_FURNITURE selects one existing target and uses replacementRequirements with the same
-                    product requirement fields. SWAP may change furnitureType; REPLACE_PRODUCT may not.
+                    product requirement fields. A tone or material change must keep the target canonical type.
+                    For Korean wood/natural-material terms use styleKeywords ["wood"], for bright/white terms use
+                    ["paintedWhite"], and for metal terms use ["metal"]. These are catalog material values, not
+                    invented product identifiers; if no single safe matching candidate exists, return CLARIFICATION.
                     Use canonical furniture types bed, bookshelf, curtain_blind, desk, desk_chair, drawer_chest,
                     full_length_mirror, hanger, media_console, monitor, mood_lamp, multi_table, nightstand,
                     partition_shelf, plant, rug, side_table, sofa, sofa_bed, tv, and wardrobe. Treat lamp and
@@ -307,6 +400,11 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     and replace/change expressions as SWAP_FURNITURE. A same-type "different design" request is SWAP_FURNITURE.
                     Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
                     or reference cannot be identified safely, return CLARIFICATION instead of guessing.
+                    When selectedFurnitureId is present and the user uses a generic target such as "가구" or "저거",
+                    use that exact active furniture as the MOVE target. For a type-omitted tone/material SWAP, use that
+                    exact active furniture as the target. Do not use it to override an explicit furniture name.
+                    Keep composite operations in the sentence order, emit at most four operations, and return one
+                    CLARIFICATION plan rather than a partial plan if any clause is ambiguous or unsupported.
                     Return exactly this shape and no markdown or explanation:
                     {"version":"2.0","requestKind":"DIRECT","operations":[{"operationId":"op-1","type":"MOVE","target":{"furnitureId":"desk-1","furnitureType":"desk","labelKeyword":""},"placement":{"relation":"RIGHT","magnitude":"MEDIUM"},"constraints":null,"dependsOn":[]}],"goals":[],"clarification":null,"reason":"..."}
                     For CLARIFICATION, return operations=[], goals=[], and clarification={"question":"...",
@@ -335,18 +433,35 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         return FeedbackVocabularyNormalizer.normalizeCanonicalType(value);
     }
 
-    private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture) {
+    /**
+     * A provider may not turn a request to move, replace, or remove an existing
+     * item into an ADD merely because it cannot resolve the target.  That is a
+     * semantic safety rule, not a prompt preference, so enforce it after JSON
+     * parsing as well.
+     */
+    private void validateProviderSafety(FeedbackPlan plan, String feedback) {
+        boolean explicitAdd = feedback != null && List.of("추가", "하나 더", "새로", "넣어", "놓아", "놔")
+                .stream().anyMatch(feedback::contains);
+        if (!explicitAdd && plan.operations().stream()
+                .anyMatch(operation -> operation.type() == FeedbackOperationType.ADD_FURNITURE)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+    }
+
+    private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture, String selectedFurnitureId,
+                                         String feedback) {
         for (FeedbackOperation operation : plan.operations()) {
             if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
-                validateProviderTarget(operation.target(), furniture);
+                validateProviderTarget(operation.target(), furniture, selectedFurnitureId, feedback, true);
             }
             if (operation.referenceTarget() != null) {
-                validateProviderTarget(operation.referenceTarget(), furniture);
+                validateProviderTarget(operation.referenceTarget(), furniture, selectedFurnitureId, feedback, false);
             }
         }
     }
 
-    private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture) {
+    private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture,
+                                        String selectedFurnitureId, String feedback, boolean isOperationTarget) {
         // A type-only selector remains valid: the deterministic resolver already
         // turns zero or multiple active matches into a safe result.  IDs are
         // different because a fabricated ID could otherwise silently select a
@@ -366,6 +481,30 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (active.size() != 1) {
             throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
         }
+        boolean hasDiscriminator = !selector.labelKeyword().isBlank()
+                || selector.locationHint() != null || selector.ordinal() != null;
+        long sameTypeActiveCount = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> selector.furnitureType()
+                        .equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType())))
+                .count();
+        boolean selectedGenericTarget = isOperationTarget && selector.furnitureId().equals(selectedFurnitureId)
+                && !explicitlyMentionsCanonicalType(feedback, selector.furnitureType());
+        if (sameTypeActiveCount > 1 && !selectedGenericTarget && !hasDiscriminator) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+    }
+
+    private boolean explicitlyMentionsCanonicalType(String feedback, String canonicalType) {
+        if (feedback == null || feedback.isBlank()) {
+            return false;
+        }
+        String compactFeedback = feedback.replaceAll("\\s+", "").toLowerCase(java.util.Locale.ROOT);
+        return compactFeedback.contains(canonicalType.toLowerCase(java.util.Locale.ROOT))
+                || FeedbackVocabularyNormalizer.aliasesByLength().stream()
+                .filter(entry -> canonicalType.equals(entry.getValue()))
+                .map(entry -> entry.getKey().replace("_", ""))
+                .anyMatch(compactFeedback::contains);
     }
 
     private Double optionalNumber(JsonNode node, String field) {

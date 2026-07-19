@@ -75,6 +75,26 @@ final class FeedbackPlacementCandidateGenerator {
         return List.copyOf(candidates);
     }
 
+    /** Generates safe semantic destinations for an existing furniture without changing its identity. */
+    List<PlacementCandidate> forMove(Room room, Furniture current, FeedbackPlacement placement, Furniture reference) {
+        List<PlacementCandidate> candidates = new ArrayList<>();
+        int order = 0;
+        for (double rotation : uniqueRotations(current.getRotation())) {
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(
+                    current.getWidth(), current.getDepth(), rotation, current.getVariantId());
+            for (Position position : positionsForRelation(room, footprint, placement, reference)) {
+                Position clamped = FurnitureBoundary.clamp(room, position, footprint).orElse(null);
+                if (clamped != null && addUnique(candidates, clamped, rotation, order)) {
+                    order++;
+                }
+                if (candidates.size() == MAX_POSITIONS_PER_PRODUCT) {
+                    return List.copyOf(candidates);
+                }
+            }
+        }
+        return List.copyOf(candidates);
+    }
+
     private List<Position> positionsForRelation(Room room, FurnitureBoundary.Footprint footprint,
                                                 FeedbackPlacement placement, Furniture reference) {
         return switch (placement.relation()) {

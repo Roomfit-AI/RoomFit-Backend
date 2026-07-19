@@ -2,6 +2,10 @@ package com.roomfit.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+
 @ConfigurationProperties(prefix = "roomfit.llm")
 public class LlmFeedbackProperties {
 
@@ -67,11 +71,29 @@ public class LlmFeedbackProperties {
     }
 
     public boolean hasValidClientConfig() {
-        return hasText(apiKey) && hasText(baseUrl) && hasText(model);
+        return hasUsableApiKey(apiKey) && hasHttpBaseUrl(baseUrl) && hasText(model);
     }
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private boolean hasUsableApiKey(String value) {
+        if (!hasText(value)) return false;
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return !normalized.equals("placeholder") && !normalized.equals("your_api_key")
+                && !normalized.equals("change-me") && !normalized.equals("changeme");
+    }
+
+    private boolean hasHttpBaseUrl(String value) {
+        if (!hasText(value)) return false;
+        try {
+            URI uri = new URI(value.trim());
+            return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && uri.getHost() != null && !uri.getHost().isBlank();
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     public static class Feedback {

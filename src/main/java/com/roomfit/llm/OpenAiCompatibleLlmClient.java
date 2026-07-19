@@ -9,6 +9,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +21,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private final ObjectMapper objectMapper;
     private final String endpoint;
     private final String model;
+    private final boolean geminiOpenAiCompatibility;
 
     public OpenAiCompatibleLlmClient(LlmFeedbackProperties properties, ObjectMapper objectMapper) {
         this(properties, restClientBuilder(properties), objectMapper);
@@ -33,19 +37,12 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         this.objectMapper = objectMapper;
         this.endpoint = normalizeEndpoint(properties.getBaseUrl());
         this.model = properties.getModel();
+        this.geminiOpenAiCompatibility = isGeminiOpenAiCompatibilityEndpoint(properties.getBaseUrl());
     }
 
     @Override
     public String complete(String prompt) {
-        Map<String, Object> requestBody = Map.of(
-                "model", model,
-                "temperature", 0,
-                "response_format", Map.of("type", "json_object"),
-                "messages", List.of(Map.of(
-                        "role", "user",
-                        "content", prompt
-                ))
-        );
+        Map<String, Object> requestBody = requestBody(prompt);
 
         String responseBody = restClient.post()
                 .uri(endpoint)
@@ -106,9 +103,37 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         if (trimmed.endsWith("/chat/completions")) {
             return trimmed;
         }
+        // Gemini's documented OpenAI-compatible base URL ends in /openai and
+        // expects /chat/completions directly, rather than OpenAI's /v1 prefix.
+        if (trimmed.endsWith("/openai")) {
+            return trimmed + "/chat/completions";
+        }
         if (trimmed.endsWith("/v1")) {
             return trimmed + "/chat/completions";
         }
         return trimmed + "/v1/chat/completions";
+    }
+
+    private Map<String, Object> requestBody(String prompt) {
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("model", model);
+        requestBody.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        if (!geminiOpenAiCompatibility) {
+            requestBody.put("temperature", 0);
+            requestBody.put("response_format", Map.of("type", "json_object"));
+        }
+        return Map.copyOf(requestBody);
+    }
+
+    private boolean isGeminiOpenAiCompatibilityEndpoint(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) return false;
+        try {
+            URI uri = new URI(baseUrl.trim());
+            String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(java.util.Locale.ROOT);
+            return "generativelanguage.googleapis.com".equalsIgnoreCase(uri.getHost())
+                    && path.contains("/openai");
+        } catch (URISyntaxException ignored) {
+            return false;
+        }
     }
 }
