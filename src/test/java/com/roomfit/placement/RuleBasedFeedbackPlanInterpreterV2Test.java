@@ -115,6 +115,43 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void normalizesEveryDirectHorizontalMoveAliasBeforeTheRightFallback() {
+        List<Furniture> furniture = List.of(
+                furniture("desk-1", "desk", 3, 3),
+                furniture("chair-1", "desk_chair", 4, 4),
+                furniture("bed-1", "bed", 2, 2));
+
+        for (String feedback : List.of("책상을 왼쪽으로 옮겨줘", "의자를 좌측으로 옮겨줘", "침대를 왼편으로 옮겨줘")) {
+            FeedbackPlan plan = interpreter.interpret(feedback, room(), furniture, context());
+            assertThat(plan.operations().getFirst().placement().relation()).as(feedback)
+                    .isEqualTo(FeedbackRelation.LEFT);
+        }
+        for (String feedback : List.of("책상을 오른쪽으로 옮겨줘", "의자를 우측으로 옮겨줘", "침대를 오른편으로 옮겨줘")) {
+            FeedbackPlan plan = interpreter.interpret(feedback, room(), furniture, context());
+            assertThat(plan.operations().getFirst().placement().relation()).as(feedback)
+                    .isEqualTo(FeedbackRelation.RIGHT);
+        }
+        FeedbackPlan directionless = interpreter.interpret("책상을 옮겨줘", room(), furniture, context());
+        assertThat(directionless.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.RIGHT);
+    }
+
+    @Test
+    void preservesHorizontalDirectionInMoveRotateAndSwapMoveCompounds() {
+        FeedbackPlan moveRotate = interpreter.interpret("침대를 왼편으로 옮기고 90도 회전해줘", room(),
+                List.of(furniture("bed-1", "bed", 3, 3)), context());
+        FeedbackPlan swapMove = interpreter.interpret("침대를 다른 디자인으로 바꾸고 책상 좌측으로 옮겨줘", room(),
+                List.of(furniture("bed-1", "bed", 3, 3), furniture("desk-1", "desk", 5, 3)), context());
+
+        assertThat(moveRotate.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.ROTATE);
+        assertThat(moveRotate.operations().getFirst().placement().relation()).isEqualTo(FeedbackRelation.LEFT);
+        assertThat(swapMove.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.SWAP_FURNITURE, FeedbackOperationType.MOVE);
+        assertThat(swapMove.operations().get(1).placement().relation()).isEqualTo(FeedbackRelation.LEFT_OF);
+        assertThat(swapMove.operations().get(1).referenceTarget().furnitureType()).isEqualTo("desk");
+    }
+
+    @Test
     void normalizesExplicitLargerAndSmallerProductRequestsToReplaceProduct() {
         List<Furniture> desk = List.of(furniture("desk-1", "desk", 3, 3));
 

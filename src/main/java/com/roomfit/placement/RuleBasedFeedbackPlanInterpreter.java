@@ -22,6 +22,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     private static final List<String> REMOVE_TERMS = List.of("제거", "삭제", "빼줘", "빼고", "없애", "치워");
     private static final List<String> ROTATE_TERMS = List.of("회전", "돌려", "돌려줘", "돌리", "90도", "180도", "반대로", "벽과 평행");
     private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "당겨", "밀어", "앞으로", "뒤로");
+    private static final List<String> LEFT_DIRECTION_TERMS = List.of("왼쪽", "좌측", "왼편");
+    private static final List<String> RIGHT_DIRECTION_TERMS = List.of("오른쪽", "우측", "오른편");
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
@@ -223,6 +225,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
     private FeedbackRelation moveRelation(String feedback) {
         if (feedback.contains("모서리") || feedback.contains("구석") || feedback.contains("코너")) return FeedbackRelation.IN_CORNER;
+        if (containsAny(feedback, LEFT_DIRECTION_TERMS)) return FeedbackRelation.LEFT;
+        if (containsAny(feedback, RIGHT_DIRECTION_TERMS)) return FeedbackRelation.RIGHT;
         if (feedback.contains("뒤로") || feedback.contains("밀어")) return FeedbackRelation.BACKWARD;
         if (feedback.contains("앞으로") || feedback.contains("당겨")) return FeedbackRelation.FORWARD;
         if (feedback.contains("창가") || feedback.contains("창문")) return FeedbackRelation.NEAR_WINDOW;
@@ -230,8 +234,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private FeedbackRelation relativeMoveRelation(String feedback) {
-        if (feedback.contains("왼쪽")) return FeedbackRelation.LEFT_OF;
-        if (feedback.contains("오른쪽")) return FeedbackRelation.RIGHT_OF;
+        if (containsAny(feedback, LEFT_DIRECTION_TERMS)) return FeedbackRelation.LEFT_OF;
+        if (containsAny(feedback, RIGHT_DIRECTION_TERMS)) return FeedbackRelation.RIGHT_OF;
         return FeedbackRelation.NEXT_TO;
     }
     private FeedbackOperation addOperation(String feedback, List<FurnitureMention> mentions) {

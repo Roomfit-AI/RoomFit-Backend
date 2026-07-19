@@ -219,6 +219,46 @@ class LayoutFeedbackControllerTest {
     }
 
     @Test
+    void feedback_withDirectLeftMovePersistsOnlyALeftwardResultLayout() throws Exception {
+        Long sourceLayoutId = createLayout();
+        Layout source = layoutRepository.findById(sourceLayoutId).orElseThrow();
+        Furniture sourceDesk = source.getFurniture().stream()
+                .filter(item -> "desk-1".equals(item.getId())).findFirst().orElseThrow();
+        sourceDesk.setPosition(new Position(4.0, sourceDesk.getPosition().getZ()));
+        layoutRepository.save(source);
+        double sourceX = sourceDesk.getPosition().getX();
+        long layoutsBeforeFeedback = layoutRepository.count();
+
+        String response = mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "책상을 왼쪽으로 옮겨줘"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.feedbackStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(1)))
+                .andExpect(jsonPath("$.data.operationResults[0].operationType").value("MOVE"))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("APPLIED"))
+                .andExpect(jsonPath("$.data.operationResults[0].targetFurnitureId").value("desk-1"))
+                .andReturn().getResponse().getContentAsString();
+
+        Integer resultLayoutId = JsonPath.read(response, "$.data.layoutId");
+        Layout result = layoutRepository.findById(resultLayoutId.longValue()).orElseThrow();
+        Furniture resultDesk = result.getFurniture().stream()
+                .filter(item -> "desk-1".equals(item.getId())).findFirst().orElseThrow();
+        Furniture unchangedSourceDesk = layoutRepository.findById(sourceLayoutId).orElseThrow().getFurniture().stream()
+                .filter(item -> "desk-1".equals(item.getId())).findFirst().orElseThrow();
+
+        assertThat(result.getId()).isNotEqualTo(sourceLayoutId);
+        assertThat(resultDesk.getPosition().getX()).isLessThan(sourceX);
+        assertThat(unchangedSourceDesk.getPosition().getX()).isEqualTo(sourceX);
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeFeedback + 1);
+    }
+
+    @Test
     void feedback_withAmbiguousTarget_returnsStructuredClarificationWithoutSnapshot() throws Exception {
         Long layoutId = createLayout();
         Layout layout = layoutRepository.findById(layoutId).orElseThrow();
