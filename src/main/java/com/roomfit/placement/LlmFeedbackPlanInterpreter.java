@@ -670,7 +670,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {
         return hasReferenceExpression(feedback)
-                && List.of("창가", "창문", "구석", "모서리", "코너", "가운데", "중앙").stream()
+                && List.of("창가", "창문", "벽", "구석", "모서리", "코너", "가운데", "중앙").stream()
                 .anyMatch(feedback::contains);
     }
 

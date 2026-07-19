@@ -216,6 +216,22 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void clarifiesReferenceMovesThatAlsoSpecifyAnAbsoluteDestination() {
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+        Furniture desk = furniture("desk-1", "desk", 4, 2);
+
+        FeedbackPlan window = interpreter.interpret("책상 옆 의자를 창문 쪽으로 옮겨줘",
+                room(), List.of(chair, desk), context());
+        FeedbackPlan wall = interpreter.interpret("책상 옆 의자를 벽 쪽으로 옮겨줘",
+                room(), List.of(chair, desk), context());
+
+        assertThat(window.needsClarification()).isTrue();
+        assertThat(window.operations()).isEmpty();
+        assertThat(wall.needsClarification()).isTrue();
+        assertThat(wall.operations()).isEmpty();
+    }
+
+    @Test
     void mapsKnownToneAndMaterialTermsToActualCatalogMetadataKeywords() {
         Furniture drawer = furniture("drawer-1", "drawer_chest", 2, 2);
         Furniture chair = furniture("chair-1", "desk_chair", 4, 2);

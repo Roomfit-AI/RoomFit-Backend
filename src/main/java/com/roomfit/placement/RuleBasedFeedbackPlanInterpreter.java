@@ -279,7 +279,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
 
     private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {
         return containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
-                && containsAny(feedback, List.of("창가", "창문", "구석", "모서리", "코너", "가운데", "중앙"));
+                && containsAny(feedback, List.of("창가", "창문", "벽", "구석", "모서리", "코너", "가운데", "중앙"));
     }
 
     private FeedbackProductRequirements requirements(String type, String feedback) {
