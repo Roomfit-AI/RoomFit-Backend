@@ -2,8 +2,11 @@ package com.roomfit.placement;
 
 import com.jayway.jsonpath.JsonPath;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
+import com.roomfit.room.Room;
+import com.roomfit.room.RoomRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -42,6 +45,8 @@ class LayoutFeedbackControllerTest {
     private MockMvc mockMvc;
     @Autowired
     private LayoutRepository layoutRepository;
+    @Autowired
+    private RoomRepository roomRepository;
 
     @Test
     void feedback_withLargerDesk_returnsReRecommendedLayout() throws Exception {
@@ -286,6 +291,116 @@ class LayoutFeedbackControllerTest {
         assertThat(resultDesk.getPosition().getX()).isLessThan(4.0);
         assertThat(unchangedSourceDesk.getPosition().getX()).isEqualTo(4.0);
         assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeFeedback + 1);
+    }
+
+    @Test
+    void feedback_withFloatingPointLeftBoundaryNoOpKeepsSourceLayout() throws Exception {
+        Long sourceLayoutId = createLayout();
+        Layout source = layoutRepository.findById(sourceLayoutId).orElseThrow();
+        Furniture sourceDesk = new Furniture("desk-left-boundary", "desk", "책상", 1.2, 0.6, 0.73,
+                new Position(0.68, 2.0), 0, FurnitureStatus.EXISTING);
+        source.setFurniture(new ArrayList<>(List.of(sourceDesk)));
+        layoutRepository.save(source);
+        long layoutsBeforeFeedback = layoutRepository.count();
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "책상을 왼쪽으로 옮겨줘"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(sourceLayoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data.feedbackResult.applied").value(false))
+                .andExpect(jsonPath("$.data.feedbackResult.noChangeReason").value("NO_VALID_MOVE_PLACEMENT"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(1)))
+                .andExpect(jsonPath("$.data.operationResults[0].operationType").value("MOVE"))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.data.operationResults[0].reasonCode").value("NO_VALID_MOVE_PLACEMENT"));
+
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeFeedback);
+        assertThat(layoutRepository.findById(sourceLayoutId).orElseThrow().getFurniture().getFirst()
+                .getPosition().getX()).isEqualTo(0.68);
+    }
+
+    @Test
+    void feedback_withFloatingPointRightBoundaryNoOpKeepsSourceLayout() throws Exception {
+        Long sourceLayoutId = createLayout();
+        Layout source = layoutRepository.findById(sourceLayoutId).orElseThrow();
+        Room room = roomRepository.findById(source.getRoomId()).orElseThrow();
+        Furniture prototype = new Furniture("desk-right-boundary", "desk", "책상", 1.2, 0.6, 0.73,
+                new Position(room.getWidth() / 2.0, 2.0), 0, FurnitureStatus.EXISTING);
+        double safeMaxX = FurnitureBoundary.clamp(room, new Position(room.getWidth() + 10, 2.0), prototype)
+                .orElseThrow().getX();
+        double oneUlpInsideBoundary = Math.nextDown(safeMaxX);
+        Furniture sourceDesk = new Furniture("desk-right-boundary", "desk", "책상", 1.2, 0.6, 0.73,
+                new Position(oneUlpInsideBoundary, 2.0), 0, FurnitureStatus.EXISTING);
+        source.setFurniture(new ArrayList<>(List.of(sourceDesk)));
+        layoutRepository.save(source);
+        long layoutsBeforeFeedback = layoutRepository.count();
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "책상을 오른쪽으로 옮겨줘"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(sourceLayoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data.feedbackResult.applied").value(false))
+                .andExpect(jsonPath("$.data.feedbackResult.noChangeReason").value("NO_VALID_MOVE_PLACEMENT"))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.data.operationResults[0].reasonCode").value("NO_VALID_MOVE_PLACEMENT"));
+
+        assertThat(safeMaxX).isNotEqualTo(oneUlpInsideBoundary);
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeFeedback);
+        assertThat(layoutRepository.findById(sourceLayoutId).orElseThrow().getFurniture().getFirst()
+                .getPosition().getX()).isEqualTo(oneUlpInsideBoundary);
+    }
+
+    @Test
+    void feedback_withNoOpMoveAndRotateKeepsSourceLayoutAtomically() throws Exception {
+        Long sourceLayoutId = createLayout();
+        Layout source = layoutRepository.findById(sourceLayoutId).orElseThrow();
+        Furniture sourceDesk = new Furniture("desk-composite-boundary", "desk", "책상", 1.2, 0.6, 0.73,
+                new Position(0.68, 2.0), 0, FurnitureStatus.EXISTING);
+        source.setFurniture(new ArrayList<>(List.of(sourceDesk)));
+        layoutRepository.save(source);
+        long layoutsBeforeFeedback = layoutRepository.count();
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "책상을 왼쪽으로 옮기고 90도 회전해줘"
+                                }
+                                """.formatted(sourceLayoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.layoutId").value(sourceLayoutId))
+                .andExpect(jsonPath("$.data.feedbackStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data.feedbackResult.applied").value(false))
+                .andExpect(jsonPath("$.data.feedbackResult.noChangeReason").value("NO_VALID_MOVE_PLACEMENT"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(2)))
+                .andExpect(jsonPath("$.data.operationResults[0].operationType").value("MOVE"))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.data.operationResults[0].reasonCode").value("NO_VALID_MOVE_PLACEMENT"))
+                .andExpect(jsonPath("$.data.operationResults[1].operationType").value("ROTATE"))
+                .andExpect(jsonPath("$.data.operationResults[1].status").value("SKIPPED_DEPENDENCY"))
+                .andExpect(jsonPath("$.data.operationResults[1].reasonCode").value("DEPENDENCY_NOT_APPLIED"));
+
+        assertThat(layoutRepository.count()).isEqualTo(layoutsBeforeFeedback);
+        assertThat(layoutRepository.findById(sourceLayoutId).orElseThrow().getFurniture().getFirst())
+                .satisfies(unchanged -> {
+                    assertThat(unchanged.getPosition().getX()).isEqualTo(0.68);
+                    assertThat(unchanged.getRotation()).isZero();
+                });
     }
 
     @Test
