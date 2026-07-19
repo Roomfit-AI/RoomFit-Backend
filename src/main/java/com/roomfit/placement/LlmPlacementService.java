@@ -65,6 +65,7 @@ public class LlmPlacementService implements PlacementService {
         String prompt = buildPrompt(room, activeExisting, context, selectedProducts);
         JsonNode root = parseJson(llmClient.complete(prompt));
         List<Furniture> candidate = toFurnitureList(root, activeExisting);
+        normalizeSupportedFurniture(candidate);
 
         verifyRequestedTypeCounts(context, activeExisting, candidate);
 
@@ -123,8 +124,11 @@ public class LlmPlacementService implements PlacementService {
                   You may change only position.x, position.z, and rotation.
                 - Every type listed in requiredItems and optionalItems is a required independent request:
                   preserve its exact normalized type and do not substitute a similar type.
+                - If both are present, center each monitor on the nearest desk and each TV on the
+                  nearest media_console by using the support's exact position.x, position.z, and rotation.
+                  Those monitor/desk and TV/media_console pairs intentionally overlap in footprint.
                 - Every piece's full footprint (width/depth rotated by `rotation`) must stay strictly
-                  inside the room's width/depth, and must not overlap any other piece's footprint.
+                  inside the room's width/depth. Other furniture pairs must not overlap.
                 - Leave clearance in front of doors and windows (do not block them).
                 - If a selectedProducts entry matches a type you are placing, prefer using its exact
                   width/depth/height/productId/styleTags instead of inventing your own. variantId is
@@ -134,6 +138,41 @@ public class LlmPlacementService implements PlacementService {
                 Room and context JSON:
                 %s
                 """.formatted(inputJson);
+    }
+
+    private void normalizeSupportedFurniture(List<Furniture> furniture) {
+        for (Furniture dependent : furniture) {
+            if (dependent.getStatus() == FurnitureStatus.DELETED || dependent.getPosition() == null) continue;
+            String dependentType = GeneratedFurnitureCatalog.get().normalizeType(dependent.getType());
+            String supporterType = switch (dependentType) {
+                case "monitor" -> "desk";
+                case "tv" -> "media_console";
+                default -> null;
+            };
+            if (supporterType == null) continue;
+
+            Furniture nearestSupporter = null;
+            double nearestDistanceSquared = Double.POSITIVE_INFINITY;
+            for (Furniture supporter : furniture) {
+                if (supporter == dependent || supporter.getStatus() == FurnitureStatus.DELETED
+                        || supporter.getPosition() == null
+                        || !supporterType.equals(GeneratedFurnitureCatalog.get().normalizeType(supporter.getType()))) {
+                    continue;
+                }
+                double deltaX = supporter.getPosition().getX() - dependent.getPosition().getX();
+                double deltaZ = supporter.getPosition().getZ() - dependent.getPosition().getZ();
+                double distanceSquared = deltaX * deltaX + deltaZ * deltaZ;
+                if (distanceSquared < nearestDistanceSquared) {
+                    nearestSupporter = supporter;
+                    nearestDistanceSquared = distanceSquared;
+                }
+            }
+            if (nearestSupporter == null) continue;
+
+            dependent.setPosition(new Position(nearestSupporter.getPosition().getX(),
+                    nearestSupporter.getPosition().getZ()));
+            dependent.setRotation(nearestSupporter.getRotation());
+        }
     }
 
     private Map<String, Object> roomPayload(Room room) {
