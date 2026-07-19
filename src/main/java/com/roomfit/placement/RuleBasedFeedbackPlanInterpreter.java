@@ -9,15 +9,16 @@ import com.roomfit.room.Room;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 
+/** A conservative Korean fallback.  It only creates an executable plan when one target is known. */
 public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
-    private static final Map<String, String> FURNITURE_TERMS = furnitureTerms();
-    private static final List<String> ADD_TERMS = List.of("추가", "놓아", "놓아줘", "놓고", "놓기", "넣어", "배치");
-    private static final List<String> REMOVE_TERMS = List.of("제거", "빼줘", "빼고", "없애", "치워");
+    private static final List<String> ADD_TERMS = List.of("추가", "하나 더", "새로", "넣어", "놓아", "놔", "있었으면 좋겠");
+    private static final List<String> REMOVE_TERMS = List.of("삭제", "제거", "없애", "치워", "빼", "필요 없어");
+    private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "붙여", "붙이");
+    private static final List<String> SWAP_TERMS = List.of("교체", "바꿔", "바꾸", "다른 디자인", "다른 제품");
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
@@ -25,55 +26,66 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         if (normalized.isBlank()) {
             throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
         }
-
         try {
-            FeedbackOperation legacyDeskOperation = legacyDeskOperation(normalized, furniture);
-            if (legacyDeskOperation != null) {
-                return direct(normalized, legacyDeskOperation);
+            FeedbackOperation legacy = legacyDeskOperation(normalized, furniture);
+            if (legacy != null) return direct(normalized, legacy);
+            if (isVague(normalized) || FeedbackVocabularyNormalizer.isAmbiguousFurnitureWord(normalized)) {
+                return clarification("어떤 가구를 말씀하시는지 확인이 필요합니다.", "");
+            }
+            if (isClassicSwap(normalized)) {
+                return direct(normalized, swapOperation(normalized, mentions(normalized), furniture));
             }
 
-            List<FurnitureMention> mentions = mentions(normalized);
-            if (isClearSwapRequest(normalized) && mentions.size() >= 2) {
-                return direct(normalized, swapOperation(normalized, mentions));
+            List<String> clauses = splitCompound(normalized);
+            if (clauses.size() > FeedbackPlanValidator.MAX_FEEDBACK_OPERATIONS) {
+                return clarification("한 번에 변경할 수 있는 항목 수를 초과했습니다.", "");
             }
-            if (isClearSwapRequest(normalized) && mentions.size() == 1 && hasSizePreference(normalized)) {
-                return direct(normalized, sameTypeSwapOperation(normalized, mentions.getFirst().type()));
+            List<FeedbackOperation> operations = new ArrayList<>();
+            for (String clause : clauses) {
+                operations.add(parseClause(clause, room, furniture, operations.size() + 1));
             }
-            if (containsAny(normalized, REMOVE_TERMS) && mentions.size() == 1) {
-                return direct(normalized, removeOperation(normalized, mentions.getFirst().type()));
-            }
-            if (containsAny(normalized, ADD_TERMS) && !mentions.isEmpty()) {
-                return direct(normalized, addOperation(normalized, mentions));
-            }
-        } catch (AmbiguousRuleTargetException e) {
-            return new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION, List.of(), List.of(),
-                    new FeedbackClarification(e.getMessage(), e.targetFurnitureType()), normalized,
-                    FeedbackSource.RULE_BASED, true);
+            if (operations.size() == 1) return direct(normalized, operations.getFirst());
+            return new FeedbackPlan("2.0", FeedbackRequestKind.COMPOSITE, operations, List.of(), null,
+                    normalized, FeedbackSource.RULE_BASED, true);
+        } catch (ClarificationRequired e) {
+            return clarification(e.getMessage(), e.targetFurnitureType());
         }
-        throw new CustomException(ErrorCode.UNSUPPORTED_FEEDBACK_INTENT);
+    }
+
+    private FeedbackOperation parseClause(String clause, Room room, List<Furniture> furniture, int sequence) {
+        List<FurnitureMention> mentions = mentions(clause);
+        if (mentions.isEmpty()) {
+            throw new ClarificationRequired("어떤 가구를 말씀하시는지 확인이 필요합니다.", "");
+        }
+        String operationId = "op-" + sequence;
+        if (containsAny(clause, SWAP_TERMS)) {
+            return sameTypeSwapOperation(operationId, clause, mentions.getFirst().type(), furniture);
+        }
+        if (containsAny(clause, REMOVE_TERMS)) {
+            return removeOperation(operationId, mentions.getFirst().type(), clause, furniture);
+        }
+
+        boolean explicitAdd = containsAny(clause, ADD_TERMS);
+        boolean placeExisting = clause.contains("배치") && !explicitAdd
+                && activeByType(mentions.getFirst().type(), furniture).size() == 1;
+        if (explicitAdd || (clause.contains("배치") && !placeExisting)) {
+            return addOperation(operationId, clause, mentions, furniture);
+        }
+        if (placeExisting || containsAny(clause, MOVE_TERMS)) {
+            return moveOperation(operationId, clause, mentions.getFirst().type(), furniture);
+        }
+        throw new ClarificationRequired("요청한 변경 방식을 확인할 수 없습니다. 추가, 이동, 삭제, 교체 중 하나로 말씀해주세요.",
+                mentions.getFirst().type());
     }
 
     private FeedbackOperation legacyDeskOperation(String feedback, List<Furniture> furniture) {
         boolean larger = List.of("책상 더 크게", "책상을 조금 더 넓게 쓰고 싶어", "책상을 넓게", "책상 크게",
                 "책상 키워줘", "책상이 더 컸으면 좋겠어").contains(feedback);
         boolean storage = List.of("수납 늘려줘", "수납공간이 많은 책상으로 바꿔줘").contains(feedback);
-        boolean openSpace = "방이 넓어 보이게".equals(feedback);
-        if (!larger && !storage && !openSpace) {
-            return null;
-        }
+        boolean openSpace = feedback.equals("방이 넓어 보이게") || feedback.equals("방이 넓어 보이게 정리해줘");
+        if (!larger && !storage && !openSpace) return null;
 
-        List<Furniture> desks = furniture.stream()
-                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
-                .filter(item -> "desk".equals(item.getType()))
-                .toList();
-        if (desks.isEmpty()) {
-            throw new CustomException(ErrorCode.FURNITURE_NOT_FOUND);
-        }
-        if (desks.size() > 1) {
-            throw new AmbiguousRuleTargetException("어떤 책상을 변경할지 알려주세요.", "desk");
-        }
-
-        FeedbackTargetSelector target = new FeedbackTargetSelector(desks.getFirst().getId(), "desk", "");
+        FeedbackTargetSelector target = selectorForExisting("desk", "", furniture);
         if (larger || storage) {
             return new FeedbackOperation("op-1", FeedbackOperationType.REPLACE_PRODUCT, target, null,
                     new FeedbackReplaceConstraints("desk", larger, null, List.of(), List.of(), storage), List.of());
@@ -82,110 +94,192 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
                 new FeedbackPlacement(FeedbackRelation.CENTER, FeedbackMagnitude.MEDIUM, null), null, List.of());
     }
 
-    private FeedbackOperation addOperation(String feedback, List<FurnitureMention> mentions) {
+    private FeedbackOperation addOperation(String operationId, String feedback, List<FurnitureMention> mentions,
+                                           List<Furniture> furniture) {
         FurnitureMention targetMention = mentions.getLast();
         FurnitureMention referenceMention = null;
-        if (containsAny(feedback, List.of("옆", "왼쪽", "오른쪽")) && mentions.size() >= 2) {
+        if (mentions.size() >= 2 && containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처"))) {
             referenceMention = mentions.getFirst();
             if (referenceMention.type().equals(targetMention.type())) {
-                throw new AmbiguousRuleTargetException("추가할 가구와 기준 가구를 구분해서 알려주세요.");
+                throw new ClarificationRequired("추가할 가구와 기준 가구를 구분해서 알려주세요.", targetMention.type());
             }
         } else if (mentions.stream().map(FurnitureMention::type).distinct().count() > 1) {
-            throw new AmbiguousRuleTargetException("어떤 가구를 추가할지 하나만 알려주세요.");
+            throw new ClarificationRequired("어떤 가구를 추가할지 하나만 알려주세요.", "");
         }
 
         FeedbackRelation relation = addRelation(feedback, referenceMention != null);
         FeedbackSide side = relation == FeedbackRelation.NEXT_TO
                 ? feedback.contains("왼쪽") ? FeedbackSide.LEFT
-                : feedback.contains("오른쪽") ? FeedbackSide.RIGHT : null
-                : null;
+                : feedback.contains("오른쪽") ? FeedbackSide.RIGHT : null : null;
         FeedbackTargetSelector referenceTarget = referenceMention == null ? null
-                : new FeedbackTargetSelector("", referenceMention.type(), "");
-        FeedbackProductRequirements requirements = requirements(targetMention.type(), feedback);
-        return new FeedbackOperation("op-1", FeedbackOperationType.ADD_FURNITURE,
+                : selectorForExisting(referenceMention.type(), feedback, furniture);
+        return new FeedbackOperation(operationId, FeedbackOperationType.ADD_FURNITURE,
                 new FeedbackTargetSelector("", targetMention.type(), ""), referenceTarget,
                 new FeedbackPlacement(relation, null, null, side), null,
-                requirements, null, List.of());
+                requirements(targetMention.type(), feedback), null, List.of());
     }
 
-    private FeedbackOperation removeOperation(String feedback, String type) {
-        return new FeedbackOperation("op-1", FeedbackOperationType.REMOVE_FURNITURE,
-                selector(type, feedback), null, null, null, null, null, List.of());
+    private FeedbackOperation removeOperation(String operationId, String type, String feedback, List<Furniture> furniture) {
+        return new FeedbackOperation(operationId, FeedbackOperationType.REMOVE_FURNITURE,
+                selectorForExisting(type, feedback, furniture), null, null, null, null, null, List.of());
     }
 
-    private FeedbackOperation swapOperation(String feedback, List<FurnitureMention> mentions) {
-        FurnitureMention source = mentions.getFirst();
-        FurnitureMention replacement = mentions.getLast();
-        if (source.type().equals(replacement.type()) && !hasSizePreference(feedback)) {
-            throw new AmbiguousRuleTargetException("교체할 기존 가구와 새 가구 종류를 구분해서 알려주세요.");
+    private FeedbackOperation sameTypeSwapOperation(String operationId, String feedback, String type,
+                                                     List<Furniture> furniture) {
+        if (containsToneRequest(feedback)) {
+            throw new ClarificationRequired("요청한 톤 조건은 현재 제품 교체 조건으로 지원하지 않습니다.", type);
         }
-        return new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
-                selector(source.type(), feedback), null, null, null, null,
-                requirements(replacement.type(), feedback), List.of());
-    }
-
-    private FeedbackOperation sameTypeSwapOperation(String feedback, String type) {
-        return new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
-                selector(type, feedback), null, null, null, null,
+        return new FeedbackOperation(operationId, FeedbackOperationType.SWAP_FURNITURE,
+                selectorForExisting(type, feedback, furniture), null, null, null, null,
                 requirements(type, feedback), List.of());
     }
 
-    private FeedbackTargetSelector selector(String type, String feedback) {
-        FeedbackLocationHint locationHint = null;
-        if (feedback.contains("창가") || feedback.contains("창문")) locationHint = FeedbackLocationHint.NEAR_WINDOW;
-        else if (feedback.contains("가운데") || feedback.contains("중앙")) locationHint = FeedbackLocationHint.CENTER;
-        else if (feedback.contains("가장 큰")) locationHint = FeedbackLocationHint.LARGEST;
-        else if (feedback.contains("가장 작은")) locationHint = FeedbackLocationHint.SMALLEST;
-        Integer ordinal = ordinal(feedback);
-        return new FeedbackTargetSelector("", type, "", locationHint, ordinal);
+    private FeedbackOperation swapOperation(String feedback, List<FurnitureMention> mentions, List<Furniture> furniture) {
+        if (mentions.size() < 2) {
+            throw new ClarificationRequired("교체할 기존 가구와 새 가구 종류를 구분해서 알려주세요.", "");
+        }
+        FurnitureMention source = mentions.getFirst();
+        FurnitureMention replacement = mentions.getLast();
+        return new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
+                selectorForExisting(source.type(), feedback, furniture), null, null, null, null,
+                requirements(replacement.type(), feedback), List.of());
     }
 
-    private FeedbackProductRequirements requirements(String type, String feedback) {
-        FeedbackSizePreference size = feedback.contains("작은") || feedback.contains("슬림")
-                ? FeedbackSizePreference.SMALL
-                : feedback.contains("큰") || feedback.contains("넓은")
-                ? FeedbackSizePreference.LARGE : FeedbackSizePreference.ANY;
-        return new FeedbackProductRequirements(type, size, feedback.contains("수납"), List.of());
+    private FeedbackOperation moveOperation(String operationId, String feedback, String type, List<Furniture> furniture) {
+        if (containsAny(feedback, List.of("구석", "모서리", "코너"))) {
+            throw new ClarificationRequired("모서리로의 이동은 현재 안전한 배치 조건으로 지원하지 않습니다.", type);
+        }
+        if (containsAny(feedback, List.of("옆", "근처"))) {
+            throw new ClarificationRequired("기준 가구 옆으로의 이동은 현재 안전한 배치 조건으로 지원하지 않습니다.", type);
+        }
+        return new FeedbackOperation(operationId, FeedbackOperationType.MOVE,
+                selectorForExisting(type, feedback, furniture), null, movePlacement(feedback), null, null, null, List.of());
+    }
+
+    private FeedbackPlacement movePlacement(String feedback) {
+        FeedbackRelation relation = feedback.contains("창가") || feedback.contains("창문") ? FeedbackRelation.NEAR_WINDOW
+                : feedback.contains("문에서 멀") ? FeedbackRelation.AWAY_FROM_DOOR
+                : feedback.contains("왼쪽") ? FeedbackRelation.LEFT
+                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT
+                : feedback.contains("가운데") || feedback.contains("중앙") ? FeedbackRelation.CENTER
+                : feedback.contains("벽") ? FeedbackRelation.NEAR_WALL
+                : FeedbackRelation.RIGHT;
+        FeedbackMagnitude magnitude = containsAny(feedback, List.of("조금", "살짝"))
+                ? FeedbackMagnitude.SMALL : FeedbackMagnitude.MEDIUM;
+        return new FeedbackPlacement(relation, magnitude, null);
     }
 
     private FeedbackRelation addRelation(String feedback, boolean hasReference) {
-        if (feedback.contains("왼쪽")) return FeedbackRelation.LEFT_OF;
-        if (feedback.contains("오른쪽")) return FeedbackRelation.RIGHT_OF;
-        if (feedback.contains("옆") && hasReference) return FeedbackRelation.NEXT_TO;
+        if (feedback.contains("왼쪽") && hasReference) return FeedbackRelation.LEFT_OF;
+        if (feedback.contains("오른쪽") && hasReference) return FeedbackRelation.RIGHT_OF;
+        if ((feedback.contains("옆") || feedback.contains("근처")) && hasReference) return FeedbackRelation.NEXT_TO;
         if (feedback.contains("창가") || feedback.contains("창문")) return FeedbackRelation.NEAR_WINDOW;
-        if (feedback.contains("구석") || feedback.contains("코너")) return FeedbackRelation.IN_CORNER;
+        if (containsAny(feedback, List.of("구석", "모서리", "코너"))) return FeedbackRelation.IN_CORNER;
         if (feedback.contains("가운데") || feedback.contains("중앙")) return FeedbackRelation.CENTER;
         return FeedbackRelation.NEAR_WALL;
     }
 
-    private FeedbackPlan direct(String reason, FeedbackOperation operation) {
-        return new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(operation), List.of(), null,
-                reason, FeedbackSource.RULE_BASED, true);
+    private FeedbackProductRequirements requirements(String type, String feedback) {
+        FeedbackSizePreference size = containsAny(feedback, List.of("작은", "슬림")) ? FeedbackSizePreference.SMALL
+                : containsAny(feedback, List.of("큰", "넓은")) ? FeedbackSizePreference.LARGE : FeedbackSizePreference.ANY;
+        return new FeedbackProductRequirements(type, size, feedback.contains("수납"), List.of());
+    }
+
+    private FeedbackTargetSelector selectorForExisting(String type, String feedback, List<Furniture> furniture) {
+        List<Furniture> matches = activeByType(type, furniture);
+        if (matches.isEmpty()) {
+            throw new ClarificationRequired("요청한 가구를 현재 배치에서 찾지 못했습니다.", type);
+        }
+        Integer ordinal = ordinal(feedback);
+        if (ordinal != null) {
+            List<Furniture> ordered = ordered(matches);
+            if (ordinal <= ordered.size()) return new FeedbackTargetSelector(ordered.get(ordinal - 1).getId(), type, "");
+            throw new ClarificationRequired("말씀하신 순서의 가구를 현재 배치에서 찾지 못했습니다.", type);
+        }
+        if (matches.size() == 1) return new FeedbackTargetSelector(matches.getFirst().getId(), type, "");
+        throw new ClarificationRequired(candidateQuestion(type, matches), type);
+    }
+
+    private List<Furniture> activeByType(String type, List<Furniture> furniture) {
+        return furniture.stream().filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> type.equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()))).toList();
+    }
+
+    private String candidateQuestion(String type, List<Furniture> candidates) {
+        List<String> labels = ordered(candidates).stream().map(this::candidateLabel).toList();
+        return "어떤 " + koreanType(type) + "을 말씀하시나요? " + String.join(", ", labels) + " 중에서 선택해주세요.";
+    }
+
+    private List<Furniture> ordered(List<Furniture> furniture) {
+        return furniture.stream().sorted(Comparator.comparingDouble((Furniture item) -> item.getPosition().getX())
+                .thenComparingDouble(item -> item.getPosition().getZ()).thenComparing(Furniture::getId)).toList();
+    }
+
+    private String candidateLabel(Furniture item) {
+        String label = item.getLabel() == null ? "" : item.getLabel().trim();
+        if (!label.isBlank() && !label.equalsIgnoreCase(item.getType())) return label;
+        return koreanType(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType()));
+    }
+
+    private String koreanType(String type) {
+        return switch (type) {
+            case "bed" -> "침대";
+            case "desk" -> "책상";
+            case "desk_chair" -> "의자";
+            case "nightstand" -> "협탁";
+            case "sofa" -> "소파";
+            case "bookshelf" -> "책장";
+            default -> "가구";
+        };
     }
 
     private List<FurnitureMention> mentions(String feedback) {
-        List<FurnitureMention> mentions = new ArrayList<>();
-        for (Map.Entry<String, String> entry : FURNITURE_TERMS.entrySet()) {
-            int fromIndex = 0;
-            while (fromIndex < feedback.length()) {
-                int index = feedback.indexOf(entry.getKey(), fromIndex);
+        List<FurnitureMention> found = new ArrayList<>();
+        String lower = feedback.toLowerCase(Locale.ROOT);
+        for (var entry : FeedbackVocabularyNormalizer.aliasesByLength()) {
+            String alias = entry.getKey().replace('_', ' ');
+            int from = 0;
+            while (from < lower.length()) {
+                int index = lower.indexOf(alias, from);
                 if (index < 0) break;
-                mentions.add(new FurnitureMention(entry.getValue(), index, entry.getKey().length()));
-                fromIndex = index + entry.getKey().length();
+                found.add(new FurnitureMention(entry.getValue(), index, alias.length()));
+                from = index + alias.length();
             }
         }
-        mentions.sort(Comparator.comparingInt(FurnitureMention::index)
+        found.sort(Comparator.comparingInt(FurnitureMention::index)
                 .thenComparing(Comparator.comparingInt(FurnitureMention::length).reversed()));
-
         List<FurnitureMention> nonOverlapping = new ArrayList<>();
-        int previousEnd = -1;
-        for (FurnitureMention mention : mentions) {
-            if (mention.index() >= previousEnd) {
+        int end = -1;
+        for (FurnitureMention mention : found) {
+            if (mention.index() >= end) {
                 nonOverlapping.add(mention);
-                previousEnd = mention.index() + mention.length();
+                end = mention.index() + mention.length();
             }
         }
         return nonOverlapping;
+    }
+
+    private List<String> splitCompound(String feedback) {
+        String split = feedback.replace("그리고", "|").replace(",", "|")
+                .replace("삭제하고", "삭제|").replace("제거하고", "제거|")
+                .replace("없애고", "없애|").replace("치우고", "치워|").replace("빼고", "빼|")
+                .replace("옮기고", "옮기|").replace("이동하고", "이동|").replace("붙이고", "붙이|");
+        return java.util.Arrays.stream(split.split("\\|"))
+                .map(String::trim).filter(value -> !value.isBlank()).toList();
+    }
+
+    private boolean isClassicSwap(String feedback) {
+        return feedback.contains("빼고") && containsAny(feedback, List.of("넣어", "놓아", "추가", "배치"));
+    }
+
+    private boolean isVague(String feedback) {
+        return feedback.contains("저거") || feedback.equals("창가 쪽으로 옮겨줘")
+                || feedback.contains("적당히") || feedback.contains("예쁘게") || feedback.equals("가구를 없애줘")
+                || feedback.equals("가구를 모서리에 배치해줘");
+    }
+
+    private boolean containsToneRequest(String feedback) {
+        return containsAny(feedback, List.of("다른 톤", "밝은 톤", "우드 톤", "색상", "톤으로"));
     }
 
     private Integer ordinal(String feedback) {
@@ -200,72 +294,26 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         return terms.stream().anyMatch(value::contains);
     }
 
-    private boolean isClearSwapRequest(String feedback) {
-        if (containsAny(feedback, List.of("대신", "교체", "바꿔"))) {
-            return true;
-        }
-        return feedback.contains("빼고")
-                && containsAny(feedback, List.of("넣어", "놓아", "배치", "추가"));
+    private FeedbackPlan direct(String reason, FeedbackOperation operation) {
+        return new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(operation), List.of(), null,
+                reason, FeedbackSource.RULE_BASED, true);
     }
 
-    private boolean hasSizePreference(String feedback) {
-        return containsAny(feedback, List.of("작은", "슬림", "큰", "넓은"));
-    }
-
-    private static Map<String, String> furnitureTerms() {
-        Map<String, String> terms = new LinkedHashMap<>();
-        terms.put("책상 의자", "desk_chair");
-        terms.put("책상의자", "desk_chair");
-        terms.put("사이드 테이블", "side_table");
-        terms.put("사이드테이블", "side_table");
-        terms.put("1인용 의자", "desk_chair");
-        terms.put("전신 거울", "full_length_mirror");
-        terms.put("전신거울", "full_length_mirror");
-        terms.put("미디어 콘솔", "media_console");
-        terms.put("미디어콘솔", "media_console");
-        terms.put("소파 베드", "sofa_bed");
-        terms.put("소파베드", "sofa_bed");
-        terms.put("서랍장", "drawer_chest");
-        terms.put("수납장", "storage");
-        terms.put("협탁", "nightstand");
-        terms.put("책장", "bookshelf");
-        terms.put("행거", "hanger");
-        terms.put("파티션", "partition_shelf");
-        terms.put("식탁", "multi_table");
-        terms.put("테이블", "multi_table");
-        terms.put("책상", "desk");
-        terms.put("침대", "bed");
-        terms.put("소파", "sofa");
-        terms.put("의자", "desk_chair");
-        terms.put("조명", "mood_lamp");
-        terms.put("램프", "mood_lamp");
-        terms.put("스탠드", "mood_lamp");
-        terms.put("모니터", "monitor");
-        terms.put("블라인드", "curtain_blind");
-        terms.put("커튼", "curtain_blind");
-        terms.put("옷장", "wardrobe");
-        terms.put("거울", "full_length_mirror");
-        terms.put("화분", "plant");
-        terms.put("티비", "tv");
-        terms.put("TV", "tv");
-        terms.put("러그", "rug");
-        return Map.copyOf(terms);
+    private FeedbackPlan clarification(String question, String type) {
+        return new FeedbackPlan("2.0", FeedbackRequestKind.CLARIFICATION, List.of(), List.of(),
+                new FeedbackClarification(question, type), "", FeedbackSource.RULE_BASED, true);
     }
 
     private record FurnitureMention(String type, int index, int length) {
     }
 
-    private static final class AmbiguousRuleTargetException extends RuntimeException {
-        private AmbiguousRuleTargetException(String question) {
-            this(question, "");
-        }
+    private static final class ClarificationRequired extends RuntimeException {
+        private final String targetFurnitureType;
 
-        private AmbiguousRuleTargetException(String question, String targetFurnitureType) {
-            super(question);
+        private ClarificationRequired(String message, String targetFurnitureType) {
+            super(message);
             this.targetFurnitureType = targetFurnitureType;
         }
-
-        private final String targetFurnitureType;
 
         private String targetFurnitureType() {
             return targetFurnitureType;

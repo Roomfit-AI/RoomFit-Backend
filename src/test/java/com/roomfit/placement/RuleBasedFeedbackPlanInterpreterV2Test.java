@@ -8,6 +8,8 @@ import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -31,13 +33,13 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void parsesGenericRemoveWithoutChoosingAnExistingIndex() {
+    void resolvesTheSingleActiveRemovalTargetToItsExistingId() {
         FeedbackPlan plan = interpret("소파를 없애줘");
 
         FeedbackOperation operation = plan.operations().getFirst();
         assertThat(operation.type()).isEqualTo(FeedbackOperationType.REMOVE_FURNITURE);
         assertThat(operation.target().furnitureType()).isEqualTo("sofa");
-        assertThat(operation.target().furnitureId()).isBlank();
+        assertThat(operation.target().furnitureId()).isEqualTo("sofa-1");
     }
 
     @Test
@@ -51,14 +53,13 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void normalizesLightingAndTableTermsToCatalogTypes() {
+    void normalizesLightingAndDoesNotGuessAmbiguousTableTerms() {
         FeedbackOperation lighting = interpret("구석에 조명을 추가해줘").operations().getFirst();
-        FeedbackOperation table = interpret("작은 테이블을 추가해줘").operations().getFirst();
+        FeedbackPlan table = interpret("작은 테이블을 추가해줘");
 
         assertThat(lighting.target().furnitureType()).isEqualTo("mood_lamp");
         assertThat(lighting.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
-        assertThat(table.target().furnitureType()).isEqualTo("multi_table");
-        assertThat(table.productRequirements().sizePreference()).isEqualTo(FeedbackSizePreference.SMALL);
+        assertThat(table.needsClarification()).isTrue();
     }
 
     @Test
@@ -72,10 +73,10 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void keepsGenericStorageSeparateFromBookshelfHangerAndWardrobe() {
-        FeedbackOperation operation = interpret("수납장을 하나 더 추가해줘").operations().getFirst();
+    void doesNotInventANonCanonicalStorageFurnitureType() {
+        FeedbackPlan plan = interpret("수납장을 하나 더 추가해줘");
 
-        assertThat(operation.target().furnitureType()).isEqualTo("storage");
+        assertThat(plan.needsClarification()).isTrue();
     }
 
     @Test
@@ -93,8 +94,73 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
 
     @Test
     void doesNotForceRemoveAndMovePhraseIntoSwap() {
-        assertThatThrownBy(() -> interpret("의자를 빼고 책상을 옮겨줘"))
-                .isInstanceOf(com.roomfit.common.CustomException.class);
+        assertThat(interpret("의자를 빼고 책상을 옮겨줘").needsClarification()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"소파를 삭제해줘", "소파를 없애줘", "소파를 치워줘", "소파를 빼줘", "소파는 필요 없어"})
+    void recognizesKoreanRemovalSynonyms(String feedback) {
+        FeedbackPlan plan = interpreter.interpret(feedback, room(), List.of(furniture("sofa-1", "sofa", 4, 4)), context());
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.REMOVE_FURNITURE);
+            assertThat(operation.target().furnitureId()).isEqualTo("sofa-1");
+        });
+    }
+
+    @Test
+    void movesExistingChairWithoutCreatingAnAddOperation() {
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+        FeedbackPlan plan = interpreter.interpret("의자를 오른쪽으로 배치해줘", room(), List.of(chair), context());
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.RIGHT);
+        });
+    }
+
+    @Test
+    void returnsClarificationForCornerMoveInsteadOfChangingItIntoAnAdd() {
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+        FeedbackPlan plan = interpreter.interpret("의자를 구석에 배치해줘", room(), List.of(chair), context());
+
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.operations()).isEmpty();
+        assertThat(plan.clarification().targetFurnitureType()).isEqualTo("desk_chair");
+    }
+
+    @Test
+    void splitsMoveAndRemoveIntoTwoOperations() {
+        FeedbackPlan plan = interpreter.interpret("침대는 왼쪽 벽 쪽으로 옮기고 소파는 삭제해줘", room(), List.of(
+                furniture("bed-1", "bed", 2, 2), furniture("sofa-1", "sofa", 4, 4)), context());
+
+        assertThat(plan.requestKind()).isEqualTo(FeedbackRequestKind.COMPOSITE);
+        assertThat(plan.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.REMOVE_FURNITURE);
+    }
+
+    @Test
+    void swapsSameTypeForDifferentDesignWhileKeepingCanonicalType() {
+        FeedbackPlan plan = interpreter.interpret("침대를 다른 디자인으로 바꿔줘", room(),
+                List.of(furniture("bed-1", "bed", 2, 2)), context());
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(operation.target().furnitureId()).isEqualTo("bed-1");
+            assertThat(operation.replacementRequirements().furnitureType()).isEqualTo("bed");
+        });
+    }
+
+    @Test
+    void describesMultipleSameTypeCandidatesWithoutExposingIds() {
+        FeedbackPlan plan = interpreter.interpret("책상을 옮겨줘", room(), List.of(
+                new Furniture("desk-1", "desk", "창가 책상", 1, 1, 0.8, new Position(1, 1), 0, FurnitureStatus.EXISTING),
+                new Furniture("desk-2", "desk", "모던 책상", 1, 1, 0.8, new Position(4, 4), 0, FurnitureStatus.EXISTING)), context());
+
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.clarification().question()).contains("창가 책상", "모던 책상")
+                .doesNotContain("desk-1", "desk-2");
     }
 
     private FeedbackPlan interpret(String feedback) {

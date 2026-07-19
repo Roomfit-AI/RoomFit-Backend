@@ -7,10 +7,8 @@ import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.llm.LlmClient;
-import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
-import com.roomfit.room.Opening;
 import com.roomfit.room.Room;
 
 import java.util.ArrayList;
@@ -61,6 +59,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     false
             );
             planValidator.validate(plan);
+            validateProviderTargets(plan, furniture);
             return plan;
         } catch (CustomException e) {
             // Invalid provider output is a provider failure. The caller may safely use the
@@ -96,9 +95,14 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         if (!node.isObject()) {
             return new FeedbackTargetSelector("", "", "");
         }
+        String rawType = text(node, "furnitureType");
+        String furnitureType = normalizeFurnitureType(rawType);
+        if (!rawType.isBlank() && furnitureType.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
         return new FeedbackTargetSelector(
                 text(node, "furnitureId"),
-                normalizeFurnitureType(text(node, "furnitureType")),
+                furnitureType,
                 text(node, "labelKeyword"),
                 optionalEnum(FeedbackLocationHint.class, text(node, "locationHint")),
                 optionalInteger(node, "ordinal")
@@ -139,6 +143,9 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             furnitureType = defaultFurnitureType;
         }
         furnitureType = normalizeFurnitureType(furnitureType);
+        if (furnitureType.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
         return new FeedbackProductRequirements(
                 furnitureType,
                 optionalEnum(FeedbackSizePreference.class, text(node, "sizePreference")),
@@ -171,6 +178,9 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
             furnitureType = targetFurnitureType;
         }
         furnitureType = normalizeFurnitureType(furnitureType);
+        if (furnitureType.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
         boolean largerThanCurrent = node.path("largerThanCurrent").asBoolean(false);
         Double minWidth = optionalNumber(node, "minWidth");
         if (minWidth != null && (minWidth <= 0 || minWidth > 10)) {
@@ -212,7 +222,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private JsonNode parseObject(String rawResponse) {
         try {
-            JsonNode root = objectMapper.readTree(rawResponse);
+            JsonNode root = objectMapper.readTree(extractJsonObject(rawResponse));
             if (root == null || !root.isObject()) {
                 throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
             }
@@ -222,11 +232,33 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
         }
     }
 
+    /** Accept harmless presentation wrappers but never repair a malformed plan. */
+    private String extractJsonObject(String rawResponse) {
+        String value = rawResponse == null ? "" : rawResponse.trim();
+        if (value.startsWith("```")) {
+            int firstLineEnd = value.indexOf('\n');
+            int closingFence = value.lastIndexOf("```");
+            if (firstLineEnd < 0 || closingFence <= firstLineEnd) {
+                throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+            }
+            value = value.substring(firstLineEnd + 1, closingFence).trim();
+        }
+        if (value.startsWith("{") && value.endsWith("}")) {
+            return value;
+        }
+        int first = value.indexOf('{');
+        int last = value.lastIndexOf('}');
+        if (first < 0 || last <= first || first > 160 || value.length() - last - 1 > 160) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        return value.substring(first, last + 1);
+    }
+
     private String buildPrompt(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
         Map<String, Object> payload = Map.of(
                 "feedback", feedback,
-                "room", Map.of("width", room.getWidth(), "depth", room.getDepth(), "height", room.getHeight(),
-                        "openings", room.getOpenings().stream().map(this::opening).toList()),
+                "room", Map.of("hasWindow", room.getOpenings().stream()
+                        .anyMatch(opening -> "window".equals(opening.getType()))),
                 "furniture", furniture.stream()
                         .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
                         .map(this::furniture)
@@ -248,6 +280,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     CENTER, LARGEST, or SMALLEST. ordinal is one-based.
                     MOVE uses placement.relation from LEFT, RIGHT, FORWARD, BACKWARD, NEAR_WALL, NEAR_WINDOW,
                     AWAY_FROM_DOOR, CENTER and placement.magnitude from SMALL, MEDIUM, LARGE.
+                    IN_CORNER and beside/reference relations are ADD-only. For a requested move to a corner or beside
+                    another item, return CLARIFICATION; never convert it into an ADD operation.
                     ROTATE uses placement.orientation from QUARTER_TURN_CW, QUARTER_TURN_CCW, HALF_TURN, ALIGN_WITH_WALL.
                     REPLACE_PRODUCT uses constraints with the supported fields furnitureType, largerThanCurrent, minWidth,
                     requiredStyleTags, requiredLifestyleTags, and storagePreferred.
@@ -267,8 +301,10 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     validationResult, weight, objectiveWeight, productId, or variantId.
                     Do not output CHANGE_MATERIAL, CHANGE_COLOR_TONE, ABSTRACT goals, coordinates, angles,
                     scores, product identifiers, variant identifiers, or validation decisions.
-                    Interpret add/place/insert expressions as ADD_FURNITURE, remove/take-out/delete expressions as
-                    REMOVE_FURNITURE, and instead/replace/change-to expressions as SWAP_FURNITURE when the type changes.
+                    Interpret add/one-more/new/place expressions as ADD_FURNITURE only when the user explicitly asks
+                    to add something. If an active item of that type already exists and the user says to place it without
+                    an add signal, interpret it as MOVE. Interpret remove/take-out/delete expressions as REMOVE_FURNITURE,
+                    and replace/change expressions as SWAP_FURNITURE. A same-type "different design" request is SWAP_FURNITURE.
                     Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
                     or reference cannot be identified safely, return CLARIFICATION instead of guessing.
                     Return exactly this shape and no markdown or explanation:
@@ -276,7 +312,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     For CLARIFICATION, return operations=[], goals=[], and clarification={"question":"...",
                     "targetFurnitureType":"canonical type when the ambiguous target type is known"}. The question
                     is only explanatory; the backend constructs the final user-facing clarification response.
-                    Existing room coordinates in the input are context only and must never be copied to the output.
+                    Do not invent furniture identifiers. Deleted furniture is not a target. If duplicate active items
+                    cannot be distinguished by their supplied id, label, or a supported selector, return CLARIFICATION.
                     Input:
                     %s
                     """.formatted(objectMapper.writeValueAsString(payload));
@@ -287,13 +324,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
     private Map<String, Object> furniture(Furniture item) {
         return Map.of("id", item.getId(), "type", item.getType(), "label", item.getLabel(),
-                "width", item.getWidth(), "depth", item.getDepth(), "height", item.getHeight(),
-                "position", Map.of("x", item.getPosition().getX(), "z", item.getPosition().getZ()),
-                "rotation", item.getRotation());
-    }
-
-    private Map<String, Object> opening(Opening opening) {
-        return Map.of("type", opening.getType(), "wall", opening.getWall(), "offset", opening.getOffset(), "width", opening.getWidth());
+                "status", item.getStatus().name());
     }
 
     private String text(JsonNode node, String field) {
@@ -301,10 +332,40 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
     }
 
     private String normalizeFurnitureType(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
+        return FeedbackVocabularyNormalizer.normalizeCanonicalType(value);
+    }
+
+    private void validateProviderTargets(FeedbackPlan plan, List<Furniture> furniture) {
+        for (FeedbackOperation operation : plan.operations()) {
+            if (operation.type() != FeedbackOperationType.ADD_FURNITURE) {
+                validateProviderTarget(operation.target(), furniture);
+            }
+            if (operation.referenceTarget() != null) {
+                validateProviderTarget(operation.referenceTarget(), furniture);
+            }
         }
-        return GeneratedFurnitureCatalog.get().normalizeType(value);
+    }
+
+    private void validateProviderTarget(FeedbackTargetSelector selector, List<Furniture> furniture) {
+        // A type-only selector remains valid: the deterministic resolver already
+        // turns zero or multiple active matches into a safe result.  IDs are
+        // different because a fabricated ID could otherwise silently select a
+        // different type through an overly broad fallback.
+        if (selector.furnitureId().isBlank()) {
+            return;
+        }
+        List<Furniture> active = furniture.stream()
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .filter(item -> selector.furnitureId().equals(item.getId()))
+                .filter(item -> selector.furnitureType().isBlank()
+                        || selector.furnitureType().equals(FeedbackVocabularyNormalizer.normalizeCanonicalType(item.getType())))
+                .filter(item -> selector.labelKeyword().isBlank() || (item.getLabel() != null
+                        && item.getLabel().toLowerCase(java.util.Locale.ROOT)
+                        .contains(selector.labelKeyword().toLowerCase(java.util.Locale.ROOT))))
+                .toList();
+        if (active.size() != 1) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
     }
 
     private Double optionalNumber(JsonNode node, String field) {

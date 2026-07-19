@@ -211,6 +211,26 @@ class DeterministicFeedbackExecutorV2Test {
         assertThat(new ValidationService().validate(room, execution.furniture()).isCollisionFree()).isTrue();
     }
 
+    @Test
+    void naturalLanguageMoveKeepsFurnitureCountIdAndProductVariant() {
+        Furniture chair = new Furniture("chair-1", "desk_chair", "기존 의자", 0.5, 0.5, 0.8,
+                new Position(2, 2), 0, FurnitureStatus.EXISTING,
+                "desk-chair-basic-01", List.of("minimal"), "desk-chair-basic");
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "의자를 오른쪽으로 배치해줘", room(6, 6), List.of(chair), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(6, 6), List.of(chair));
+
+        assertThat(plan.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+        assertThat(execution.result().applied()).isTrue();
+        assertThat(execution.furniture()).singleElement().satisfies(after -> {
+            assertThat(after.getId()).isEqualTo("chair-1");
+            assertThat(after.getProductId()).isEqualTo("desk-chair-basic-01");
+            assertThat(after.getVariantId()).isEqualTo("desk-chair-basic");
+        });
+    }
+
     private FeedbackPlan direct(FeedbackOperation operation) {
         return new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(operation), List.of(), null,
                 "test", FeedbackSource.LLM, false);

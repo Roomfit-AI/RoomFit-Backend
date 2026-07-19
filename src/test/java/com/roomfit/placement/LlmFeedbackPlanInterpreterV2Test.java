@@ -305,6 +305,52 @@ class LlmFeedbackPlanInterpreterV2Test {
         assertThat(plan.clarification().question()).contains("어떤 책상");
     }
 
+    @Test
+    void acceptsJsonInsideAMarkdownFenceWithoutRelaxingPlanValidation() {
+        FeedbackPlan plan = interpret("책상을 옮겨줘", "```json\n" + directOperation("""
+                "type":"MOVE",
+                "placement":{"relation":"RIGHT","magnitude":"SMALL"}
+                """) + "\n```");
+
+        assertThat(plan.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+    }
+
+    @Test
+    void acceptsShortExplanatoryTextAroundAJsonPlan() {
+        FeedbackPlan plan = interpret("책상을 옮겨줘", "해석 결과입니다.\n" + directOperation("""
+                "type":"MOVE",
+                "placement":{"relation":"RIGHT","magnitude":"SMALL"}
+                """) + "\n감사합니다.");
+
+        assertThat(plan.operations()).hasSize(1);
+    }
+
+    @Test
+    void rejectsFabricatedTargetIdAndUnknownCanonicalType() {
+        assertInvalid(directOperation("""
+                "type":"MOVE",
+                "placement":{"relation":"RIGHT","magnitude":"SMALL"}
+                """).replace("desk-1", "invented-id"));
+        assertInvalid(directOperation("""
+                "type":"MOVE",
+                "target":{"furnitureId":"desk-1","furnitureType":"piano"},
+                "placement":{"relation":"RIGHT","magnitude":"SMALL"}
+                """));
+    }
+
+    @Test
+    void malformedProviderOutputUsesExistingRuleBasedFallback() {
+        FallbackFeedbackPlanInterpreter interpreter = new FallbackFeedbackPlanInterpreter(
+                Optional.of(new LlmFeedbackPlanInterpreter(prompt -> "not json", objectMapper)),
+                new RuleBasedFeedbackPlanInterpreter());
+
+        FeedbackPlan plan = interpreter.interpret("책상 더 크게", room(), List.of(desk()), context());
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(plan.fallbackUsed()).isTrue();
+    }
+
     private FeedbackPlan interpret(String feedback, String response) {
         return new LlmFeedbackPlanInterpreter(prompt -> response, objectMapper)
                 .interpret(feedback, room(), List.of(desk()), context());
