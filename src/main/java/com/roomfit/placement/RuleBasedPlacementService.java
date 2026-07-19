@@ -8,10 +8,12 @@ import com.roomfit.product.service.ProductRecommendationService;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
+import com.roomfit.room.Opening;
 import com.roomfit.room.Position;
 import com.roomfit.room.Room;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -76,15 +78,22 @@ public class RuleBasedPlacementService implements PlacementService {
                         Function.identity(),
                         (first, ignored) -> first));
 
-        List<String> requestedItems = new ArrayList<>(context.getRequiredItems());
-        requestedItems.addAll(context.getOptionalItems());
+        List<String> requestedTypes = new ArrayList<>(context.getRequiredItems());
+        requestedTypes.addAll(context.getOptionalItems());
+        List<RequestedItem> requestedItems = new ArrayList<>();
+        for (int index = 0; index < requestedTypes.size(); index++) {
+            String requestedType = requestedTypes.get(index);
+            requestedItems.add(new RequestedItem(index, requestedType,
+                    GeneratedFurnitureCatalog.get().normalizeType(requestedType)));
+        }
+        requestedItems.sort(Comparator.comparingInt(item -> dependencyRank(item.canonicalType())));
         List<UnplacedFurniture> unplaced = new ArrayList<>();
         int placedCount = 0;
-        for (int index = 0; index < requestedItems.size(); index++) {
-            String itemType = requestedItems.get(index);
-            String canonicalItemType = GeneratedFurnitureCatalog.get().normalizeType(itemType);
+        for (RequestedItem requestedItem : requestedItems) {
+            String itemType = requestedItem.requestedType();
+            String canonicalItemType = requestedItem.canonicalType();
             if (canonicalItemType == null || !supportedType(canonicalItemType)) {
-                unplaced.add(unplaced(index, itemType, null, "UNSUPPORTED_FURNITURE_TYPE"));
+                unplaced.add(unplaced(requestedItem.originalIndex(), itemType, null, "UNSUPPORTED_FURNITURE_TYPE"));
                 continue;
             }
             PlacementAttempt attempt = tryAddFurniture(room, recommended, context, canonicalItemType,
@@ -92,7 +101,8 @@ public class RuleBasedPlacementService implements PlacementService {
             if (attempt.furniture() != null) {
                 placedCount++;
             } else {
-                unplaced.add(unplaced(index, canonicalItemType, attempt.product(), attempt.reasonCode()));
+                unplaced.add(unplaced(requestedItem.originalIndex(), canonicalItemType,
+                        attempt.product(), attempt.reasonCode()));
             }
         }
         RecommendationExecutionStatus outcome = placedCount == requestedItems.size()
@@ -190,14 +200,16 @@ public class RuleBasedPlacementService implements PlacementService {
         }
         FurnitureSpec spec = FurnitureSpec.from(itemType, product);
         String lastReason = "NO_VALID_PLACEMENT";
-        for (Position position : candidatePositions(itemType, spec, room, placed)) {
-            Furniture prototype = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec, position);
-            Position safePosition = FurnitureBoundary.clamp(room, position, prototype).orElse(null);
+        for (PlacementCandidate placementCandidate : placementCandidates(itemType, spec, room, placed)) {
+            Furniture prototype = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec,
+                    placementCandidate.position(), placementCandidate.rotation());
+            Position safePosition = FurnitureBoundary.clamp(room, placementCandidate.position(), prototype).orElse(null);
             if (safePosition == null) {
                 lastReason = "NO_VALID_BOUNDARY_PLACEMENT";
                 continue;
             }
-            Furniture candidate = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec, safePosition);
+            Furniture candidate = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec,
+                    safePosition, placementCandidate.rotation());
             ValidationResult validation = validationService.validate(room, appended(placed, candidate));
             if (isHardValid(validation)) {
                 placed.add(candidate);
@@ -208,7 +220,7 @@ public class RuleBasedPlacementService implements PlacementService {
         return new PlacementAttempt(null, product, lastReason);
     }
 
-    private Furniture createRecommendedFurniture(String id, FurnitureSpec spec, Position position) {
+    private Furniture createRecommendedFurniture(String id, FurnitureSpec spec, Position position, double rotation) {
         return new Furniture(
                 id,
                 spec.type(),
@@ -217,7 +229,7 @@ public class RuleBasedPlacementService implements PlacementService {
                 spec.depth(),
                 spec.height(),
                 position,
-                0,
+                rotation,
                 FurnitureStatus.RECOMMENDED,
                 spec.productId(),
                 spec.styleTags(),
@@ -225,17 +237,231 @@ public class RuleBasedPlacementService implements PlacementService {
         );
     }
 
-    private List<Position> candidatePositions(String itemType, FurnitureSpec spec,
-                                               Room room, List<Furniture> placed) {
-        List<Position> preferred = switch (itemType) {
+    private List<PlacementCandidate> placementCandidates(String itemType, FurnitureSpec spec,
+                                                          Room room, List<Furniture> placed) {
+        if ("curtain_blind".equals(itemType)) {
+            return deduplicate(environmentCandidates(itemType, spec, room));
+        }
+        List<PlacementCandidate> candidates = new ArrayList<>();
+        candidates.addAll(relationshipCandidates(itemType, spec, placed));
+        candidates.addAll(environmentCandidates(itemType, spec, room));
+        candidates.addAll(safeCandidates(itemType, spec, room, placed));
+        candidates.addAll(gridCandidates(spec, room));
+        return deduplicate(candidates);
+    }
+
+    private List<PlacementCandidate> relationshipCandidates(String itemType, FurnitureSpec spec,
+                                                             List<Furniture> placed) {
+        return switch (itemType) {
+            case "monitor" -> findPlacedByType(placed, "desk")
+                    .map(anchor -> List.of(stackCandidate(anchor, PlacementRelation.SUPPORT)))
+                    .orElse(List.of());
+            case "tv" -> findPlacedByType(placed, "media_console")
+                    .map(anchor -> List.of(stackCandidate(anchor, PlacementRelation.SUPPORT)))
+                    .orElse(List.of());
+            case "nightstand" -> findPlacedByType(placed, "bed")
+                    .map(anchor -> sideCandidates(anchor, spec, 0.15))
+                    .orElse(List.of());
+            case "side_table" -> findPlacedByTypes(placed, "sofa", "sofa_bed")
+                    .map(anchor -> sideCandidates(anchor, spec, 0.15))
+                    .orElse(List.of());
+            case "desk_chair" -> findPlacedByType(placed, "desk")
+                    .map(anchor -> List.of(frontCandidate(anchor, spec, 0.25)))
+                    .orElse(List.of());
+            case "mood_lamp" -> findPlacedByTypes(placed, "desk", "bed", "sofa", "sofa_bed")
+                    .map(anchor -> sideCandidates(anchor, spec, 0.15))
+                    .orElse(List.of());
+            default -> List.of();
+        };
+    }
+
+    private PlacementCandidate stackCandidate(Furniture anchor, PlacementRelation relation) {
+        return new PlacementCandidate(new Position(anchor.getPosition().getX(), anchor.getPosition().getZ()),
+                normalize(anchor.getRotation()), relation, 0);
+    }
+
+    private List<PlacementCandidate> sideCandidates(Furniture anchor, FurnitureSpec spec, double gap) {
+        double rotation = normalize(anchor.getRotation());
+        Position right = right(rotation);
+        Position left = new Position(-right.getX(), -right.getZ());
+        return List.of(
+                offsetCandidate(anchor, spec, right, gap, rotation, PlacementRelation.ANCHOR_SIDE, 0),
+                offsetCandidate(anchor, spec, left, gap, rotation, PlacementRelation.ANCHOR_SIDE, 1)
+        );
+    }
+
+    private PlacementCandidate frontCandidate(Furniture anchor, FurnitureSpec spec, double gap) {
+        double anchorRotation = normalize(anchor.getRotation());
+        double candidateRotation = normalize(anchorRotation + 180);
+        return offsetCandidate(anchor, spec, forward(anchorRotation), gap, candidateRotation,
+                PlacementRelation.ANCHOR_FRONT, 0);
+    }
+
+    private PlacementCandidate offsetCandidate(Furniture anchor, FurnitureSpec spec, Position direction,
+                                                double gap, double rotation, PlacementRelation relation, int order) {
+        FurnitureBoundary.Footprint anchorFootprint = FurnitureBoundary.footprint(anchor);
+        FurnitureBoundary.Footprint candidateFootprint = footprint(spec, rotation);
+        double distance = maximumProjection(anchorFootprint, direction)
+                - minimumProjection(candidateFootprint, direction) + gap;
+        return new PlacementCandidate(new Position(
+                anchor.getPosition().getX() + direction.getX() * distance,
+                anchor.getPosition().getZ() + direction.getZ() * distance),
+                rotation, relation, order);
+    }
+
+    private double maximumProjection(FurnitureBoundary.Footprint footprint, Position direction) {
+        return footprint.corners().stream()
+                .mapToDouble(corner -> corner.x() * direction.getX() + corner.z() * direction.getZ())
+                .max().orElseThrow();
+    }
+
+    private double minimumProjection(FurnitureBoundary.Footprint footprint, Position direction) {
+        return footprint.corners().stream()
+                .mapToDouble(corner -> corner.x() * direction.getX() + corner.z() * direction.getZ())
+                .min().orElseThrow();
+    }
+
+    private List<PlacementCandidate> environmentCandidates(String itemType, FurnitureSpec spec, Room room) {
+        if ("curtain_blind".equals(itemType)) {
+            return windowCandidates(spec, room);
+        }
+        if ("plant".equals(itemType)) {
+            return cornerCandidates(spec, room);
+        }
+        if (usesWallCandidates(itemType)) {
+            return wallCandidates(spec, room);
+        }
+        return List.of();
+    }
+
+    private boolean usesWallCandidates(String type) {
+        return Set.of("bed", "desk", "sofa", "sofa_bed", "media_console", "wardrobe", "bookshelf",
+                "drawer_chest", "hanger", "partition_shelf", "full_length_mirror", "storage").contains(type);
+    }
+
+    private List<PlacementCandidate> wallCandidates(FurnitureSpec spec, Room room) {
+        FurnitureBoundary.UsableBounds usable = FurnitureBoundary.usableBounds(room).orElse(null);
+        if (usable == null) return List.of();
+        List<PlacementCandidate> candidates = new ArrayList<>();
+        addWallCandidates(candidates, spec, usable, "south", 0, 0);
+        addWallCandidates(candidates, spec, usable, "east", 90, 3);
+        addWallCandidates(candidates, spec, usable, "north", 180, 6);
+        addWallCandidates(candidates, spec, usable, "west", 270, 9);
+        return candidates;
+    }
+
+    private void addWallCandidates(List<PlacementCandidate> candidates, FurnitureSpec spec,
+                                   FurnitureBoundary.UsableBounds usable, String wall,
+                                   double rotation, int firstOrder) {
+        FurnitureBoundary.Footprint footprint = footprint(spec, rotation);
+        double minCenterX = usable.minX() - footprint.minX();
+        double maxCenterX = usable.maxX() - footprint.maxX();
+        double minCenterZ = usable.minZ() - footprint.minZ();
+        double maxCenterZ = usable.maxZ() - footprint.maxZ();
+        if (maxCenterX < minCenterX || maxCenterZ < minCenterZ) return;
+
+        if ("south".equals(wall) || "north".equals(wall)) {
+            double z = "south".equals(wall) ? minCenterZ : maxCenterZ;
+            double[] positions = centerAndQuarters(minCenterX, maxCenterX);
+            for (int index = 0; index < positions.length; index++) {
+                candidates.add(new PlacementCandidate(new Position(positions[index], z), rotation,
+                        PlacementRelation.WALL, firstOrder + index));
+            }
+        } else {
+            double x = "east".equals(wall) ? maxCenterX : minCenterX;
+            double[] positions = centerAndQuarters(minCenterZ, maxCenterZ);
+            for (int index = 0; index < positions.length; index++) {
+                candidates.add(new PlacementCandidate(new Position(x, positions[index]), rotation,
+                        PlacementRelation.WALL, firstOrder + index));
+            }
+        }
+    }
+
+    private double[] centerAndQuarters(double min, double max) {
+        double span = max - min;
+        return new double[]{min + span / 2.0, min + span / 4.0, min + span * 3.0 / 4.0};
+    }
+
+    private List<PlacementCandidate> cornerCandidates(FurnitureSpec spec, Room room) {
+        FurnitureBoundary.UsableBounds usable = FurnitureBoundary.usableBounds(room).orElse(null);
+        if (usable == null) return List.of();
+        FurnitureBoundary.Footprint footprint = footprint(spec, 0);
+        double minCenterX = usable.minX() - footprint.minX();
+        double maxCenterX = usable.maxX() - footprint.maxX();
+        double minCenterZ = usable.minZ() - footprint.minZ();
+        double maxCenterZ = usable.maxZ() - footprint.maxZ();
+        if (maxCenterX < minCenterX || maxCenterZ < minCenterZ) return List.of();
+        return List.of(
+                new PlacementCandidate(new Position(minCenterX, minCenterZ), 0, PlacementRelation.CORNER, 0),
+                new PlacementCandidate(new Position(maxCenterX, minCenterZ), 0, PlacementRelation.CORNER, 1),
+                new PlacementCandidate(new Position(maxCenterX, maxCenterZ), 0, PlacementRelation.CORNER, 2),
+                new PlacementCandidate(new Position(minCenterX, maxCenterZ), 0, PlacementRelation.CORNER, 3)
+        );
+    }
+
+    private List<PlacementCandidate> windowCandidates(FurnitureSpec spec, Room room) {
+        FurnitureBoundary.UsableBounds usable = FurnitureBoundary.usableBounds(room).orElse(null);
+        if (usable == null) return List.of();
+        List<PlacementCandidate> candidates = new ArrayList<>();
+        int order = 0;
+        for (Opening opening : room.getOpenings()) {
+            if (!"window".equals(opening.getType())) continue;
+            PlacementCandidate candidate = windowCandidate(spec, usable, opening, order++);
+            if (candidate != null) candidates.add(candidate);
+        }
+        return candidates;
+    }
+
+    private PlacementCandidate windowCandidate(FurnitureSpec spec, FurnitureBoundary.UsableBounds usable,
+                                               Opening opening, int order) {
+        double rotation = switch (opening.getWall()) {
+            case "south" -> 0;
+            case "east" -> 90;
+            case "north" -> 180;
+            case "west" -> 270;
+            default -> -1;
+        };
+        if (rotation < 0) return null;
+        FurnitureBoundary.Footprint footprint = footprint(spec, rotation);
+        double minCenterX = usable.minX() - footprint.minX();
+        double maxCenterX = usable.maxX() - footprint.maxX();
+        double minCenterZ = usable.minZ() - footprint.minZ();
+        double maxCenterZ = usable.maxZ() - footprint.maxZ();
+        if (maxCenterX < minCenterX || maxCenterZ < minCenterZ) return null;
+        double openingCenter = opening.getOffset() + opening.getWidth() / 2.0;
+        Position position = switch (opening.getWall()) {
+            case "south" -> new Position(clamp(openingCenter, minCenterX, maxCenterX), minCenterZ);
+            case "east" -> new Position(maxCenterX, clamp(openingCenter, minCenterZ, maxCenterZ));
+            case "north" -> new Position(clamp(openingCenter, minCenterX, maxCenterX), maxCenterZ);
+            case "west" -> new Position(minCenterX, clamp(openingCenter, minCenterZ, maxCenterZ));
+            default -> throw new IllegalStateException("Unsupported window wall " + opening.getWall());
+        };
+        return new PlacementCandidate(position, rotation, PlacementRelation.WINDOW, order);
+    }
+
+    private double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private List<PlacementCandidate> safeCandidates(String itemType, FurnitureSpec spec,
+                                                    Room room, List<Furniture> placed) {
+        List<Position> positions = switch (itemType) {
             case "desk" -> List.of(
                     new Position(2.3, 1.0),
                     new Position(2.4, 1.4),
                     new Position(2.3, 2.0),
                     new Position(room.getWidth() - spec.width() / 2.0, 1.0)
             );
-            case "desk_chair" -> chairCandidatePositions(spec, placed);
-            case "mood_lamp" -> lampCandidatePositions(placed);
+            case "desk_chair" -> List.of(
+                    new Position(2.3, 1.8),
+                    new Position(1.8, 2.7),
+                    new Position(2.5, 2.2)
+            );
+            case "mood_lamp" -> List.of(
+                    new Position(2.0, 0.4),
+                    new Position(2.9, 1.0),
+                    new Position(1.7, 2.7)
+            );
             case "storage" -> List.of(
                     new Position(2.7, 3.9),
                     new Position(0.6, 3.7),
@@ -257,67 +483,88 @@ public class RuleBasedPlacementService implements PlacementService {
                     new Position(0.8, 3.3)
             );
         };
-        LinkedHashSet<String> seen = new LinkedHashSet<>();
-        List<Position> candidates = new ArrayList<>(preferred);
+        List<PlacementCandidate> candidates = new ArrayList<>();
+        for (int index = 0; index < positions.size(); index++) {
+            candidates.add(new PlacementCandidate(positions.get(index), 0,
+                    PlacementRelation.SAFE, index));
+        }
+        return candidates;
+    }
+
+    private List<PlacementCandidate> gridCandidates(FurnitureSpec spec, Room room) {
+        List<PlacementCandidate> candidates = new ArrayList<>();
         double halfWidth = spec.width() / 2.0 + FurnitureBoundary.WALL_CLEARANCE_METERS;
         double halfDepth = spec.depth() / 2.0 + FurnitureBoundary.WALL_CLEARANCE_METERS;
+        int order = 0;
         for (int xIndex = 0; xIndex < 4; xIndex++) {
             for (int zIndex = 0; zIndex < 4; zIndex++) {
                 double x = halfWidth + (room.getWidth() - 2 * halfWidth) * xIndex / 3.0;
                 double z = halfDepth + (room.getDepth() - 2 * halfDepth) * zIndex / 3.0;
-                candidates.add(new Position(x, z));
+                candidates.add(new PlacementCandidate(new Position(x, z), 0,
+                        PlacementRelation.GRID, order++));
             }
         }
-        return candidates.stream().filter(position -> seen.add(position.getX() + ":" + position.getZ())).toList();
+        return candidates;
     }
 
-    private List<Position> chairCandidatePositions(FurnitureSpec spec, List<Furniture> placed) {
-        return findPlacedByType(placed, "desk")
-                .map(desk -> {
-                    double frontZ = desk.getPosition().getZ() + desk.getDepth() / 2.0 + spec.depth() / 2.0 + 0.25;
-                    double sideX = desk.getPosition().getX() - desk.getWidth() / 2.0 - spec.width() / 2.0 - 0.25;
-                    return List.of(
-                            new Position(desk.getPosition().getX(), frontZ),
-                            new Position(sideX, desk.getPosition().getZ()),
-                            new Position(desk.getPosition().getX(), desk.getPosition().getZ() + 1.0),
-                            new Position(2.3, 1.8)
-                    );
-                })
-                .orElse(List.of(
-                        new Position(2.3, 1.8),
-                        new Position(1.8, 2.7),
-                        new Position(2.5, 2.2)
-                ));
+    private List<PlacementCandidate> deduplicate(List<PlacementCandidate> candidates) {
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        return candidates.stream()
+                .filter(candidate -> seen.add(candidate.position().getX() + ":"
+                        + candidate.position().getZ() + ":" + candidate.rotation()))
+                .toList();
     }
 
-    private List<Position> lampCandidatePositions(List<Furniture> placed) {
-        return findPlacedByType(placed, "desk")
-                .map(desk -> List.of(
-                        new Position(desk.getPosition().getX() + desk.getWidth() / 2.0 + 0.15,
-                                desk.getPosition().getZ()),
-                        new Position(desk.getPosition().getX() - desk.getWidth() / 2.0 - 0.15,
-                                desk.getPosition().getZ()),
-                        new Position(desk.getPosition().getX(), desk.getPosition().getZ() + 0.65)
-                ))
-                .orElse(List.of(
-                        new Position(2.0, 0.4),
-                        new Position(2.9, 1.0),
-                        new Position(1.7, 2.7)
-                ));
+    private FurnitureBoundary.Footprint footprint(FurnitureSpec spec, double rotation) {
+        return FurnitureBoundary.footprint(spec.width(), spec.depth(), rotation, spec.variantId());
+    }
+
+    private Position forward(double rotation) {
+        return switch ((int) normalize(rotation)) {
+            case 90 -> new Position(-1, 0);
+            case 180 -> new Position(0, -1);
+            case 270 -> new Position(1, 0);
+            default -> new Position(0, 1);
+        };
+    }
+
+    private Position right(double rotation) {
+        return switch ((int) normalize(rotation)) {
+            case 90 -> new Position(0, -1);
+            case 180 -> new Position(-1, 0);
+            case 270 -> new Position(0, 1);
+            default -> new Position(1, 0);
+        };
+    }
+
+    private double normalize(double rotation) {
+        double normalized = rotation % 360.0;
+        return normalized < 0 ? normalized + 360.0 : normalized;
+    }
+
+    private int dependencyRank(String type) {
+        if (Set.of("bed", "desk", "sofa", "sofa_bed", "media_console").contains(type)) return 0;
+        if (Set.of("nightstand", "desk_chair", "monitor", "side_table", "tv", "mood_lamp").contains(type)) return 2;
+        return 1;
     }
 
     private Optional<Furniture> findPlacedByType(List<Furniture> placed, String type) {
         return placed.stream()
+                .filter(this::isActivePlacedFurniture)
                 .filter(furniture -> GeneratedFurnitureCatalog.get().sameType(type, furniture.getType()))
                 .findFirst();
     }
 
-    private boolean isActivePlacedFurniture(Furniture furniture) {
-        return furniture.getStatus() != FurnitureStatus.DELETED;
+    private Optional<Furniture> findPlacedByTypes(List<Furniture> placed, String... types) {
+        for (String type : types) {
+            Optional<Furniture> match = findPlacedByType(placed, type);
+            if (match.isPresent()) return match;
+        }
+        return Optional.empty();
     }
 
-    private boolean fitsInRoom(Room room, Furniture candidate) {
-        return FurnitureBoundary.isInside(room, candidate);
+    private boolean isActivePlacedFurniture(Furniture furniture) {
+        return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 
     private boolean supportedType(String type) {
@@ -371,22 +618,6 @@ public class RuleBasedPlacementService implements PlacementService {
         return prefix + sequence;
     }
 
-    private boolean doesNotCollide(List<Furniture> placed, Furniture candidate) {
-        if (FurnitureDomainPolicy.isRug(candidate)) {
-            return true;
-        }
-        Rect candidateRect = Rect.from(candidate);
-        return placed.stream()
-                .filter(this::isCollisionTarget)
-                .map(Rect::from)
-                .noneMatch(candidateRect::overlaps);
-    }
-
-    private boolean isCollisionTarget(Furniture furniture) {
-        return furniture.getStatus() != FurnitureStatus.DELETED
-                && !FurnitureDomainPolicy.isRug(furniture);
-    }
-
     private Furniture copyFurniture(Furniture furniture) {
         return copyFurniture(furniture, furniture.getPosition());
     }
@@ -437,6 +668,17 @@ public class RuleBasedPlacementService implements PlacementService {
         );
     }
 
+    private enum PlacementRelation {
+        SUPPORT, ANCHOR_SIDE, ANCHOR_FRONT, WALL, CORNER, SAFE, GRID, WINDOW
+    }
+
+    private record PlacementCandidate(Position position, double rotation,
+                                      PlacementRelation relation, int order) {
+    }
+
+    private record RequestedItem(int originalIndex, String requestedType, String canonicalType) {
+    }
+
     private record FurnitureSpec(String type, String label, double width, double depth, double height,
                                  String productId, List<String> styleTags, String variantId) {
 
@@ -459,23 +701,5 @@ public class RuleBasedPlacementService implements PlacementService {
     }
 
     private record PlacementAttempt(Furniture furniture, MockProduct product, String reasonCode) {
-    }
-
-    private record Rect(double minX, double maxX, double minZ, double maxZ) {
-
-        private static Rect from(Furniture furniture) {
-            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(furniture);
-            return new Rect(
-                    furniture.getPosition().getX() + footprint.minX(),
-                    furniture.getPosition().getX() + footprint.maxX(),
-                    furniture.getPosition().getZ() + footprint.minZ(),
-                    furniture.getPosition().getZ() + footprint.maxZ()
-            );
-        }
-
-        private boolean overlaps(Rect other) {
-            return minX < other.maxX && maxX > other.minX
-                    && minZ < other.maxZ && maxZ > other.minZ;
-        }
     }
 }
