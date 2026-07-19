@@ -140,7 +140,7 @@ class RuleBasedSemanticPlacementTest {
     }
 
     @Test
-    void blockedSemanticCandidateFallsBackToDeterministicGrid() {
+    void supportedMonitorStacksOnDeskEvenWhenDeskIsNarrower() {
         Furniture desk = existing("desk", 0.8, 0.5, 6.0, 6.0, 0);
         List<Furniture> existing = new ArrayList<>();
         existing.add(desk);
@@ -154,8 +154,8 @@ class RuleBasedSemanticPlacementTest {
         Furniture second = furnitureByType(
                 recommend(room, List.of("monitor"), List.of("monitor-dual")), "monitor");
 
-        assertThat(first.getPosition().getX()).isNotEqualTo(desk.getPosition().getX());
-        assertThat(first.getPosition().getZ()).isNotEqualTo(desk.getPosition().getZ());
+        assertThat(first.getPosition().getX()).isEqualTo(desk.getPosition().getX());
+        assertThat(first.getPosition().getZ()).isEqualTo(desk.getPosition().getZ());
         assertThat(second.getPosition().getX()).isEqualTo(first.getPosition().getX());
         assertThat(second.getPosition().getZ()).isEqualTo(first.getPosition().getZ());
     }
