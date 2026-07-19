@@ -500,10 +500,10 @@ class LlmFeedbackPlanInterpreterV2Test {
         Furniture desk = desk();
         FeedbackPlan left = new LlmFeedbackPlanInterpreter(
                 prompt -> referenceMoveResponse("chair-1", "desk_chair", "desk-1", "desk", "LEFT_OF"), objectMapper)
-                .interpret("책상 왼쪽에 의자를 옮겨줘", room(), List.of(chair, desk), context());
+                .interpret("책상 좌측에 의자를 옮겨줘", room(), List.of(chair, desk), context());
         FeedbackPlan rightFallback = fallback(new LlmFeedbackPlanInterpreter(
                 prompt -> referenceMoveResponse("desk-1", "desk", "chair-1", "desk_chair", "RIGHT_OF"), objectMapper))
-                .interpret("의자를 책상 오른쪽으로 옮겨줘", room(), List.of(chair, desk), context());
+                .interpret("의자를 책상 오른편으로 옮겨줘", room(), List.of(chair, desk), context());
 
         assertThat(left.source()).isEqualTo(FeedbackSource.LLM);
         assertThat(left.operations()).singleElement().satisfies(operation -> {

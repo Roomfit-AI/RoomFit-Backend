@@ -38,6 +38,30 @@ class DeterministicFeedbackExecutorV2Test {
 
     @ParameterizedTest
     @CsvSource({
+            "'책상을 왼쪽으로 옮겨줘',desk,-1",
+            "'책상을 오른쪽으로 옮겨줘',desk,1",
+            "'의자를 좌측으로 옮겨줘',desk_chair,-1",
+            "'의자를 우측으로 옮겨줘',desk_chair,1",
+            "'침대를 왼편으로 옮겨줘',bed,-1",
+            "'침대를 오른편으로 옮겨줘',bed,1"
+    })
+    void parserProducedHorizontalMoveAliasesMatchTheRequestedCoordinateDirection(
+            String feedback, String furnitureType, int direction) {
+        Furniture before = new Furniture(furnitureType + "-1", furnitureType, furnitureType,
+                0.8, 0.5, 0.8, new Position(3, 3), 0, FurnitureStatus.EXISTING);
+        Room room = room(6, 6);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                feedback, room, List.of(before), null);
+
+        FeedbackExecution execution = executor.execute(plan, room, List.of(before));
+
+        assertThat(execution.result().applied()).as(feedback).isTrue();
+        assertThat(execution.furniture().getFirst().getPosition().getX()).as(feedback)
+                .isEqualTo(3.0 + direction * FeedbackPlacementPolicy.movementDistance(FeedbackMagnitude.MEDIUM));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
             "QUARTER_TURN_CW,90",
             "QUARTER_TURN_CCW,270",
             "HALF_TURN,180"
@@ -131,7 +155,7 @@ class DeterministicFeedbackExecutorV2Test {
                 new Position(1.5, 1.5), 0, FurnitureStatus.EXISTING, "legacy-bookshelf", List.of(), null);
         Furniture desk = desk("desk-1", 4, 3, 0);
         FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
-                "책장을 다른 디자인으로 바꾸고 책상 오른쪽으로 옮겨줘",
+                "책장을 다른 디자인으로 바꾸고 책상 우측으로 옮겨줘",
                 room(8, 6), List.of(bookshelf, desk), null);
 
         FeedbackExecution execution = executor.execute(plan, room(8, 6), List.of(bookshelf, desk));
@@ -172,6 +196,24 @@ class DeterministicFeedbackExecutorV2Test {
 
         assertThat(execution.result().applied()).isTrue();
         assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(1.8);
+    }
+
+    @Test
+    void blockedLeftMoveNeverFallsBackToTheOppositeDirection() {
+        Room room = room(3, 4);
+        Furniture prototype = desk("desk-1", 1.5, 2, 0);
+        double safeMinX = FurnitureBoundary.clamp(room, new Position(-10, 2), prototype)
+                .orElseThrow().getX();
+        Furniture before = desk("desk-1", safeMinX, 2, 0);
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "책상을 왼쪽으로 옮겨줘", room, List.of(before), null);
+
+        FeedbackExecution execution = executor.execute(plan, room, List.of(before));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_VALID_MOVE_PLACEMENT");
+        assertThat(execution.furniture()).containsExactly(before);
+        assertThat(execution.furniture().getFirst().getPosition().getX()).isEqualTo(safeMinX);
     }
 
     @Test

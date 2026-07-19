@@ -17,6 +17,11 @@ import java.util.Map;
 
 public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
+    private static final List<String> LEFT_DIRECTION_TERMS = List.of("왼쪽", "좌측", "왼편");
+    private static final List<String> RIGHT_DIRECTION_TERMS = List.of("오른쪽", "우측", "오른편");
+    private static final List<String> REFERENCE_TERMS = List.of(
+            "옆", "왼쪽", "좌측", "왼편", "오른쪽", "우측", "오른편", "근처", "가까이");
+
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
     private final FeedbackPlanValidator planValidator;
@@ -419,6 +424,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     and replace/change expressions as SWAP_FURNITURE. A same-type "different design" request is SWAP_FURNITURE.
                     Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
                     or reference cannot be identified safely, return CLARIFICATION instead of guessing.
+                    Interpret 왼쪽, 좌측, and 왼편 as LEFT/LEFT_OF; interpret 오른쪽, 우측, and 오른편 as
+                    RIGHT/RIGHT_OF. Interpret 구석, 모서리, 코너, and 방 모서리 as IN_CORNER.
                     When selectedFurnitureId is present and the user uses a generic target such as "가구" or "저거",
                     use that exact active furniture as the MOVE target. For a type-omitted tone/material SWAP, use that
                     exact active furniture as the target. Do not use it to override an explicit furniture name.
@@ -658,17 +665,17 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
     }
 
     private boolean hasReferenceExpression(String feedback) {
-        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream().anyMatch(feedback::contains);
+        return REFERENCE_TERMS.stream().anyMatch(feedback::contains);
     }
 
     private int firstReferenceRelationIndex(String compactFeedback) {
-        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream()
+        return REFERENCE_TERMS.stream()
                 .mapToInt(compactFeedback::indexOf).filter(index -> index >= 0).min().orElse(-1);
     }
 
     private FeedbackRelation relationFor(String feedback) {
-        return feedback.contains("왼쪽") ? FeedbackRelation.LEFT_OF
-                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
+        return containsAny(feedback, LEFT_DIRECTION_TERMS) ? FeedbackRelation.LEFT_OF
+                : containsAny(feedback, RIGHT_DIRECTION_TERMS) ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
     }
 
     private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {

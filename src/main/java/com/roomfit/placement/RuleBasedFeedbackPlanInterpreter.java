@@ -21,6 +21,10 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     private static final List<String> ROTATE_TERMS = List.of(
             "회전", "돌려", "돌리", "90도", "180도", "반대로", "벽과 평행");
     private static final List<String> SWAP_TERMS = List.of("교체", "바꿔", "바꾸", "다른 디자인", "다른 제품");
+    private static final List<String> LEFT_DIRECTION_TERMS = List.of("왼쪽", "좌측", "왼편");
+    private static final List<String> RIGHT_DIRECTION_TERMS = List.of("오른쪽", "우측", "오른편");
+    private static final List<String> REFERENCE_TERMS = List.of(
+            "옆", "왼쪽", "좌측", "왼편", "오른쪽", "우측", "오른편", "근처", "가까이");
 
     @Override
     public FeedbackPlan interpret(String feedback, Room room, List<Furniture> furniture, AgentContext context) {
@@ -132,7 +136,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
                 && previousOperation != null
                 && previousOperation.type() == FeedbackOperationType.SWAP_FURNITURE
                 && mentions.size() == 1
-                && containsAny(clause, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
+                && containsAny(clause, REFERENCE_TERMS)
                 && !previousTarget.furnitureType().equals(mentions.getFirst().type())) {
             FeedbackTargetSelector reference = selectorForExisting(mentions.getFirst().type(), clause, furniture);
             return moveOperation(operationId, clause, previousTarget, reference);
@@ -158,7 +162,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         if (actionIntent == FeedbackActionIntentResolver.ActionIntent.MOVE
                 || (placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
-            if (mentions.size() > 1 && !containsAny(clause, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))) {
+            if (mentions.size() > 1 && !containsAny(clause, REFERENCE_TERMS)) {
                 throw new ClarificationRequired("각 가구의 이동 위치를 구분해서 알려주세요.", "");
             }
             if (mentions.size() > 1 && hasConflictingReferenceAndAbsoluteDestination(clause)) {
@@ -210,8 +214,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
 
         FeedbackRelation relation = addRelation(feedback, referenceMention != null);
         FeedbackSide side = relation == FeedbackRelation.NEXT_TO
-                ? feedback.contains("왼쪽") ? FeedbackSide.LEFT
-                : feedback.contains("오른쪽") ? FeedbackSide.RIGHT : null : null;
+                ? containsAny(feedback, LEFT_DIRECTION_TERMS) ? FeedbackSide.LEFT
+                : containsAny(feedback, RIGHT_DIRECTION_TERMS) ? FeedbackSide.RIGHT : null : null;
         FeedbackTargetSelector referenceTarget = referenceMention == null ? null
                 : selectorForExisting(referenceMention.type(), feedback, furniture);
         return new FeedbackOperation(operationId, FeedbackOperationType.ADD_FURNITURE,
@@ -290,18 +294,20 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
             return new FeedbackPlacement(FeedbackRelation.IN_CORNER, null, null);
         }
         if (hasReference) {
-            FeedbackRelation relation = feedback.contains("왼쪽") ? FeedbackRelation.LEFT_OF
-                    : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
-            FeedbackSide side = relation == FeedbackRelation.NEXT_TO && feedback.contains("왼쪽") ? FeedbackSide.LEFT
-                    : relation == FeedbackRelation.NEXT_TO && feedback.contains("오른쪽") ? FeedbackSide.RIGHT : null;
+            FeedbackRelation relation = containsAny(feedback, LEFT_DIRECTION_TERMS) ? FeedbackRelation.LEFT_OF
+                    : containsAny(feedback, RIGHT_DIRECTION_TERMS) ? FeedbackRelation.RIGHT_OF : FeedbackRelation.NEXT_TO;
+            FeedbackSide side = relation == FeedbackRelation.NEXT_TO && containsAny(feedback, LEFT_DIRECTION_TERMS)
+                    ? FeedbackSide.LEFT
+                    : relation == FeedbackRelation.NEXT_TO && containsAny(feedback, RIGHT_DIRECTION_TERMS)
+                    ? FeedbackSide.RIGHT : null;
             return new FeedbackPlacement(relation, null, null, side);
         }
         FeedbackRelation relation = feedback.contains("창가") || feedback.contains("창문") ? FeedbackRelation.NEAR_WINDOW
                 : feedback.contains("문에서 멀") ? FeedbackRelation.AWAY_FROM_DOOR
                 : feedback.contains("뒤로") || feedback.contains("밀어") ? FeedbackRelation.BACKWARD
                 : feedback.contains("앞으로") || feedback.contains("당겨") ? FeedbackRelation.FORWARD
-                : feedback.contains("왼쪽") ? FeedbackRelation.LEFT
-                : feedback.contains("오른쪽") ? FeedbackRelation.RIGHT
+                : containsAny(feedback, LEFT_DIRECTION_TERMS) ? FeedbackRelation.LEFT
+                : containsAny(feedback, RIGHT_DIRECTION_TERMS) ? FeedbackRelation.RIGHT
                 : feedback.contains("가운데") || feedback.contains("중앙") ? FeedbackRelation.CENTER
                 : feedback.contains("벽") ? FeedbackRelation.NEAR_WALL
                 : FeedbackRelation.RIGHT;
@@ -311,8 +317,8 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private FeedbackRelation addRelation(String feedback, boolean hasReference) {
-        if (feedback.contains("왼쪽") && hasReference) return FeedbackRelation.LEFT_OF;
-        if (feedback.contains("오른쪽") && hasReference) return FeedbackRelation.RIGHT_OF;
+        if (containsAny(feedback, LEFT_DIRECTION_TERMS) && hasReference) return FeedbackRelation.LEFT_OF;
+        if (containsAny(feedback, RIGHT_DIRECTION_TERMS) && hasReference) return FeedbackRelation.RIGHT_OF;
         if ((feedback.contains("옆") || feedback.contains("근처") || feedback.contains("가까이")) && hasReference) {
             return FeedbackRelation.NEXT_TO;
         }
@@ -323,7 +329,7 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private ReferenceRoles referenceRoles(String feedback, List<FurnitureMention> mentions) {
-        if (mentions.size() != 2 || !containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
+        if (mentions.size() != 2 || !containsAny(feedback, REFERENCE_TERMS)
                 || hasConflictingReferenceAndAbsoluteDestination(feedback)) {
             return null;
         }
@@ -340,12 +346,12 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
     }
 
     private int firstReferenceRelationIndex(String feedback) {
-        return List.of("옆", "왼쪽", "오른쪽", "근처", "가까이").stream()
+        return REFERENCE_TERMS.stream()
                 .mapToInt(feedback::indexOf).filter(index -> index >= 0).min().orElse(-1);
     }
 
     private boolean hasConflictingReferenceAndAbsoluteDestination(String feedback) {
-        return containsAny(feedback, List.of("옆", "왼쪽", "오른쪽", "근처", "가까이"))
+        return containsAny(feedback, REFERENCE_TERMS)
                 && containsAny(feedback, List.of("창가", "창문", "벽", "구석", "모서리", "코너", "가운데", "중앙"));
     }
 
