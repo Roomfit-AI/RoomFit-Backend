@@ -28,20 +28,20 @@ class FurnitureSupportPolicyTest {
     }
 
     @Test
-    void oversizedDependentIsNotStrictStack() {
+    void widerDependentAtSameCenterIsStrictStack() {
         Furniture desk = furniture("desk", 1.2, 0.7, 0.75, 2.0, 2.0, 0);
         Furniture monitor = furniture("monitor", 1.3, 0.2, 0.35, 2.0, 2.0, 0);
 
-        assertThat(FurnitureSupportPolicy.isStrictStack(desk, monitor)).isFalse();
+        assertThat(FurnitureSupportPolicy.isStrictStack(desk, monitor)).isTrue();
     }
 
     @Test
-    void rotatedAabbContainmentWithoutPolygonContainmentIsNotStrictStack() {
+    void differingRotationAtSameCenterIsStrictStack() {
         Furniture desk = furniture("desk", 2.0, 1.0, 0.75, 2.0, 2.0, 45);
         Furniture monitor = furniture("monitor", 1.4, 1.4, 0.35, 2.0, 2.0, 0);
 
-        assertThat(FurnitureSupportPolicy.isStrictStack(desk, monitor)).isFalse();
-        assertThat(FurnitureSupportPolicy.isStrictStack(monitor, desk)).isFalse();
+        assertThat(FurnitureSupportPolicy.isStrictStack(desk, monitor)).isTrue();
+        assertThat(FurnitureSupportPolicy.isStrictStack(monitor, desk)).isTrue();
     }
 
     @Test

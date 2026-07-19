@@ -109,11 +109,11 @@ class ValidationServiceTest {
     }
 
     @Test
-    void oversizedMonitorOverlappingDeskRemainsCollision() {
+    void widerMonitorCenteredOnDeskIsCollisionFree() {
         Furniture desk = furniture("desk-1", "desk", 1.2, 0.7, 2.0, 2.0);
         Furniture monitor = furniture("monitor-1", "monitor", 1.3, 0.2, 2.0, 2.0);
 
-        assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isFalse();
+        assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isTrue();
     }
 
     @Test
