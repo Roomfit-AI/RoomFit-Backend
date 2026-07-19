@@ -126,7 +126,7 @@ public class LayoutController {
     }
 
     @PostMapping("/{layoutId}/furniture-additions")
-    @Operation(summary = "Draft 추가 희망 가구 배치", description = "현재 Draft의 기존 가구 위치와 metadata를 유지하고 Agent Context의 requiredItems 중 현재 없는 타입만 결정론적으로 안전한 위치에 추가합니다.")
+    @Operation(summary = "Draft 추가 희망 가구 배치", description = "현재 Draft의 기존 가구 위치와 metadata를 유지하고 Agent Context의 requiredItems를 결정론적으로 안전한 위치에 추가합니다. 한 요청의 신규 가구는 최대 8개, DELETED를 제외한 최종 활성 가구는 최대 12개입니다. 같은 type의 반복 항목도 각각 한 가구로 계산합니다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "추가 가구 배치 또는 변경 없음"),
             @ApiResponse(responseCode = "400", description = "Room과 Context 불일치 또는 잘못된 요청"),

@@ -145,6 +145,11 @@ This means the layout was updated, but the frontend should display warnings to t
 
 Full API details are available in Swagger UI.
 
+The Draft furniture-additions endpoint accepts at most 8 new furniture items per request and at most
+12 active items in the resulting Layout. Repeated types count separately. Requests over either limit are
+rejected before catalog lookup and placement with HTTP `422 FURNITURE_ADDITION_FAILED`; natural-language
+feedback keeps its independent 4-operation limit.
+
 ---
 
 ## Tech Stack
@@ -159,7 +164,7 @@ Full API details are available in Swagger UI.
 | Container | Docker |
 | LLM Integration | OpenAI-compatible Chat Completions API |
 | AI Provider Used | Gemini |
-| Storage | In-memory repository for MVP |
+| Storage | Spring Data JPA (H2 for local/test, PostgreSQL required for production) |
 
 ---
 
@@ -215,8 +220,10 @@ Without these variables, the backend still runs fully on rule-based logic.
 | `ROOMFIT_LLM_BASE_URL` | OpenAI-compatible chat completion endpoint |
 | `ROOMFIT_LLM_MODEL` | Model ID |
 | `ROOMFIT_LLM_TIMEOUT_MS` | LLM timeout in milliseconds |
-| `SPRING_DATASOURCE_URL` | JDBC URL. Defaults to a local H2 file (`./data/roomfit`) if unset. Set to a real PostgreSQL URL (e.g. Render's managed Postgres) in production. |
-| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | Datasource credentials (only needed with a real DB) |
+| `SPRING_PROFILES_ACTIVE` | Set to `prod` in production. The prod profile refuses H2 and missing datasource settings. |
+| `SPRING_DATASOURCE_URL` | Production JDBC URL in exact `jdbc:postgresql://<host>:<port>/<database>` format. A Render `postgresql://...` URL must be converted; it is not accepted as-is. Local development falls back to `jdbc:h2:file:./data/roomfit;AUTO_SERVER=TRUE`. |
+| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | Required production datasource credentials. Do not commit their values. |
+| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Required in the prod profile. Use `update` for the submission deployment plan. |
 
 Example:
 
@@ -229,6 +236,8 @@ ROOMFIT_LLM_TIMEOUT_MS=15000
 SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
 SPRING_DATASOURCE_USERNAME=<user>
 SPRING_DATASOURCE_PASSWORD=<password>
+SPRING_PROFILES_ACTIVE=prod
+SPRING_JPA_HIBERNATE_DDL_AUTO=update
 ```
 
 > Never commit real API keys to GitHub.
@@ -239,9 +248,19 @@ SPRING_DATASOURCE_PASSWORD=<password>
 
 The backend is deployed on Render using Docker.
 
+### Production database setup
+
+The `prod` profile has no H2 default. Startup fails if the datasource variables are absent, if the URL is
+not an exact `jdbc:postgresql://...` JDBC URL, or if either credential is blank. In Render, create a managed
+PostgreSQL database and construct the JDBC URL from its internal host, port, and database name. Keep all
+credential values in Render environment variables.
+
+`SPRING_JPA_HIBERNATE_DDL_AUTO=update` is acceptable for the submission deployment plan. A versioned
+migration tool such as Flyway or Liquibase is the safer long-term production schema strategy.
+
 Current MVP limitations:
 
-- Data persists via JPA/PostgreSQL when `SPRING_DATASOURCE_URL` points to a real database; without it, the backend falls back to a local H2 file (survives restarts on the same machine, but not across ephemeral container redeploys).
+- Local/default development persists via a file-backed H2 database. Production requires the `prod` profile and PostgreSQL; it cannot fall back to container-local H2 storage.
 - Product data is mock data.
 - Layout recommendation logic is rule-based by default; LLM-based placement (`ROOMFIT_LLM_PLACEMENT_ENABLED`) generates coordinates directly and always falls back to rule-based on failure.
 - Render Free Tier can introduce cold-start latency.

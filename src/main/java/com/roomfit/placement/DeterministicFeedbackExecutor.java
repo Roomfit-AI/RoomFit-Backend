@@ -69,7 +69,12 @@ public class DeterministicFeedbackExecutor {
     }
 
     public FeedbackExecution execute(FeedbackPlan plan, Room room, List<Furniture> original, AgentContext context) {
-        planValidator.validate(plan);
+        return execute(plan, room, original, context, FeedbackPlanValidator.MAX_FEEDBACK_OPERATIONS);
+    }
+
+    public FeedbackExecution execute(FeedbackPlan plan, Room room, List<Furniture> original,
+                                     AgentContext context, int maxOperations) {
+        planValidator.validate(plan, maxOperations);
         List<String> requested = plan.operations().stream().map(operation -> operation.type().name()).toList();
         if (plan.needsClarification()) {
             return noChange(original, plan, requested, "NEEDS_CLARIFICATION",

@@ -14,6 +14,7 @@ import com.roomfit.room.Room;
 import com.roomfit.room.RoomAccessService;
 import com.roomfit.room.RoomRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -36,6 +37,7 @@ public class LayoutService {
     private final FeedbackPlanInterpreter feedbackPlanInterpreter;
     private final DeterministicFeedbackExecutor feedbackExecutor;
     private final ScoreService scoreService;
+    private final FurnitureAdditionPolicy furnitureAdditionPolicy;
 
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
@@ -45,7 +47,8 @@ public class LayoutService {
                           ValidationService validationService,
                           FeedbackPlanInterpreter feedbackPlanInterpreter,
                           DeterministicFeedbackExecutor feedbackExecutor,
-                          ScoreService scoreService) {
+                          ScoreService scoreService,
+                          FurnitureAdditionPolicy furnitureAdditionPolicy) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
@@ -55,6 +58,7 @@ public class LayoutService {
         this.feedbackPlanInterpreter = feedbackPlanInterpreter;
         this.feedbackExecutor = feedbackExecutor;
         this.scoreService = scoreService;
+        this.furnitureAdditionPolicy = furnitureAdditionPolicy;
     }
 
     public LayoutResponse recommend(RecommendRequest request) {
@@ -170,6 +174,7 @@ public class LayoutService {
         return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
     }
 
+    @Transactional
     public LayoutResponse addFurniture(Long layoutId, DraftFurnitureAdditionRequest request) {
         Layout layout = findLayoutOrThrow(layoutId);
         roomAccessService.findWritableRoom(layout.getRoomId());
@@ -191,6 +196,8 @@ public class LayoutService {
                 .map(GeneratedFurnitureCatalog.get()::normalizeType)
                 .filter(type -> type != null && !type.isBlank())
                 .toList();
+
+        furnitureAdditionPolicy.validate(layout.getFurniture(), requestedTypes);
 
         List<FeedbackOperation> operations = new ArrayList<>();
         for (int index = 0; index < requestedTypes.size(); index++) {
@@ -220,18 +227,19 @@ public class LayoutService {
                     FeedbackSource.RULE_BASED,
                     false
             );
-            FeedbackExecution execution = feedbackExecutor.execute(plan, room, updated, context);
+            FeedbackExecution execution = feedbackExecutor.execute(plan, room, updated, context,
+                    FurnitureAdditionPolicy.MAX_NEW_ADDITIONS);
             if (execution.result().operationsApplied().size() != operations.size()) {
                 throw new CustomException(ErrorCode.FURNITURE_ADDITION_FAILED);
             }
             updated = deepCopyFurniture(execution.furniture());
         }
 
+        ValidationResult validationResult = validationService.validate(room, updated);
+        ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         layout.setContextId(context.getId());
         layout.setFurniture(updated);
         layoutRepository.save(layout);
-        ValidationResult validationResult = validationService.validate(room, updated);
-        ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
     }
 
