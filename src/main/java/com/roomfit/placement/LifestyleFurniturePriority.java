@@ -24,8 +24,11 @@ final class LifestyleFurniturePriority {
             List.of("bed", "sofa_bed", "sofa", "nightstand", "mood_lamp", "rug");
     private static final List<String> STORAGE_PRIORITY =
             List.of("wardrobe", "drawer_chest", "hanger", "bookshelf", "partition_shelf");
+    // media_console을 tv보다 앞에 둔다 — RuleBasedPlacementService가 tv를
+    // media_console 뒤쪽에 앵커링하는데(anchoredCandidatePositions), tv가 먼저
+    // 시도되면 아직 배치된 media_console이 없어 앵커링이 무력화된다.
     private static final List<String> HOBBY_LEISURE_PRIORITY =
-            List.of("tv", "media_console", "sofa", "multi_table", "mood_lamp");
+            List.of("media_console", "tv", "sofa", "multi_table", "mood_lamp");
 
     private static final Map<LifestyleGoal, List<String>> PRIORITY_BY_GOAL = Map.of(
             LifestyleGoal.STUDY_FOCUSED, WORK_STUDY_PRIORITY,

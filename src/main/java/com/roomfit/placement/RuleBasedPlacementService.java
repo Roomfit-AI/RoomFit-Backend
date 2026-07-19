@@ -263,6 +263,8 @@ public class RuleBasedPlacementService implements PlacementService {
             );
             case "desk_chair" -> chairCandidatePositions(spec, placed);
             case "mood_lamp" -> lampCandidatePositions(placed);
+            case "monitor" -> anchoredCandidatePositions(spec, placed, "desk", room);
+            case "tv" -> anchoredCandidatePositions(spec, placed, "media_console", room);
             case "storage" -> List.of(
                     new Position(2.7, 3.9),
                     new Position(0.6, 3.7),
@@ -278,10 +280,18 @@ public class RuleBasedPlacementService implements PlacementService {
                     new Position(0.8, 3.1),
                     new Position(1.1, 2.8)
             );
+            // 이전엔 방 크기와 무관한 절대 좌표 3개(2.2,2.0 / 1.6,3.1 / 0.8,3.3)를
+            // 그대로 썼다 — 방이 비어있으면 첫 좌표가 clamp만 통과하면 바로 그
+            // 자리에 배치돼, 작은 방에선 구석으로 눌리고 큰 방에선 방 크기와
+            // 무관하게 늘 같은 좁은 구역에만 몰렸다(아래 4x4 grid fallback은 이
+            // 좌표들이 전부 실패해야만 쓰이는데, 빈 방에서는 거의 항상 첫 좌표가
+            // 그냥 통과해버려 grid까지 가지 않는다). 방 실측 치수에 비례한
+            // 좌표로 바꿔 이 타입들(monitor/tv 외 아직 전용 규칙이 없는 나머지
+            // 전부)도 방 크기를 반영하게 한다.
             default -> List.of(
-                    new Position(2.2, 2.0),
-                    new Position(1.6, 3.1),
-                    new Position(0.8, 3.3)
+                    new Position(room.getWidth() * 0.25, room.getDepth() * 0.25),
+                    new Position(room.getWidth() * 0.75, room.getDepth() * 0.25),
+                    new Position(room.getWidth() * 0.5, room.getDepth() * 0.75)
             );
         };
         LinkedHashSet<String> seen = new LinkedHashSet<>();
@@ -330,6 +340,39 @@ public class RuleBasedPlacementService implements PlacementService {
                         new Position(2.0, 0.4),
                         new Position(2.9, 1.0),
                         new Position(1.7, 2.7)
+                ));
+    }
+
+    /**
+     * monitor를 desk 뒤쪽에, tv를 media_console 뒤쪽에 붙이기 위한 후보 좌표.
+     * anchorType(desk/media_console)이 아직 배치되지 않았으면 방 크기 비례
+     * 기본 좌표로 fallback한다.
+     *
+     * 주의: Position에는 높이(y)나 "무엇 위에 얹혔다"는 개념이 없어서, 실제로
+     * "책상 위에 모니터가 올라간 것"을 표현하지는 못한다 — 할 수 있는 건 anchor
+     * 가구의 뒤쪽 가장자리에 바짝 붙이는 것뿐이다. 게다가 지금 이 좌표들은
+     * anchor와 겹치지 않게(뒤쪽으로 spec.depth()만큼 떨어뜨려) 잡았다 — 겹치는
+     * 좌표를 후보로 넣어도 ValidationService의 충돌 검사(이번 변경 범위 밖)를
+     * 통과하지 못해 항상 버려지기 때문이다. "진짜로 책상 위에 겹쳐 놓기"를
+     * 하려면 rug처럼 충돌 예외를 인정하는 정책이 필요한데, 그건
+     * FurnitureDomainPolicy/ValidationService 쪽 변경이 필요해 이번 실험
+     * 범위에서는 보류했다.
+     */
+    private List<Position> anchoredCandidatePositions(FurnitureSpec spec, List<Furniture> placed,
+                                                        String anchorType, Room room) {
+        return findPlacedByType(placed, anchorType)
+                .map(anchor -> {
+                    double backZ = anchor.getPosition().getZ() - anchor.getDepth() / 2.0 - spec.depth() / 2.0 - 0.05;
+                    return List.of(
+                            new Position(anchor.getPosition().getX(), backZ),
+                            new Position(anchor.getPosition().getX() + anchor.getWidth() / 2.0 - spec.width() / 2.0, backZ),
+                            new Position(anchor.getPosition().getX() - anchor.getWidth() / 2.0 + spec.width() / 2.0, backZ)
+                    );
+                })
+                .orElse(List.of(
+                        new Position(room.getWidth() * 0.25, room.getDepth() * 0.25),
+                        new Position(room.getWidth() * 0.75, room.getDepth() * 0.25),
+                        new Position(room.getWidth() * 0.5, room.getDepth() * 0.75)
                 ));
     }
 
