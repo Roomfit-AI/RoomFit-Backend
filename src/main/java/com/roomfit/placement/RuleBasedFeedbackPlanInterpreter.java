@@ -3,6 +3,7 @@ package com.roomfit.placement;
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Room;
@@ -15,7 +16,7 @@ import java.util.Locale;
 /** A conservative Korean fallback.  It only creates an executable plan when one target is known. */
 public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
 
-    private static final List<String> ADD_TERMS = List.of("추가", "하나 더", "새로", "넣어", "놓아", "놔", "있었으면 좋겠");
+    private static final List<String> ADD_TERMS = List.of("추가", "하나 더", "한 개 더", "새로", "넣어", "있었으면 좋겠");
     private static final List<String> REMOVE_TERMS = List.of("삭제", "제거", "없애", "치워", "빼", "필요 없어");
     private static final List<String> MOVE_TERMS = List.of("옮겨", "옮기", "이동", "붙여", "붙이");
     private static final List<String> SWAP_TERMS = List.of("교체", "바꿔", "바꾸", "다른 디자인", "다른 제품");
@@ -100,13 +101,16 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
 
         boolean explicitAdd = containsAny(clause, ADD_TERMS);
-        boolean placeExisting = clause.contains("배치") && !explicitAdd
-                && activeByType(mentions.getFirst().type(), furniture).size() == 1;
-        if (explicitAdd || (clause.contains("배치") && !placeExisting)) {
+        boolean placementExpression = containsAny(clause, List.of("배치", "놓아", "놔"));
+        int activeCount = activeByType(mentions.getFirst().type(), furniture).size();
+        if (explicitAdd) {
             return addOperation(operationId, clause, mentions, furniture);
         }
-        if (placeExisting || containsAny(clause, MOVE_TERMS)) {
+        if ((placementExpression && activeCount == 1) || containsAny(clause, MOVE_TERMS)) {
             return moveOperation(operationId, clause, mentions, furniture);
+        }
+        if (placementExpression && activeCount > 1) {
+            throw new ClarificationRequired("어떤 가구를 말씀하시는지 확인이 필요합니다.", mentions.getFirst().type());
         }
         throw new ClarificationRequired("요청한 변경 방식을 확인할 수 없습니다. 추가, 이동, 삭제, 교체 중 하나로 말씀해주세요.",
                 mentions.getFirst().type());
@@ -175,6 +179,9 @@ public class RuleBasedFeedbackPlanInterpreter implements FeedbackPlanInterpreter
         }
         FurnitureMention source = mentions.getFirst();
         FurnitureMention replacement = mentions.getLast();
+        if (!GeneratedFurnitureCatalog.get().sameType(source.type(), replacement.type())) {
+            throw new ClarificationRequired("현재는 같은 종류 가구의 디자인 교체만 지원합니다.", source.type());
+        }
         return new FeedbackOperation("op-1", FeedbackOperationType.SWAP_FURNITURE,
                 selectorForExisting(source.type(), feedback, furniture), null, null, null, null,
                 requirements(replacement.type(), feedback), List.of());

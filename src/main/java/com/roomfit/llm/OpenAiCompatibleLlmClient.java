@@ -24,12 +24,23 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private final boolean geminiOpenAiCompatibility;
 
     public OpenAiCompatibleLlmClient(LlmFeedbackProperties properties, ObjectMapper objectMapper) {
-        this(properties, restClientBuilder(properties), objectMapper);
+        this(properties, restClientBuilder(properties), objectMapper, Usage.PLACEMENT);
+    }
+
+    public static OpenAiCompatibleLlmClient forFeedback(LlmFeedbackProperties properties, ObjectMapper objectMapper) {
+        return new OpenAiCompatibleLlmClient(properties, restClientBuilder(properties), objectMapper, Usage.FEEDBACK);
     }
 
     OpenAiCompatibleLlmClient(LlmFeedbackProperties properties,
                               RestClient.Builder restClientBuilder,
                               ObjectMapper objectMapper) {
+        this(properties, restClientBuilder, objectMapper, Usage.PLACEMENT);
+    }
+
+    OpenAiCompatibleLlmClient(LlmFeedbackProperties properties,
+                              RestClient.Builder restClientBuilder,
+                              ObjectMapper objectMapper,
+                              Usage usage) {
         this.restClient = restClientBuilder
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -37,7 +48,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         this.objectMapper = objectMapper;
         this.endpoint = normalizeEndpoint(properties.getBaseUrl());
         this.model = properties.getModel();
-        this.geminiOpenAiCompatibility = isGeminiOpenAiCompatibilityEndpoint(properties.getBaseUrl());
+        this.geminiOpenAiCompatibility = usage == Usage.FEEDBACK
+                && isGeminiOpenAiCompatibilityEndpoint(properties.getBaseUrl());
     }
 
     @Override
@@ -135,5 +147,10 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         } catch (URISyntaxException ignored) {
             return false;
         }
+    }
+
+    enum Usage {
+        FEEDBACK,
+        PLACEMENT
     }
 }

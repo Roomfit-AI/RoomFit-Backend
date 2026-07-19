@@ -396,7 +396,8 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
                     scores, product identifiers, variant identifiers, or validation decisions.
                     Interpret add/one-more/new/place expressions as ADD_FURNITURE only when the user explicitly asks
                     to add something. If an active item of that type already exists and the user says to place it without
-                    an add signal, interpret it as MOVE. Interpret remove/take-out/delete expressions as REMOVE_FURNITURE,
+                    an add signal, interpret it as MOVE. Korean 놓아/놔 expressions are not add signals by themselves.
+                    Interpret remove/take-out/delete expressions as REMOVE_FURNITURE,
                     and replace/change expressions as SWAP_FURNITURE. A same-type "different design" request is SWAP_FURNITURE.
                     Use semantic relations for beside/left/right/window/wall/corner expressions. If one existing target
                     or reference cannot be identified safely, return CLARIFICATION instead of guessing.
@@ -440,7 +441,7 @@ public class LlmFeedbackPlanInterpreter implements FeedbackPlanInterpreter {
      * parsing as well.
      */
     private void validateProviderSafety(FeedbackPlan plan, String feedback) {
-        boolean explicitAdd = feedback != null && List.of("추가", "하나 더", "새로", "넣어", "놓아", "놔")
+        boolean explicitAdd = feedback != null && List.of("추가", "하나 더", "한 개 더", "새로", "넣어")
                 .stream().anyMatch(feedback::contains);
         if (!explicitAdd && plan.operations().stream()
                 .anyMatch(operation -> operation.type() == FeedbackOperationType.ADD_FURNITURE)) {

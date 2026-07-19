@@ -36,7 +36,7 @@ class OptInRealLlmFeedbackEvaluationTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         LlmFeedbackPlanInterpreter primary = new LlmFeedbackPlanInterpreter(
-                new OpenAiCompatibleLlmClient(properties, objectMapper), objectMapper);
+                OpenAiCompatibleLlmClient.forFeedback(properties, objectMapper), objectMapper);
         RuleBasedFeedbackPlanInterpreter fallback = new RuleBasedFeedbackPlanInterpreter();
         DeterministicFeedbackExecutor executor = new DeterministicFeedbackExecutor(
                 new ValidationService(), new MockProductRepository());

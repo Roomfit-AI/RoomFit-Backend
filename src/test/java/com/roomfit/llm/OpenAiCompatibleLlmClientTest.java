@@ -119,11 +119,31 @@ class OpenAiCompatibleLlmClientTest {
         assertGeminiRequest("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
     }
 
+    @Test
+    void placementKeepsTheLegacyGenericBodyForGeminiOpenAiCompatibility() {
+        RestClient.Builder restClientBuilder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restClientBuilder).build();
+        OpenAiCompatibleLlmClient client = new OpenAiCompatibleLlmClient(
+                properties("https://generativelanguage.googleapis.com/v1beta/openai/", "test-key", "test-model"),
+                restClientBuilder, new ObjectMapper());
+
+        server.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"))
+                .andExpect(content().string(containsString("\"response_format\":{\"type\":\"json_object\"}")))
+                .andExpect(content().string(containsString("\"temperature\":0")))
+                .andRespond(withSuccess("""
+                        {"choices":[{"message":{"content":"{\\"intent\\":\\"INCREASE_STORAGE\\"}"}}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.complete("prompt")).isEqualTo("{\"intent\":\"INCREASE_STORAGE\"}");
+        server.verify();
+    }
+
     private void assertGeminiRequest(String baseUrl) {
         RestClient.Builder restClientBuilder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(restClientBuilder).build();
         OpenAiCompatibleLlmClient client = new OpenAiCompatibleLlmClient(
-                properties(baseUrl, "test-key", "test-model"), restClientBuilder, new ObjectMapper());
+                properties(baseUrl, "test-key", "test-model"), restClientBuilder, new ObjectMapper(),
+                OpenAiCompatibleLlmClient.Usage.FEEDBACK);
 
         server.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"))
                 .andExpect(method(HttpMethod.POST))

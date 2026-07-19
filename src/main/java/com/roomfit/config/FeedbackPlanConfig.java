@@ -16,8 +16,10 @@ public class FeedbackPlanConfig {
 
     @Bean
     public FeedbackPlanInterpreter feedbackPlanInterpreter(LlmFeedbackProperties properties, ObjectMapper objectMapper) {
-        Optional<FeedbackPlanInterpreter> llm = properties.isEnabled() && properties.hasValidClientConfig()
-                ? Optional.of(new LlmFeedbackPlanInterpreter(new OpenAiCompatibleLlmClient(properties, objectMapper), objectMapper))
+        LlmFeedbackProperties feedbackProperties = properties.feedbackClientProperties();
+        Optional<FeedbackPlanInterpreter> llm = properties.isEnabled() && properties.hasValidFeedbackClientConfig()
+                ? Optional.of(new LlmFeedbackPlanInterpreter(
+                        OpenAiCompatibleLlmClient.forFeedback(feedbackProperties, objectMapper), objectMapper))
                 : Optional.empty();
         return new FallbackFeedbackPlanInterpreter(llm, new RuleBasedFeedbackPlanInterpreter());
     }

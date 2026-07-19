@@ -43,13 +43,11 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void parsesGenericSwapFromSourceAndReplacementTypes() {
+    void clarifiesCrossTypeSwapInsteadOfChangingCanonicalType() {
         FeedbackPlan plan = interpret("책장을 빼고 행거를 넣어줘");
 
-        FeedbackOperation operation = plan.operations().getFirst();
-        assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
-        assertThat(operation.target().furnitureType()).isEqualTo("bookshelf");
-        assertThat(operation.replacementRequirements().furnitureType()).isEqualTo("hanger");
+        assertThat(plan.needsClarification()).isTrue();
+        assertThat(plan.operations()).isEmpty();
     }
 
     @Test
@@ -132,6 +130,30 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
             assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
             assertThat(operation.placement().magnitude()).isNull();
         });
+    }
+
+    @Test
+    void treatsKoreanPlaceWordsAsMoveForAnExistingActiveFurniture() {
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+        Furniture sofa = furniture("sofa-1", "sofa", 3, 3);
+
+        FeedbackPlan chairMove = interpreter.interpret("의자를 구석에 놔줘", room(), List.of(chair), context());
+        FeedbackPlan sofaMove = interpreter.interpret("소파를 창가에 놓아줘", room(), List.of(sofa), context());
+        FeedbackPlan explicitAdd = interpreter.interpret("의자 하나 더 놔줘", room(), List.of(chair), context());
+        FeedbackPlan absentChair = interpreter.interpret("의자를 구석에 놔줘", room(), List.of(), context());
+        FeedbackPlan ambiguousChairs = interpreter.interpret("의자를 구석에 놔줘", room(),
+                List.of(chair, furniture("chair-2", "desk_chair", 4, 4)), context());
+
+        assertThat(chairMove.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
+        });
+        assertThat(sofaMove.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE));
+        assertThat(explicitAdd.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.ADD_FURNITURE));
+        assertThat(absentChair.needsClarification()).isTrue();
+        assertThat(ambiguousChairs.needsClarification()).isTrue();
     }
 
     @Test
