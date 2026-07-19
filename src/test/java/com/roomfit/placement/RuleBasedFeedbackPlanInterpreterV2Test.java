@@ -121,13 +121,137 @@ class RuleBasedFeedbackPlanInterpreterV2Test {
     }
 
     @Test
-    void returnsClarificationForCornerMoveInsteadOfChangingItIntoAnAdd() {
+    void resolvesCornerMoveForExistingChairWithoutChangingItIntoAnAdd() {
         Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
         FeedbackPlan plan = interpreter.interpret("의자를 구석에 배치해줘", room(), List.of(chair), context());
 
+        assertThat(plan.needsClarification()).isFalse();
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
+            assertThat(operation.placement().magnitude()).isNull();
+        });
+    }
+
+    @Test
+    void usesActiveSelectionForGenericCornerMoveAndClarifiesWithoutIt() {
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+
+        FeedbackPlan selected = interpreter.interpret("가구를 모서리에 배치해줘", room(), List.of(chair), context(), "chair-1");
+        FeedbackPlan noSelection = interpreter.interpret("가구를 모서리에 배치해줘", room(), List.of(chair), context(), null);
+
+        assertThat(selected.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("chair-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.IN_CORNER);
+        });
+        assertThat(noSelection.needsClarification()).isTrue();
+        assertThat(noSelection.operations()).isEmpty();
+    }
+
+    @Test
+    void movesExistingFurnitureNearAnExplicitReferenceWithoutAddingFurniture() {
+        Furniture monitor = furniture("monitor-1", "monitor", 1, 1);
+        Furniture desk = furniture("desk-1", "desk", 3, 3);
+
+        FeedbackPlan plan = interpreter.interpret("모니터를 책상 가까이로 옮겨줘", room(), List.of(monitor, desk), context());
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("monitor-1");
+            assertThat(operation.referenceTarget().furnitureId()).isEqualTo("desk-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.NEXT_TO);
+        });
+    }
+
+    @Test
+    void mapsKnownToneAndMaterialTermsToActualCatalogMetadataKeywords() {
+        Furniture drawer = furniture("drawer-1", "drawer_chest", 2, 2);
+        Furniture chair = furniture("chair-1", "desk_chair", 4, 2);
+
+        FeedbackPlan lightDrawer = interpreter.interpret("밝은 색 수납장으로 바꿔줘", room(), List.of(drawer), context());
+        FeedbackPlan metalChair = interpreter.interpret("금속 소재 의자로 바꿔줘", room(), List.of(chair), context());
+
+        assertThat(lightDrawer.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(operation.replacementRequirements().styleKeywords()).containsExactly("paintedWhite");
+        });
+        assertThat(metalChair.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(operation.replacementRequirements().styleKeywords()).containsExactly("metal");
+        });
+    }
+
+    @Test
+    void usesOnlyActiveSelectedFurnitureForTypeOmittedMetadataSwap() {
+        Furniture drawer = furniture("drawer-1", "drawer_chest", 2, 2);
+        Furniture deleted = new Furniture("drawer-deleted", "drawer_chest", "deleted", 0.8, 0.5, 0.8,
+                new Position(4, 2), 0, FurnitureStatus.DELETED);
+
+        FeedbackPlan selected = interpreter.interpret("우드 톤으로 바꿔줘", room(), List.of(drawer), context(), "drawer-1");
+        FeedbackPlan noSelection = interpreter.interpret("우드 톤으로 바꿔줘", room(), List.of(drawer), context(), null);
+        FeedbackPlan missingSelection = interpreter.interpret("우드 톤으로 바꿔줘", room(), List.of(drawer), context(), "missing");
+        FeedbackPlan deletedSelection = interpreter.interpret("우드 톤으로 바꿔줘", room(), List.of(drawer, deleted), context(), "drawer-deleted");
+
+        assertThat(selected.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(operation.target().furnitureId()).isEqualTo("drawer-1");
+            assertThat(operation.replacementRequirements().styleKeywords()).containsExactly("wood");
+        });
+        assertThat(noSelection.needsClarification()).isTrue();
+        assertThat(missingSelection.needsClarification()).isTrue();
+        assertThat(deletedSelection.needsClarification()).isTrue();
+    }
+
+    @Test
+    void rejectsExplicitSwapWhenTheSelectedFurnitureHasAnotherCanonicalType() {
+        Furniture drawer = furniture("drawer-1", "drawer_chest", 2, 2);
+        Furniture chair = furniture("chair-1", "desk_chair", 4, 2);
+
+        FeedbackPlan plan = interpreter.interpret("의자를 우드 톤으로 바꿔줘", room(), List.of(drawer, chair), context(), "drawer-1");
+
         assertThat(plan.needsClarification()).isTrue();
         assertThat(plan.operations()).isEmpty();
-        assertThat(plan.clarification().targetFurnitureType()).isEqualTo("desk_chair");
+    }
+
+    @Test
+    void preservesCompoundOperationOrderForMoveSwapAndReferenceMoveRemove() {
+        Furniture bed = furniture("bed-1", "bed", 1, 1);
+        Furniture chair = furniture("chair-1", "desk_chair", 4, 2);
+        Furniture desk = furniture("desk-1", "desk", 3, 3);
+        Furniture monitor = furniture("monitor-1", "monitor", 1, 3);
+
+        FeedbackPlan moveSwap = interpreter.interpret("침대는 창가 쪽으로 옮겨 주고 의자는 우드 톤으로 바꿔줘",
+                room(), List.of(bed, chair), context());
+        FeedbackPlan moveRemove = interpreter.interpret("책상 옆에 모니터를 옮긴 다음 기존 의자를 삭제해줘",
+                room(), List.of(desk, monitor, chair), context());
+
+        assertThat(moveSwap.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.SWAP_FURNITURE);
+        assertThat(moveSwap.operations().get(1).target().furnitureId()).isEqualTo("chair-1");
+        assertThat(moveRemove.operations()).extracting(FeedbackOperation::type)
+                .containsExactly(FeedbackOperationType.MOVE, FeedbackOperationType.REMOVE_FURNITURE);
+        assertThat(moveRemove.operations().getFirst().target().furnitureId()).isEqualTo("monitor-1");
+        assertThat(moveRemove.operations().getFirst().referenceTarget().furnitureId()).isEqualTo("desk-1");
+        assertThat(moveRemove.operations().get(1).target().furnitureId()).isEqualTo("chair-1");
+    }
+
+    @Test
+    void rejectsUnsupportedToneAndOverFourCompoundOperationsWithoutPartialPlan() {
+        Furniture bed = furniture("bed-1", "bed", 1, 1);
+        Furniture chair = furniture("chair-1", "desk_chair", 2, 2);
+        Furniture desk = furniture("desk-1", "desk", 3, 3);
+        Furniture sofa = furniture("sofa-1", "sofa", 4, 4);
+        Furniture monitor = furniture("monitor-1", "monitor", 5, 5);
+
+        FeedbackPlan unsupportedTone = interpreter.interpret("의자를 다크 톤으로 바꿔줘", room(), List.of(chair), context());
+        FeedbackPlan tooMany = interpreter.interpret("침대를 옮기고 의자를 옮기고 책상을 옮기고 소파를 옮기고 모니터를 옮겨줘",
+                room(), List.of(bed, chair, desk, sofa, monitor), context());
+
+        assertThat(unsupportedTone.needsClarification()).isTrue();
+        assertThat(tooMany.needsClarification()).isTrue();
+        assertThat(tooMany.operations()).isEmpty();
     }
 
     @Test

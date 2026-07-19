@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.roomfit.agent.domain.AgentContext;
 import com.roomfit.agent.domain.DesignStyle;
 import com.roomfit.agent.domain.LifestyleGoal;
+import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureStatus;
 import com.roomfit.room.Position;
@@ -21,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LlmFeedbackPlanInterpreterV2Test {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final DeterministicFeedbackExecutor executor =
+            new DeterministicFeedbackExecutor(new ValidationService(), new MockProductRepository());
 
     @Test
     void parsesDirectMoveWithSemanticPlacement() {
@@ -89,6 +92,92 @@ class LlmFeedbackPlanInterpreterV2Test {
     }
 
     @Test
+    void promptIncludesReferenceMoveContractAndSafeJsonShape() {
+        String[] capturedPrompt = new String[1];
+        Furniture monitor = monitor();
+        Furniture desk = desk();
+        LlmFeedbackPlanInterpreter interpreter = new LlmFeedbackPlanInterpreter(prompt -> {
+            capturedPrompt[0] = prompt;
+            return referenceMoveResponse("NEXT_TO", true);
+        }, objectMapper);
+
+        interpreter.interpret("모니터를 책상 가까이 옮겨줘", room(), List.of(monitor, desk), context());
+
+        assertThat(capturedPrompt[0])
+                .contains("A를 B 가까이/옆에/주변에 옮겨줘")
+                .contains("모니터를 책상 가까이 옮겨줘")
+                .contains("\"referenceTarget\":{\"furnitureType\":\"desk\"}")
+                .contains("NEXT_TO")
+                .contains("must not include referenceTarget")
+                .doesNotContain("\"target\":{\"furnitureId\":\"monitor-");
+    }
+
+    @Test
+    void validReferenceMovePlanParsesValidatesAndExecutes() {
+        Furniture monitor = monitor();
+        Furniture desk = desk();
+        FeedbackPlan plan = new LlmFeedbackPlanInterpreter(prompt -> referenceMoveResponse("NEXT_TO", true), objectMapper)
+                .interpret("모니터를 책상 가까이 옮겨줘", room(), List.of(monitor, desk), context());
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.LLM);
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.MOVE);
+            assertThat(operation.target().furnitureId()).isEqualTo("monitor-1");
+            assertThat(operation.referenceTarget().furnitureId()).isEqualTo("desk-1");
+            assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.NEXT_TO);
+            assertThat(operation.placement().magnitude()).isNull();
+        });
+
+        FeedbackExecution execution = executor.execute(plan, room(), List.of(monitor, desk), context());
+
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isTrue();
+        assertThat(execution.furniture()).hasSize(2);
+        assertThat(execution.furniture().getFirst().getId()).isEqualTo("monitor-1");
+    }
+
+    @Test
+    void referenceTargetWithNonReferenceRelationIsDiagnosedAndFallsBack() {
+        String invalidPlan = referenceMoveResponse("NEAR_WALL", true);
+
+        assertThatThrownBy(() -> new LlmFeedbackPlanInterpreter(prompt -> invalidPlan, objectMapper)
+                .interpret("모니터를 책상 가까이 옮겨줘", room(), List.of(monitor(), desk()), context()))
+                .isInstanceOf(LlmProviderException.class)
+                .satisfies(error -> assertThat(((LlmProviderException) error).stage())
+                        .isEqualTo(LlmProviderException.SEMANTIC_REFERENCE_PRESENT_WITH_NON_REFERENCE_RELATION));
+
+        FeedbackPlan plan = new FallbackFeedbackPlanInterpreter(
+                Optional.of(new LlmFeedbackPlanInterpreter(prompt -> invalidPlan, objectMapper)),
+                new RuleBasedFeedbackPlanInterpreter())
+                .interpret("모니터를 책상 가까이 옮겨줘", room(), List.of(monitor(), desk()), context());
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(plan.fallbackUsed()).isTrue();
+        assertThat(plan.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.NEXT_TO));
+    }
+
+    @Test
+    void referenceRelationWithoutReferenceTargetIsDiagnosedAndFallsBack() {
+        String invalidPlan = referenceMoveResponse("NEXT_TO", false);
+
+        assertThatThrownBy(() -> new LlmFeedbackPlanInterpreter(prompt -> invalidPlan, objectMapper)
+                .interpret("모니터를 책상 가까이 옮겨줘", room(), List.of(monitor(), desk()), context()))
+                .isInstanceOf(LlmProviderException.class)
+                .satisfies(error -> assertThat(((LlmProviderException) error).stage())
+                        .isEqualTo(LlmProviderException.SEMANTIC_REFERENCE_RELATION_WITHOUT_REFERENCE));
+
+        FeedbackPlan plan = new FallbackFeedbackPlanInterpreter(
+                Optional.of(new LlmFeedbackPlanInterpreter(prompt -> invalidPlan, objectMapper)),
+                new RuleBasedFeedbackPlanInterpreter())
+                .interpret("모니터를 책상 가까이 옮겨줘", room(), List.of(monitor(), desk()), context());
+
+        assertThat(plan.source()).isEqualTo(FeedbackSource.RULE_BASED);
+        assertThat(plan.fallbackUsed()).isTrue();
+        assertThat(plan.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.placement().relation()).isEqualTo(FeedbackRelation.NEXT_TO));
+    }
+
+    @Test
     void parsesRemoveWithLocationHint() {
         FeedbackPlan plan = interpret("가운데 의자를 빼줘", """
                 {"version":"2.0","requestKind":"DIRECT","operations":[{
@@ -115,6 +204,29 @@ class LlmFeedbackPlanInterpreterV2Test {
         FeedbackProductRequirements requirements = plan.operations().getFirst().replacementRequirements();
         assertThat(requirements.furnitureType()).isEqualTo("hanger");
         assertThat(requirements.sizePreference()).isEqualTo(FeedbackSizePreference.SIMILAR);
+    }
+
+    @Test
+    void normalizesLlmMetadataSwapToTheCatalogBackedKeywordInsteadOfTrustingProviderTags() {
+        Furniture drawer = new Furniture("drawer-1", "drawer_chest", "수납장", 0.8, 0.4, 1.0,
+                new Position(2, 2), 0, FurnitureStatus.EXISTING);
+        LlmFeedbackPlanInterpreter interpreter = new LlmFeedbackPlanInterpreter(prompt -> """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"SWAP_FURNITURE",
+                  "target":{"furnitureId":"drawer-1","furnitureType":"drawer_chest"},
+                  "replacementRequirements":{"furnitureType":"drawer_chest","sizePreference":"ANY","styleKeywords":["invented_tag"]},
+                  "dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"wood swap"}
+                """, objectMapper);
+
+        FeedbackPlan plan = interpreter.interpret("수납장을 우드 톤으로 바꿔줘", room(), List.of(drawer), context());
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(operation.target().furnitureId()).isEqualTo("drawer-1");
+            assertThat(operation.replacementRequirements().furnitureType()).isEqualTo("drawer_chest");
+            assertThat(operation.replacementRequirements().styleKeywords()).containsExactly("wood");
+        });
     }
 
     @Test
@@ -379,6 +491,20 @@ class LlmFeedbackPlanInterpreterV2Test {
                 """.formatted(operationFields);
     }
 
+    private String referenceMoveResponse(String relation, boolean includeReferenceTarget) {
+        String referenceTarget = includeReferenceTarget
+                ? "\"referenceTarget\":{\"furnitureId\":\"desk-1\",\"furnitureType\":\"desk\"},"
+                : "";
+        String magnitude = "NEXT_TO".equals(relation) ? "" : ",\"magnitude\":\"MEDIUM\"";
+        return """
+                {"version":"2.0","requestKind":"DIRECT","operations":[{
+                  "operationId":"op-1","type":"MOVE",
+                  "target":{"furnitureId":"monitor-1","furnitureType":"monitor"},%s
+                  "placement":{"relation":"%s"%s},"dependsOn":[]
+                }],"goals":[],"clarification":null,"reason":"reference move"}
+                """.formatted(referenceTarget, relation, magnitude);
+    }
+
     private String compositeWithSecondOperation(String secondId, String dependencyJson) {
         return """
                 {
@@ -405,6 +531,12 @@ class LlmFeedbackPlanInterpreterV2Test {
         return new Furniture("desk-1", "desk", "컴팩트 책상", 1.2, 0.6, 0.73,
                 new Position(2, 2), 0, FurnitureStatus.RECOMMENDED,
                 "desk-compact-01", List.of("minimal"), "desk-compact");
+    }
+
+    private Furniture monitor() {
+        return new Furniture("monitor-1", "monitor", "기존 모니터", 0.5, 0.25, 0.4,
+                new Position(1, 1), 0, FurnitureStatus.EXISTING,
+                "monitor-basic-01", List.of("minimal"), "monitor-basic");
     }
 
     private AgentContext context() {

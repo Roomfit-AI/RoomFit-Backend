@@ -17,6 +17,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -242,7 +243,42 @@ class LayoutFeedbackControllerTest {
                 .andExpect(jsonPath("$.data.clarification.requiredField").value("targetFurnitureId"))
                 .andExpect(jsonPath("$.data.clarification.candidates", hasSize(2)))
                 .andExpect(jsonPath("$.data.clarification.candidates[0].furnitureId").value("desk-1"))
-                .andExpect(jsonPath("$.data.clarification.candidates[1].furnitureId").value("desk-second"));
+                .andExpect(jsonPath("$.data.clarification.candidates[1].furnitureId").value("desk-second"))
+                .andExpect(jsonPath("$.data.clarification.candidates[0].label").value(not("desk-1")))
+                .andExpect(jsonPath("$.data.clarification.candidates[1].label").value("보조 책상"));
+    }
+
+    @Test
+    void feedback_withSelectedFurnitureMovesExistingFurnitureToCornerWithoutAdding() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        Furniture selectedChair = new Furniture("selected-chair", "desk_chair", "선택한 의자", 0.5, 0.5, 0.8,
+                new Position(2.5, 2.5), 0, FurnitureStatus.EXISTING,
+                "desk-chair-basic-01", List.of("minimal"), "desk-chair-basic");
+        layout.setFurniture(new ArrayList<>(List.of(selectedChair)));
+        layoutRepository.save(layout);
+
+        mockMvc.perform(post("/api/layouts/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "layoutId": %d,
+                                  "feedback": "가구를 모서리에 배치해줘",
+                                  "selectedFurnitureId": "selected-chair"
+                                }
+                                """.formatted(layoutId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.feedbackStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.operationResults", hasSize(1)))
+                .andExpect(jsonPath("$.data.operationResults[0].operationType").value("MOVE"))
+                .andExpect(jsonPath("$.data.operationResults[0].status").value("APPLIED"))
+                .andExpect(jsonPath("$.data.operationResults[0].resultFurnitureId").value("selected-chair"))
+                .andExpect(jsonPath("$.data.recommendedFurniture", hasSize(1)))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].id").value("selected-chair"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].productId").value("desk-chair-basic-01"))
+                .andExpect(jsonPath("$.data.recommendedFurniture[0].variantId").value("desk-chair-basic"))
+                .andExpect(jsonPath("$.data.validationResult.collisionFree").value(true))
+                .andExpect(jsonPath("$.data.validationResult.boundaryValid").value(true));
     }
 
     private Long createLayout() throws Exception {

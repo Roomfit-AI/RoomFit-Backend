@@ -231,6 +231,147 @@ class DeterministicFeedbackExecutorV2Test {
         });
     }
 
+    @Test
+    void cornerMoveKeepsExistingFurnitureIdentityProductAndCount() {
+        Furniture chair = new Furniture("chair-1", "desk_chair", "기존 의자", 0.5, 0.5, 0.8,
+                new Position(2, 2), 0, FurnitureStatus.EXISTING,
+                "desk-chair-basic-01", List.of("minimal"), "desk-chair-basic");
+        FeedbackOperation move = new FeedbackOperation("op-1", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("chair-1", "desk_chair", ""), null,
+                new FeedbackPlacement(FeedbackRelation.IN_CORNER, null, null), null, null, null, List.of());
+
+        FeedbackExecution execution = executor.execute(direct(move), room(6, 6), List.of(chair));
+
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isTrue();
+        assertThat(execution.furniture()).singleElement().satisfies(after -> {
+            assertThat(after.getId()).isEqualTo(chair.getId());
+            assertThat(after.getProductId()).isEqualTo(chair.getProductId());
+            assertThat(after.getVariantId()).isEqualTo(chair.getVariantId());
+            assertThat(after.getPosition()).isNotEqualTo(chair.getPosition());
+        });
+        ValidationResult validation = new ValidationService().validate(room(6, 6), execution.furniture());
+        assertThat(validation.isCollisionFree()).isTrue();
+        assertThat(validation.isBoundaryValid()).isTrue();
+    }
+
+    @Test
+    void referenceMoveKeepsExistingFurnitureIdentityAndDoesNotAddFurniture() {
+        Furniture monitor = new Furniture("monitor-1", "monitor", "기존 모니터", 0.5, 0.25, 0.4,
+                new Position(1, 1), 0, FurnitureStatus.EXISTING,
+                "monitor-basic-01", List.of("minimal"), "monitor-basic");
+        Furniture desk = desk("desk-1", 3, 3, 0);
+        FeedbackOperation move = new FeedbackOperation("op-1", FeedbackOperationType.MOVE,
+                new FeedbackTargetSelector("monitor-1", "monitor", ""),
+                new FeedbackTargetSelector("desk-1", "desk", ""),
+                new FeedbackPlacement(FeedbackRelation.NEXT_TO, null, null), null, null, null, List.of());
+
+        FeedbackExecution execution = executor.execute(direct(move), room(6, 6), List.of(monitor, desk));
+
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isTrue();
+        assertThat(execution.furniture()).hasSize(2);
+        assertThat(execution.furniture().getFirst()).satisfies(after -> {
+            assertThat(after.getId()).isEqualTo("monitor-1");
+            assertThat(after.getProductId()).isEqualTo("monitor-basic-01");
+            assertThat(after.getVariantId()).isEqualTo("monitor-basic");
+        });
+        ValidationResult validation = new ValidationService().validate(room(6, 6), execution.furniture());
+        assertThat(validation.isCollisionFree()).isTrue();
+        assertThat(validation.isBoundaryValid()).isTrue();
+    }
+
+    @Test
+    void differentDesignBedSwapKeepsCountIdTypeAndPositionWhileChangingProductVariant() {
+        Furniture bed = new Furniture("bed-1", "bed", "기존 침대", 0.94, 2.06, 0.85,
+                new Position(4, 4), 0, FurnitureStatus.EXISTING,
+                "bed-fabric-headboard-01", List.of("natural", "minimal"), "bed-fabric-headboard");
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "침대를 다른 디자인으로 바꿔줘", room(8, 8), List.of(bed), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(8, 8), List.of(bed));
+
+        assertThat(plan.operations()).singleElement().satisfies(operation ->
+                assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE));
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isTrue();
+        assertThat(execution.furniture()).singleElement().satisfies(after -> {
+            assertThat(after.getId()).isEqualTo("bed-1");
+            assertThat(after.getType()).isEqualTo("bed");
+            assertThat(after.getProductId()).isEqualTo("bed-01");
+            assertThat(after.getVariantId()).isNull();
+            assertThat(after.getPosition().getX()).isEqualTo(bed.getPosition().getX());
+            assertThat(after.getPosition().getZ()).isEqualTo(bed.getPosition().getZ());
+        });
+        ValidationResult validation = new ValidationService().validate(room(8, 8), execution.furniture());
+        assertThat(validation.isCollisionFree()).isTrue();
+        assertThat(validation.isBoundaryValid()).isTrue();
+    }
+
+    @Test
+    void metadataConstrainedDrawerSwapUsesTheOnlyMatchingCatalogCandidateAndKeepsIdentity() {
+        Furniture drawer = new Furniture("drawer-1", "drawer_chest", "기존 수납장", 0.8, 0.4, 1.0,
+                new Position(3, 3), 90, FurnitureStatus.EXISTING,
+                "drawer-chest-bedside-01", List.of("minimal"), "drawer-chest-bedside");
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "밝은 색 수납장으로 바꿔줘", room(7, 7), List.of(drawer), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(7, 7), List.of(drawer));
+
+        assertThat(plan.operations()).singleElement().satisfies(operation -> {
+            assertThat(operation.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(operation.replacementRequirements().styleKeywords()).containsExactly("paintedWhite");
+        });
+        assertThat(execution.result().applied()).as(execution.result().noChangeReason()).isTrue();
+        assertThat(execution.furniture()).singleElement().satisfies(after -> {
+            assertThat(after.getId()).isEqualTo("drawer-1");
+            assertThat(after.getType()).isEqualTo("drawer_chest");
+            assertThat(after.getPosition().getX()).isEqualTo(3);
+            assertThat(after.getPosition().getZ()).isEqualTo(3);
+            assertThat(after.getRotation()).isEqualTo(90);
+            assertThat(after.getProductId()).isEqualTo("drawer-chest-classic-gullaberg-01");
+            assertThat(after.getVariantId()).isEqualTo("drawer-chest-classic-gullaberg");
+            assertThat(after.getStyleTags()).containsExactly("classic", "natural");
+        });
+        ValidationResult validation = new ValidationService().validate(room(7, 7), execution.furniture());
+        assertThat(validation.isCollisionFree()).isTrue();
+        assertThat(validation.isBoundaryValid()).isTrue();
+    }
+
+    @Test
+    void metadataSwapWithMultipleCandidatesReturnsNoSafeCandidateWithoutChangingFurniture() {
+        Furniture drawer = new Furniture("drawer-1", "drawer_chest", "기존 수납장", 0.8, 0.4, 1.0,
+                new Position(3, 3), 0, FurnitureStatus.EXISTING,
+                "drawer-chest-classic-gullaberg-01", List.of("classic"), "drawer-chest-classic-gullaberg");
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "수납장을 우드 톤으로 바꿔줘", room(7, 7), List.of(drawer), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(7, 7), List.of(drawer));
+
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_SAFE_SWAP_CANDIDATE");
+        assertThat(execution.furniture()).containsExactly(drawer);
+    }
+
+    @Test
+    void ambiguousMetadataSwapPreventsPartialCompositeMoveExecution() {
+        Furniture bed = new Furniture("bed-1", "bed", "침대", 1.0, 2.0, 0.5,
+                new Position(2, 2), 0, FurnitureStatus.EXISTING);
+        Furniture chair = new Furniture("chair-1", "desk_chair", "의자", 0.5, 0.5, 0.8,
+                new Position(5, 5), 0, FurnitureStatus.EXISTING,
+                "chair-classic-tonstad-01", List.of("classic"), "chair-classic-tonstad");
+        FeedbackPlan plan = new RuleBasedFeedbackPlanInterpreter().interpret(
+                "침대는 창가 쪽으로 옮겨 주고 의자는 금속 소재로 바꿔줘", room(8, 8), List.of(bed, chair), null);
+
+        FeedbackExecution execution = executor.execute(plan, room(8, 8), List.of(bed, chair));
+
+        assertThat(plan.requestKind()).isEqualTo(FeedbackRequestKind.COMPOSITE);
+        assertThat(execution.result().applied()).isFalse();
+        assertThat(execution.result().noChangeReason()).isEqualTo("NO_SAFE_SWAP_CANDIDATE");
+        assertThat(execution.furniture()).containsExactly(bed, chair);
+        assertThat(execution.operationResults()).singleElement().satisfies(result -> {
+            assertThat(result.type()).isEqualTo(FeedbackOperationType.SWAP_FURNITURE);
+            assertThat(result.status()).isEqualTo(FeedbackOperationExecution.Status.FAILED);
+        });
+    }
+
     private FeedbackPlan direct(FeedbackOperation operation) {
         return new FeedbackPlan("2.0", FeedbackRequestKind.DIRECT, List.of(operation), List.of(), null,
                 "test", FeedbackSource.LLM, false);
@@ -266,6 +407,7 @@ class DeterministicFeedbackExecutorV2Test {
                 new Position(x, z), rotation, FurnitureStatus.RECOMMENDED,
                 "desk-compact-01", List.of("minimal"), "desk-compact");
     }
+
 
     private Room room(double width, double depth) {
         return new Room(null, width, depth, 2.4, "meter", List.of(), List.of());
