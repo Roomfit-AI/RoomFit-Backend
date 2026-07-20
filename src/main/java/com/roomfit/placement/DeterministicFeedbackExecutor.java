@@ -1,6 +1,7 @@
 package com.roomfit.placement;
 
 import com.roomfit.agent.domain.AgentContext;
+import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.product.domain.MockProduct;
 import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Furniture;
@@ -227,14 +228,14 @@ public class DeterministicFeedbackExecutor {
         int globalOrder = 0;
         for (MockProduct product : products) {
             List<FeedbackPlacementCandidateGenerator.PlacementCandidate> placements =
-                    candidateGenerator.forAdd(room, product, operation.placement(), reference);
+                    additionPlacements(room, base, product, operation, reference);
             for (FeedbackPlacementCandidateGenerator.PlacementCandidate placement : placements) {
                 if (validations++ == MAX_ADD_VALIDATIONS) break;
                 Furniture added = furnitureFromProduct(furnitureId, product, placement.position(),
                         placement.rotation(), FurnitureStatus.RECOMMENDED);
                 List<Furniture> snapshot = appended(base, added);
-                ValidationResult validation = validationService.validate(room, snapshot);
-                if (safeAddition(room, base, added)) {
+                ValidationResult validation = validationService.validateChange(room, base, snapshot);
+                if (validationService.isSafeAddition(room, base, added)) {
                     validCandidates.add(new CandidateEvaluation(snapshot, furnitureId, product.getProductId(),
                             score(context, snapshot, validation),
                             distanceFromReference(placement.position(), reference, room), globalOrder));
@@ -248,6 +249,26 @@ public class DeterministicFeedbackExecutor {
                 .map(candidate -> OperationAttempt.applied(candidate.snapshot(), candidate.affectedFurnitureId()))
                 .orElseGet(() -> OperationAttempt.failed(boundaryFitAvailable
                         ? "NO_VALID_ADD_PLACEMENT" : "NO_VALID_BOUNDARY_PLACEMENT"));
+    }
+
+    private List<FeedbackPlacementCandidateGenerator.PlacementCandidate> additionPlacements(
+            Room room, List<Furniture> base, MockProduct product, FeedbackOperation operation, Furniture reference) {
+        String type = GeneratedFurnitureCatalog.get().normalizeType(product.getType());
+        String supportType = switch (type) {
+            case "monitor" -> "desk";
+            case "tv" -> "media_console";
+            default -> null;
+        };
+        if (supportType == null) {
+            return candidateGenerator.forAdd(room, product, operation.placement(), reference);
+        }
+        return base.stream()
+                .filter(this::active)
+                .filter(item -> supportType.equals(GeneratedFurnitureCatalog.get().normalizeType(item.getType())))
+                .map(support -> new FeedbackPlacementCandidateGenerator.PlacementCandidate(
+                        new Position(support.getPosition().getX(), support.getPosition().getZ()),
+                        support.getRotation(), 0))
+                .toList();
     }
 
     private boolean isReferenceRelation(FeedbackRelation relation) {
@@ -294,7 +315,7 @@ public class DeterministicFeedbackExecutor {
                 Furniture swapped = furnitureFromProduct(current.getId(), product, placement.position(),
                         placement.rotation(), current.getStatus());
                 List<Furniture> snapshot = replace(base, targetIndex, swapped);
-                ValidationResult validation = validationService.validate(room, snapshot);
+                ValidationResult validation = validationService.validateChange(room, base, snapshot);
                 if (hardValid(validation)) {
                     validCandidates.add(new CandidateEvaluation(snapshot, current.getId(), product.getProductId(),
                             score(context, snapshot, validation),
@@ -322,7 +343,7 @@ public class DeterministicFeedbackExecutor {
                     : candidateGenerator.forMove(room, current, operation.placement(), reference)) {
                 Furniture updated = copy(current, candidate.position(), candidate.rotation());
                 List<Furniture> snapshot = replace(base, index, updated);
-                if (!samePosition(current, updated) && valid(room, snapshot)) {
+                if (!samePosition(current, updated) && valid(room, base, snapshot)) {
                     return OperationAttempt.applied(snapshot, current.getId());
                 }
             }
@@ -331,7 +352,7 @@ public class DeterministicFeedbackExecutor {
         for (Position position : movePositions(room, current, operation)) {
             Furniture updated = copy(current, position, current.getRotation());
             List<Furniture> snapshot = replace(base, index, updated);
-            if (!samePosition(current, updated) && valid(room, snapshot)) {
+            if (!samePosition(current, updated) && valid(room, base, snapshot)) {
                 return OperationAttempt.applied(snapshot, current.getId());
             }
         }
@@ -387,7 +408,7 @@ public class DeterministicFeedbackExecutor {
             }
             Furniture updated = copy(current, position, rotation);
             List<Furniture> snapshot = replace(base, index, updated);
-            if (valid(room, snapshot)) {
+            if (valid(room, base, snapshot)) {
                 return OperationAttempt.applied(snapshot, current.getId());
             }
         }
@@ -584,7 +605,7 @@ public class DeterministicFeedbackExecutor {
                     rotation, current.getStatus());
             for (Position position : replacementPositions(room, current.getPosition(), prototype)) {
                 Furniture moved = copy(prototype, position, rotation);
-                if (valid(room, replace(base, index, moved))) return Optional.of(moved);
+                if (valid(room, base, replace(base, index, moved))) return Optional.of(moved);
             }
         }
         return Optional.empty();
@@ -683,42 +704,13 @@ public class DeterministicFeedbackExecutor {
         return furniture.getStatus() != FurnitureStatus.DELETED;
     }
 
-    private boolean valid(Room room, List<Furniture> furniture) {
-        return hardValid(validationService.validate(room, furniture));
+    private boolean valid(Room room, List<Furniture> baseline, List<Furniture> candidate) {
+        return hardValid(validationService.validateChange(room, baseline, candidate));
     }
 
     private boolean hardValid(ValidationResult result) {
         return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
                 && result.isWindowClearance() && result.isPathSecured();
-    }
-
-    private boolean safeAddition(Room room, List<Furniture> base, Furniture added) {
-        if (!validationService.isSafeStandalonePlacement(room, added)) {
-            return false;
-        }
-        if (FurnitureDomainPolicy.isRug(added)) {
-            return true;
-        }
-        FurnitureBoundary.Footprint addedFootprint = FurnitureBoundary.footprint(added);
-        return base.stream()
-                .filter(this::active)
-                .filter(existing -> !FurnitureDomainPolicy.isRug(existing))
-                .noneMatch(existing -> overlaps(existing, added, FurnitureBoundary.footprint(existing), addedFootprint));
-    }
-
-    private boolean overlaps(Furniture first, Furniture second,
-                             FurnitureBoundary.Footprint firstFootprint,
-                             FurnitureBoundary.Footprint secondFootprint) {
-        double firstMinX = first.getPosition().getX() + firstFootprint.minX();
-        double firstMaxX = first.getPosition().getX() + firstFootprint.maxX();
-        double firstMinZ = first.getPosition().getZ() + firstFootprint.minZ();
-        double firstMaxZ = first.getPosition().getZ() + firstFootprint.maxZ();
-        double secondMinX = second.getPosition().getX() + secondFootprint.minX();
-        double secondMaxX = second.getPosition().getX() + secondFootprint.maxX();
-        double secondMinZ = second.getPosition().getZ() + secondFootprint.minZ();
-        double secondMaxZ = second.getPosition().getZ() + secondFootprint.maxZ();
-        return firstMinX < secondMaxX && firstMaxX > secondMinX
-                && firstMinZ < secondMaxZ && firstMaxZ > secondMinZ;
     }
 
     private List<Furniture> replace(List<Furniture> furniture, int index, Furniture updated) {

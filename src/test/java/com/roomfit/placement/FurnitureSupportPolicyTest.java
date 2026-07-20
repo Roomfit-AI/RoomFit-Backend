@@ -53,9 +53,9 @@ class FurnitureSupportPolicyTest {
     }
 
     @Test
-    void supportedTypesAreNotAStackAfterIndependentMove() {
+    void supportedTypesAreNotAStackAfterMovingOutsideTopFootprint() {
         Furniture desk = furniture("desk", 1.2, 0.7, 0.75, 2.0, 2.0, 0);
-        Furniture monitor = furniture("monitor", 0.5, 0.2, 0.35, 2.01, 2.0, 0);
+        Furniture monitor = furniture("monitor", 0.5, 0.2, 0.35, 2.61, 2.0, 0);
 
         assertThat(FurnitureSupportPolicy.isStrictStack(desk, monitor)).isFalse();
     }

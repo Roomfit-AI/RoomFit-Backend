@@ -2,11 +2,12 @@ package com.roomfit.placement;
 
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
 import com.roomfit.room.Furniture;
+import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
 
 final class FurnitureSupportPolicy {
 
-    static final double CENTER_EPSILON = 1.0e-6;
+    static final double POSITION_EPSILON = 1.0e-6;
 
     private FurnitureSupportPolicy() {
     }
@@ -14,8 +15,13 @@ final class FurnitureSupportPolicy {
     static boolean isStrictStack(Furniture first, Furniture second) {
         SupportPair pair = SupportPair.resolve(first, second);
         if (pair == null || !active(pair.supporter()) || !active(pair.dependent())) return false;
-        return Math.abs(pair.supporter().getPosition().getX() - pair.dependent().getPosition().getX()) <= CENTER_EPSILON
-                && Math.abs(pair.supporter().getPosition().getZ() - pair.dependent().getPosition().getZ()) <= CENTER_EPSILON;
+        FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(pair.supporter());
+        double localX = pair.dependent().getPosition().getX() - pair.supporter().getPosition().getX();
+        double localZ = pair.dependent().getPosition().getZ() - pair.supporter().getPosition().getZ();
+        return localX >= footprint.minX() - POSITION_EPSILON
+                && localX <= footprint.maxX() + POSITION_EPSILON
+                && localZ >= footprint.minZ() - POSITION_EPSILON
+                && localZ <= footprint.maxZ() + POSITION_EPSILON;
     }
 
     private static boolean active(Furniture furniture) {

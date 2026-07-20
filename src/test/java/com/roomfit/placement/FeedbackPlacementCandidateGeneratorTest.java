@@ -87,6 +87,22 @@ class FeedbackPlacementCandidateGeneratorTest {
                 plant.getWidth(), plant.getDepth(), swapped.rotation(), plant.getVariantId()))).isTrue();
     }
 
+    @Test
+    void nearWallAdditionFallsBackToInteriorGridCandidates() {
+        Room room = new Room(null, 5, 5, 2.4, "meter", List.of(), List.of());
+        MockProduct chair = product("chair-01", "desk_chair", 0.5, 0.5, 0.8);
+
+        List<FeedbackPlacementCandidateGenerator.PlacementCandidate> candidates = generator.forAdd(
+                room, chair, new FeedbackPlacement(FeedbackRelation.NEAR_WALL, null, null), null);
+
+        assertThat(candidates).hasSizeGreaterThan(16);
+        assertThat(candidates.subList(16, candidates.size()))
+                .anyMatch(candidate -> candidate.position().getX() > 1.0
+                        && candidate.position().getX() < 4.0
+                        && candidate.position().getZ() > 1.0
+                        && candidate.position().getZ() < 4.0);
+    }
+
     private FeedbackPlacement placement(FeedbackSide side) {
         return new FeedbackPlacement(FeedbackRelation.NEXT_TO, null, null, side);
     }

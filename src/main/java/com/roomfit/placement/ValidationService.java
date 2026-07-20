@@ -9,7 +9,12 @@ import com.roomfit.room.Room;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * 배치 검증 로직 (충돌 / 문 가림 / 창문 가림 / 동선 확보).
@@ -27,6 +32,8 @@ public class ValidationService {
     private static final double WINDOW_CLEARANCE_DEPTH = 0.4;
     private static final double WINDOW_SIDE_MARGIN = 0.1;
     private static final double WINDOW_ATTACHMENT_EPSILON = 1.0e-6;
+    private static final String BASELINE_WARNING =
+            "기존 가구의 선행 검증 문제는 신규 배치 평가에서 제외되었습니다.";
 
     public ValidationResult validate(Room room, List<Furniture> furniture) {
         List<String> warnings = new ArrayList<>();
@@ -43,6 +50,54 @@ public class ValidationService {
         boolean windowClearance = checkOpeningClearance(room, physicalObstacles, "window", warnings);
         boolean pathSecured = checkPathSecured(room, physicalObstacles, warnings);
 
+        return result(collisionFree, boundaryValid, doorClearance, windowClearance, pathSecured, warnings);
+    }
+
+    /**
+     * Validates only safety debt introduced by the candidate snapshot. Uploaded
+     * rooms can contain pre-existing overlaps, so unchanged baseline violations
+     * must not prevent a safe new item from being added or make its score fail.
+     */
+    public ValidationResult validateChange(Room room, List<Furniture> baseline, List<Furniture> candidate) {
+        List<Furniture> baselineItems = baseline == null ? List.of() : baseline;
+        List<Furniture> candidateItems = candidate == null ? List.of() : candidate;
+        List<Furniture> activeBaseline = active(baselineItems);
+        List<Furniture> activeCandidate = active(candidateItems);
+        Set<String> evaluatedIds = changedActiveIds(baselineItems, activeCandidate);
+        List<Furniture> evaluated = activeCandidate.stream()
+                .filter(item -> evaluatedIds.contains(item.getId()))
+                .toList();
+        List<Furniture> physicalCandidate = physical(activeCandidate);
+        List<Furniture> physicalEvaluated = physical(evaluated);
+        List<String> warnings = new ArrayList<>();
+
+        boolean collisionFree = checkCollisionFreeForChanges(physicalCandidate, evaluatedIds, warnings);
+        boolean boundaryValid = checkBoundaryValid(room, evaluated, warnings);
+        boolean doorClearance = checkOpeningClearance(room, physicalEvaluated, "door", warnings);
+        boolean windowClearance = checkOpeningClearance(room, physicalEvaluated, "window", warnings);
+
+        List<String> ignoredWarnings = new ArrayList<>();
+        boolean baselinePathSecured = checkPathSecured(room, physical(activeBaseline), ignoredWarnings);
+        boolean pathSecured = baselinePathSecured
+                ? checkPathSecured(room, physicalCandidate, warnings)
+                : checkPathSecured(room, physicalEvaluated, warnings);
+
+        ValidationResult baselineResult = validate(room, baselineItems);
+        if (!hardValid(baselineResult)) {
+            warnings.add(BASELINE_WARNING);
+        }
+        return result(collisionFree, boundaryValid, doorClearance, windowClearance, pathSecured, warnings);
+    }
+
+    boolean isSafeAddition(Room room, List<Furniture> baseline, Furniture added) {
+        List<Furniture> candidate = new ArrayList<>(baseline);
+        candidate.add(added);
+        return hardValid(validateChange(room, baseline, candidate));
+    }
+
+    private ValidationResult result(boolean collisionFree, boolean boundaryValid,
+                                    boolean doorClearance, boolean windowClearance,
+                                    boolean pathSecured, List<String> warnings) {
         List<ValidationItem> validationItems = List.of(
                 new ValidationItem("collision", collisionFree, collisionFree ? "가구 충돌 없음" : "가구 충돌 발생"),
                 new ValidationItem("boundary", boundaryValid, boundaryValid ? "방 범위 내 배치" : "방 범위 밖 가구 존재"),
@@ -53,6 +108,53 @@ public class ValidationService {
 
         return new ValidationResult(collisionFree, boundaryValid, doorClearance,
                 windowClearance, pathSecured, validationItems, warnings);
+    }
+
+    private List<Furniture> active(List<Furniture> furniture) {
+        return furniture.stream()
+                .filter(Objects::nonNull)
+                .filter(item -> item.getStatus() != FurnitureStatus.DELETED)
+                .toList();
+    }
+
+    private List<Furniture> physical(List<Furniture> furniture) {
+        return furniture.stream()
+                .filter(item -> !FurnitureDomainPolicy.isRug(item))
+                .toList();
+    }
+
+    private Set<String> changedActiveIds(List<Furniture> baseline, List<Furniture> activeCandidate) {
+        Map<String, Furniture> baselineById = new HashMap<>();
+        for (Furniture item : baseline) {
+            if (item != null && item.getId() != null) {
+                baselineById.put(item.getId(), item);
+            }
+        }
+        Set<String> changed = new HashSet<>();
+        for (Furniture item : activeCandidate) {
+            Furniture previous = baselineById.get(item.getId());
+            if (previous == null || previous.getStatus() == FurnitureStatus.DELETED || !samePlacement(previous, item)) {
+                changed.add(item.getId());
+            }
+        }
+        return changed;
+    }
+
+    private boolean samePlacement(Furniture first, Furniture second) {
+        if (first.getPosition() == null || second.getPosition() == null) return first.getPosition() == second.getPosition();
+        return Objects.equals(first.getType(), second.getType())
+                && Double.compare(first.getWidth(), second.getWidth()) == 0
+                && Double.compare(first.getDepth(), second.getDepth()) == 0
+                && Double.compare(first.getHeight(), second.getHeight()) == 0
+                && Double.compare(first.getPosition().getX(), second.getPosition().getX()) == 0
+                && Double.compare(first.getPosition().getZ(), second.getPosition().getZ()) == 0
+                && Double.compare(first.getRotation(), second.getRotation()) == 0
+                && first.getStatus() == second.getStatus();
+    }
+
+    private boolean hardValid(ValidationResult result) {
+        return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
+                && result.isWindowClearance() && result.isPathSecured();
     }
 
     boolean isSafeStandalonePlacement(Room room, Furniture furniture) {
@@ -78,6 +180,28 @@ public class ValidationService {
                 Rect other = Rect.from(furniture.get(j));
                 if (current.overlaps(other)) {
                     warnings.add("가구 충돌이 감지되었습니다.");
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean checkCollisionFreeForChanges(List<Furniture> furniture, Set<String> evaluatedIds,
+                                                 List<String> warnings) {
+        for (int i = 0; i < furniture.size(); i++) {
+            Furniture currentItem = furniture.get(i);
+            Rect current = Rect.from(currentItem);
+            for (int j = i + 1; j < furniture.size(); j++) {
+                Furniture otherItem = furniture.get(j);
+                if (!evaluatedIds.contains(currentItem.getId()) && !evaluatedIds.contains(otherItem.getId())) {
+                    continue;
+                }
+                if (FurnitureSupportPolicy.isStrictStack(currentItem, otherItem)) {
+                    continue;
+                }
+                if (current.overlaps(Rect.from(otherItem))) {
+                    warnings.add("신규 또는 변경 가구 충돌이 감지되었습니다.");
                     return false;
                 }
             }

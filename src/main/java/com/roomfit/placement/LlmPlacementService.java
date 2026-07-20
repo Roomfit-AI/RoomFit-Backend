@@ -73,7 +73,7 @@ public class LlmPlacementService implements PlacementService {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
 
-        ValidationResult validationResult = validationService.validate(room, candidate);
+        ValidationResult validationResult = validationService.validateChange(room, activeExisting, candidate);
         if (!isFullyValid(validationResult)) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }

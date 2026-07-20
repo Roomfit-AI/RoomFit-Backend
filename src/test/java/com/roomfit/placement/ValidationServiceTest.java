@@ -101,9 +101,17 @@ class ValidationServiceTest {
     }
 
     @Test
-    void movedMonitorOverlappingDeskRemainsCollision() {
+    void monitorWithinDeskTopFootprintRemainsCollisionFree() {
         Furniture desk = furniture("desk-1", "desk", 1.2, 0.7, 2.0, 2.0);
         Furniture monitor = furniture("monitor-1", "monitor", 0.5, 0.2, 2.01, 2.0);
+
+        assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isTrue();
+    }
+
+    @Test
+    void monitorOutsideDeskTopFootprintRemainsCollision() {
+        Furniture desk = furniture("desk-1", "desk", 1.2, 0.7, 2.0, 2.0);
+        Furniture monitor = furniture("monitor-1", "monitor", 0.5, 0.2, 2.61, 2.0);
 
         assertThat(validationService.validate(room, List.of(desk, monitor)).isCollisionFree()).isFalse();
     }
@@ -201,6 +209,31 @@ class ValidationServiceTest {
         assertThat(validation.isBoundaryValid()).isTrue();
         assertThat(validation.isDoorClearance()).isTrue();
         assertThat(validation.isWindowClearance()).isTrue();
+    }
+
+    @Test
+    void validateChange_excludesUnchangedBaselineCollision() {
+        Furniture first = furniture("existing-1", "desk", 1.0, 1.0, 1.2, 1.2);
+        Furniture second = furniture("existing-2", "sofa", 1.0, 1.0, 1.3, 1.2);
+        Furniture added = furniture("new-chair", "desk_chair", 0.5, 0.5, 2.7, 3.6);
+
+        ValidationResult validation = validationService.validateChange(
+                room, List.of(first, second), List.of(first, second, added));
+
+        assertThat(validation.isCollisionFree()).isTrue();
+        assertThat(validation.getWarnings())
+                .contains("기존 가구의 선행 검증 문제는 신규 배치 평가에서 제외되었습니다.");
+    }
+
+    @Test
+    void validateChange_rejectsCollisionIntroducedByAddedFurniture() {
+        Furniture existing = furniture("existing-1", "desk", 1.0, 1.0, 1.2, 1.2);
+        Furniture added = furniture("new-chair", "desk_chair", 0.5, 0.5, 1.2, 1.2);
+
+        ValidationResult validation = validationService.validateChange(
+                room, List.of(existing), List.of(existing, added));
+
+        assertThat(validation.isCollisionFree()).isFalse();
     }
 
     private Furniture furniture(String id, String type, double width, double depth, double x, double z) {
