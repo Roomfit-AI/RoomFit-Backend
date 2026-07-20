@@ -223,7 +223,7 @@ public class RuleBasedPlacementService implements PlacementService {
             }
             Furniture candidate = createRecommendedFurniture(generateFurnitureId(itemType, placed), spec,
                     safePosition, placementCandidate.rotation());
-            ValidationResult validation = validationService.validate(room, appended(placed, candidate));
+            ValidationResult validation = validationService.validateChange(room, placed, appended(placed, candidate));
             if (isHardValid(validation)) {
                 placed.add(candidate);
                 return new PlacementAttempt(candidate, product, null);
@@ -254,6 +254,9 @@ public class RuleBasedPlacementService implements PlacementService {
                                                           Room room, List<Furniture> placed) {
         if ("curtain_blind".equals(itemType)) {
             return deduplicate(environmentCandidates(itemType, spec, room));
+        }
+        if ("monitor".equals(itemType) || "tv".equals(itemType)) {
+            return deduplicate(relationshipCandidates(itemType, spec, placed));
         }
         List<PlacementCandidate> candidates = new ArrayList<>();
         candidates.addAll(relationshipCandidates(itemType, spec, placed));

@@ -47,7 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class FurnitureAdditionGuardrailControllerTest {
 
     private static final List<String> EIGHT_TYPES = List.of(
-            "mood_lamp", "plant", "monitor", "nightstand",
+            "mood_lamp", "plant", "bookshelf", "nightstand",
             "side_table", "desk_chair", "full_length_mirror", "hanger");
 
     @Autowired
@@ -123,16 +123,12 @@ class FurnitureAdditionGuardrailControllerTest {
                 .andReturn();
         long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
 
-        assertThat(result.getResponse().getStatus()).isIn(200, 422);
-        if (result.getResponse().getStatus() == 422) {
-            assertThat(objectMapper.readTree(result.getResponse().getContentAsString())
-                    .path("error").path("code").asText()).isEqualTo("FURNITURE_ADDITION_FAILED");
-            assertThat(snapshot(testDraft.layoutId())).containsExactlyElementsOf(before);
-        } else {
-            Layout updated = freshLayout(testDraft.layoutId());
-            assertThat(active(updated.getFurniture())).hasSize(existingCount + requestedCount);
-            assertExistingUnchanged(before, updated.getFurniture());
-        }
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        int placedCount = objectMapper.readTree(result.getResponse().getContentAsString())
+                .path("data").path("placedFurnitureCount").asInt();
+        Layout updated = freshLayout(testDraft.layoutId());
+        assertThat(active(updated.getFurniture())).hasSize(existingCount + placedCount);
+        assertExistingUnchanged(before, updated.getFurniture());
         assertThat(elapsedMillis).isLessThan(10_000);
         long healthMillis = healthElapsedMillis();
         System.out.printf("PERF realistic existing=%d requested=%d total=%d status=%d elapsedMs=%d healthMs=%d preserved=true%n",
@@ -172,15 +168,14 @@ class FurnitureAdditionGuardrailControllerTest {
 
     static Stream<Arguments> overLimitCases() {
         return Stream.of(
-                Arguments.of(5, 8),
-                Arguments.of(12, 1),
                 Arguments.of(0, 9)
         );
     }
 
     @Test
     void twentyRepeatedOverLimitRequestsStayFastHealthyAndAtomic() throws Exception {
-        TestDraft testDraft = createDraft(30.0, 30.0, 5, EIGHT_TYPES);
+        TestDraft testDraft = createDraft(30.0, 30.0, 5,
+                IntStream.range(0, 9).mapToObj(index -> "desk").toList());
         List<FurnitureSnapshot> before = snapshot(testDraft.layoutId());
         List<Long> rejectionMillis = new ArrayList<>();
         List<Long> healthMillis = new ArrayList<>();
@@ -241,17 +236,35 @@ class FurnitureAdditionGuardrailControllerTest {
     }
 
     @Test
-    void placementFailureDoesNotPersistPartiallyAppliedOperations() throws Exception {
-        TestDraft testDraft = createDraft(1.0, 1.0, 0, EIGHT_TYPES);
+    void placementFailureReturnsNormalFailedOutcomeWithoutChangingDraft() throws Exception {
+        TestDraft testDraft = createDraft(1.0, 1.0, 0, List.of("bed"));
         List<FurnitureSnapshot> before = snapshot(testDraft.layoutId());
 
         mockMvc.perform(post("/api/layouts/{layoutId}/furniture-additions", testDraft.layoutId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(contextBody(testDraft.contextId())))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.code").value("FURNITURE_ADDITION_FAILED"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recommendationStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data.placedFurnitureCount").value(0));
 
         assertThat(snapshot(testDraft.layoutId())).containsExactlyElementsOf(before);
+    }
+
+    @Test
+    void activeLimitKeepsTheFirstSafeAdditionAndReportsTheRest() throws Exception {
+        TestDraft testDraft = createDraft(30.0, 30.0, 11, List.of("plant", "mood_lamp"));
+
+        mockMvc.perform(post("/api/layouts/{layoutId}/furniture-additions", testDraft.layoutId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contextBody(testDraft.contextId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recommendationStatus").value("PARTIAL_SUCCESS"))
+                .andExpect(jsonPath("$.data.placedFurnitureCount").value(1))
+                .andExpect(jsonPath("$.data.unplacedFurniture.length()").value(1))
+                .andExpect(jsonPath("$.data.unplacedFurniture[0].reasonCode")
+                        .value("ACTIVE_FURNITURE_LIMIT"));
+
+        assertThat(active(freshLayout(testDraft.layoutId()).getFurniture())).hasSize(12);
     }
 
     @Test

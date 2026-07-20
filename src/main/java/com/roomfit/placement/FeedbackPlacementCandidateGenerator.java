@@ -13,6 +13,7 @@ import java.util.List;
 final class FeedbackPlacementCandidateGenerator {
 
     static final int MAX_POSITIONS_PER_PRODUCT = 16;
+    private static final int MAX_ADD_POSITIONS_PER_PRODUCT = 32;
     private static final int MAX_SWAP_POSITIONS_PER_PRODUCT = 12;
     private static final double FURNITURE_GAP = 0.1;
     private static final double OPENING_CLEARANCE_DEPTH = 0.45;
@@ -29,12 +30,45 @@ final class FeedbackPlacementCandidateGenerator {
                 if (clamped != null && addUnique(candidates, clamped, rotation, order)) {
                     order++;
                 }
-                if (candidates.size() == MAX_POSITIONS_PER_PRODUCT) {
+                if (candidates.size() == MAX_ADD_POSITIONS_PER_PRODUCT) {
+                    return List.copyOf(candidates);
+                }
+            }
+        }
+        for (double rotation : List.of(0.0, 90.0)) {
+            FurnitureBoundary.Footprint footprint = FurnitureBoundary.footprint(
+                    product.getWidth(), product.getDepth(), rotation, product.getVariantId());
+            for (Position position : interiorGridPositions(room, footprint)) {
+                if (addUnique(candidates, position, rotation, order)) {
+                    order++;
+                }
+                if (candidates.size() == MAX_ADD_POSITIONS_PER_PRODUCT) {
                     return List.copyOf(candidates);
                 }
             }
         }
         return List.copyOf(candidates);
+    }
+
+    private List<Position> interiorGridPositions(Room room, FurnitureBoundary.Footprint footprint) {
+        FurnitureBoundary.UsableBounds bounds = FurnitureBoundary.usableBounds(room).orElse(null);
+        if (bounds == null) return List.of();
+        double minX = bounds.minX() - footprint.minX();
+        double maxX = bounds.maxX() - footprint.maxX();
+        double minZ = bounds.minZ() - footprint.minZ();
+        double maxZ = bounds.maxZ() - footprint.maxZ();
+        if (maxX < minX || maxZ < minZ) return List.of();
+
+        List<Double> fractions = List.of(0.4, 0.6, 0.2, 0.8);
+        List<Position> positions = new ArrayList<>();
+        for (double xFraction : fractions) {
+            for (double zFraction : fractions) {
+                positions.add(new Position(
+                        minX + (maxX - minX) * xFraction,
+                        minZ + (maxZ - minZ) * zFraction));
+            }
+        }
+        return positions;
     }
 
     List<PlacementCandidate> forSwap(Room room, Furniture current, MockProduct product) {

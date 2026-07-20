@@ -85,7 +85,8 @@ public class LayoutService {
         }
 
         furnitureDomainPolicy.validateFinalState(placementResult.getRecommendedFurniture());
-        ValidationResult validationResult = validationService.validate(room, placementResult.getRecommendedFurniture());
+        ValidationResult validationResult = validationService.validateChange(
+                room, room.getFurniture(), placementResult.getRecommendedFurniture());
         // A PlacementService may use a provisional summary while it constructs a
         // candidate. The API must always expose the score calculated from this
         // exact validation result, including normal FAILED outcomes.
@@ -140,7 +141,7 @@ public class LayoutService {
 
         Room room = roomAccessService.findWritableRoom(source.getRoomId());
         List<Furniture> furniture = deepCopyFurniture(source.getFurniture());
-        ValidationResult validationResult = validationService.validate(room, furniture);
+        ValidationResult validationResult = validationService.validateChange(room, room.getFurniture(), furniture);
         if (!validationResult.isBoundaryValid()) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
@@ -159,7 +160,7 @@ public class LayoutService {
 
         List<Furniture> mergedFurniture = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         furnitureDomainPolicy.validateFinalState(mergedFurniture);
-        return validationService.validate(room, mergedFurniture);
+        return validationService.validateChange(room, layout.getFurniture(), mergedFurniture);
     }
 
     @Transactional
@@ -175,7 +176,7 @@ public class LayoutService {
 
         List<Furniture> updated = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         furnitureDomainPolicy.validateFinalState(updated);
-        ValidationResult validationResult = validationService.validate(room, updated);
+        ValidationResult validationResult = validationService.validateChange(room, layout.getFurniture(), updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         layout.setFurniture(updated);
         layoutRepository.save(layout);
@@ -207,28 +208,26 @@ public class LayoutService {
 
         furnitureAdditionPolicy.validate(layout.getFurniture(), requestedTypes);
 
-        List<FeedbackOperation> operations = new ArrayList<>();
+        List<AdditionRequest> additions = new ArrayList<>();
         for (int index = 0; index < requestedTypes.size(); index++) {
-            String type = requestedTypes.get(index);
-            operations.add(new FeedbackOperation(
-                    "add-selection-" + (index + 1),
-                    FeedbackOperationType.ADD_FURNITURE,
-                    new FeedbackTargetSelector("", type, ""),
-                    null,
-                    new FeedbackPlacement(FeedbackRelation.NEAR_WALL, null, null, null),
-                    null,
-                    new FeedbackProductRequirements(type, FeedbackSizePreference.ANY, false, List.of()),
-                    null,
-                    List.of()
-            ));
+            additions.add(new AdditionRequest(index, requestedTypes.get(index)));
         }
+        additions.sort(Comparator.comparingInt(addition -> additionDependencyRank(addition.type())));
 
-        List<Furniture> updated = deepCopyFurniture(layout.getFurniture());
-        if (!operations.isEmpty()) {
+        List<Furniture> baseline = deepCopyFurniture(layout.getFurniture());
+        List<Furniture> updated = deepCopyFurniture(baseline);
+        List<UnplacedFurniture> unplaced = new ArrayList<>();
+        int placedCount = 0;
+        for (AdditionRequest addition : additions) {
+            if (activeFurnitureCount(updated) >= FurnitureAdditionPolicy.MAX_ACTIVE_FURNITURE) {
+                unplaced.add(unplaced(addition, "ACTIVE_FURNITURE_LIMIT"));
+                continue;
+            }
+            FeedbackOperation operation = additionOperation(addition);
             FeedbackPlan plan = new FeedbackPlan(
                     "2.0",
-                    operations.size() == 1 ? FeedbackRequestKind.DIRECT : FeedbackRequestKind.COMPOSITE,
-                    operations,
+                    FeedbackRequestKind.DIRECT,
+                    List.of(operation),
                     List.of(),
                     null,
                     "Add Furniture selection",
@@ -237,19 +236,77 @@ public class LayoutService {
             );
             FeedbackExecution execution = feedbackExecutor.execute(plan, room, updated, context,
                     FurnitureAdditionPolicy.MAX_NEW_ADDITIONS);
-            if (execution.result().operationsApplied().size() != operations.size()) {
-                throw new CustomException(ErrorCode.FURNITURE_ADDITION_FAILED);
+            FeedbackOperationExecution operationResult = execution.operationResults().stream().findFirst().orElse(null);
+            if (operationResult != null && operationResult.status() == FeedbackOperationExecution.Status.APPLIED) {
+                updated = deepCopyFurniture(execution.furniture());
+                placedCount++;
+            } else {
+                String reasonCode = operationResult == null || operationResult.reasonCode() == null
+                        ? "NO_VALID_ADD_PLACEMENT" : operationResult.reasonCode();
+                unplaced.add(unplaced(addition, reasonCode));
             }
-            updated = deepCopyFurniture(execution.furniture());
         }
 
         furnitureDomainPolicy.validateFinalState(updated);
-        ValidationResult validationResult = validationService.validate(room, updated);
+        ValidationResult validationResult = validationService.validateChange(room, baseline, updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
-        layout.setContextId(context.getId());
-        layout.setFurniture(updated);
-        layoutRepository.save(layout);
-        return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
+        if (placedCount > 0) {
+            layout.setContextId(context.getId());
+            layout.setFurniture(updated);
+            layoutRepository.save(layout);
+        }
+        RecommendationExecutionStatus outcome = unplaced.isEmpty()
+                ? RecommendationExecutionStatus.SUCCESS
+                : placedCount == 0 ? RecommendationExecutionStatus.FAILED
+                : RecommendationExecutionStatus.PARTIAL_SUCCESS;
+        String message = switch (outcome) {
+            case SUCCESS -> "선택한 가구를 모두 안전하게 배치했습니다.";
+            case PARTIAL_SUCCESS -> "선택한 가구 중 배치 가능한 항목만 안전하게 추가했습니다.";
+            case FAILED -> "선택한 가구를 안전하게 배치할 공간을 찾지 못했습니다.";
+        };
+        PlacementResult placementResult = new PlacementResult(
+                RecommendationStatus.SUCCESS, updated, scoreSummary,
+                requestedTypes.size(), placedCount, unplaced, outcome,
+                unplaced.isEmpty() ? null : "INSUFFICIENT_ROOM_SPACE", message);
+        return LayoutResponse.ofRecommendation(layout, placementResult, validationResult);
+    }
+
+    private FeedbackOperation additionOperation(AdditionRequest addition) {
+        return new FeedbackOperation(
+                "add-selection-" + (addition.requestIndex() + 1),
+                FeedbackOperationType.ADD_FURNITURE,
+                new FeedbackTargetSelector("", addition.type(), ""),
+                null,
+                new FeedbackPlacement(FeedbackRelation.NEAR_WALL, null, null, null),
+                null,
+                new FeedbackProductRequirements(addition.type(), FeedbackSizePreference.ANY, false, List.of()),
+                null,
+                List.of());
+    }
+
+    private int additionDependencyRank(String type) {
+        return switch (GeneratedFurnitureCatalog.get().normalizeType(type)) {
+            case "desk", "media_console" -> 0;
+            case "monitor", "tv" -> 2;
+            default -> 1;
+        };
+    }
+
+    private long activeFurnitureCount(List<Furniture> furniture) {
+        return furniture.stream().filter(FurnitureAdditionPolicy::active).count();
+    }
+
+    private UnplacedFurniture unplaced(AdditionRequest addition, String reasonCode) {
+        String message = switch (reasonCode) {
+            case "ACTIVE_FURNITURE_LIMIT" -> "현재 배치의 가구 수 제한 때문에 추가하지 못했습니다.";
+            case "NO_RENDERABLE_PRODUCT" -> "배치 가능한 제품 정보를 찾지 못했습니다.";
+            case "NO_VALID_BOUNDARY_PLACEMENT" -> "가구 전체가 방 안에 들어오는 위치를 찾지 못했습니다.";
+            default -> "기존 가구를 침범하지 않는 안전한 위치를 찾지 못했습니다.";
+        };
+        return new UnplacedFurniture(addition.requestIndex(), addition.type(), null, null, reasonCode, message);
+    }
+
+    private record AdditionRequest(int requestIndex, String type) {
     }
 
     @Transactional
@@ -261,7 +318,7 @@ public class LayoutService {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
         Room room = roomAccessService.findWritableRoom(layout.getRoomId());
-        if (!isHardValid(validationService.validate(room, layout.getFurniture()))) {
+        if (!isHardValid(validationService.validateChange(room, room.getFurniture(), layout.getFurniture()))) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
         layout.confirm();
@@ -289,7 +346,8 @@ public class LayoutService {
                 request.getSelectedFurnitureId());
         FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
         furnitureDomainPolicy.validateFinalState(execution.furniture());
-        ValidationResult validationResult = validationService.validate(room, execution.furniture());
+        ValidationResult validationResult = validationService.validateChange(
+                room, baseLayout.getFurniture(), execution.furniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
@@ -600,7 +658,8 @@ public class LayoutService {
         Room room = roomAccessService.findReadableRoom(layout.getRoomId());
         AgentContext context = agentContextRepository.findById(layout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
+        ValidationResult validationResult = validationService.validateChange(
+                room, room.getFurniture(), layout.getFurniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
         return LayoutResponse.ofSnapshot(layout, scoreSummary, validationResult);
     }

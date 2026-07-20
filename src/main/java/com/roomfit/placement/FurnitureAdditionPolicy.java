@@ -16,9 +16,7 @@ public class FurnitureAdditionPolicy {
 
     public void validate(List<Furniture> existingFurniture, List<String> requestedTypes) {
         int requestedCount = requestedTypes.size();
-        long activeExistingCount = existingFurniture.stream().filter(FurnitureAdditionPolicy::active).count();
-        if (requestedCount > MAX_NEW_ADDITIONS
-                || activeExistingCount + requestedCount > MAX_ACTIVE_FURNITURE) {
+        if (requestedCount > MAX_NEW_ADDITIONS) {
             throw new CustomException(ErrorCode.FURNITURE_ADDITION_FAILED);
         }
     }

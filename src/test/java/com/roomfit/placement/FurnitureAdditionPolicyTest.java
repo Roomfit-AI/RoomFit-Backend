@@ -34,9 +34,11 @@ class FurnitureAdditionPolicyTest {
     }
 
     @Test
-    void rejectsMoreThanEightNewOrMoreThanTwelveActiveFurniture() {
-        assertRejected(furniture(5, FurnitureStatus.EXISTING), types(8));
-        assertRejected(furniture(12, FurnitureStatus.EXISTING), types(1));
+    void onlyRejectsMoreThanEightRequestedAdditions() {
+        assertThatCode(() -> policy.validate(furniture(5, FurnitureStatus.EXISTING), types(8)))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> policy.validate(furniture(12, FurnitureStatus.EXISTING), types(1)))
+                .doesNotThrowAnyException();
         assertRejected(List.of(), types(9));
     }
 
