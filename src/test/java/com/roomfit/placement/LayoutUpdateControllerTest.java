@@ -62,6 +62,32 @@ class LayoutUpdateControllerTest {
     }
 
     @Test
+    void updateLayout_returnsFullLayoutCollisionInsteadOfEmptyChangeValidation() throws Exception {
+        Long layoutId = createLayout();
+        Layout layout = layoutRepository.findById(layoutId).orElseThrow();
+        layout.getFurniture().stream()
+                .filter(item -> "bed-1".equals(item.getId()) || "desk-1".equals(item.getId()))
+                .forEach(item -> item.setPosition(new Position(1.5, 1.5)));
+        layoutRepository.save(layout);
+
+        mockMvc.perform(put("/api/layouts/{layoutId}", layoutId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "furniture": [
+                                    { "id": "bed-1", "position": { "x": 1.5, "z": 1.5 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "desk-1", "position": { "x": 1.5, "z": 1.5 }, "rotation": 0, "status": "EXISTING" },
+                                    { "id": "chair-1", "position": { "x": 3.0, "z": 1.85 }, "rotation": 180, "status": "EXISTING" },
+                                    { "id": "wardrobe-1", "position": { "x": 5.0, "z": 3.85 }, "rotation": 180, "status": "EXISTING" }
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.scoreSummary.collisionScore").value(60))
+                .andExpect(jsonPath("$.data.validationResult.collisionFree").value(false));
+    }
+
+    @Test
     void updateLayout_withUnknownLayout_returnsLayoutNotFound() throws Exception {
         mockMvc.perform(put("/api/layouts/{layoutId}", 99999)
                         .contentType(MediaType.APPLICATION_JSON)

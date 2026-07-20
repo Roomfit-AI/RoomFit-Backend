@@ -85,8 +85,10 @@ public class LayoutService {
         }
 
         furnitureDomainPolicy.validateFinalState(placementResult.getRecommendedFurniture());
-        ValidationResult validationResult = validationService.validateChange(
+        ValidationResult changeValidationResult = validationService.validateChange(
                 room, room.getFurniture(), placementResult.getRecommendedFurniture());
+        ValidationResult validationResult = validationService.validate(
+                room, placementResult.getRecommendedFurniture());
         // A PlacementService may use a provisional summary while it constructs a
         // candidate. The API must always expose the score calculated from this
         // exact validation result, including normal FAILED outcomes.
@@ -105,7 +107,7 @@ public class LayoutService {
         // composition (including decorative rug/table overlap) and do not carry
         // request-instance metadata. New deterministic recommendations must be
         // hard-valid before they are persisted.
-        if (placementResult.getRequestedFurnitureCount() > 0 && !isHardValid(validationResult)) {
+        if (placementResult.getRequestedFurnitureCount() > 0 && !isHardValid(changeValidationResult)) {
             throw new CustomException(ErrorCode.RECOMMENDATION_FAILED);
         }
         Layout layout = new Layout(room.getId(), context.getId(), placementResult.getRecommendedFurniture());
@@ -141,10 +143,12 @@ public class LayoutService {
 
         Room room = roomAccessService.findWritableRoom(source.getRoomId());
         List<Furniture> furniture = deepCopyFurniture(source.getFurniture());
-        ValidationResult validationResult = validationService.validateChange(room, room.getFurniture(), furniture);
-        if (!validationResult.isBoundaryValid()) {
+        ValidationResult changeValidationResult = validationService.validateChange(
+                room, room.getFurniture(), furniture);
+        if (!changeValidationResult.isBoundaryValid()) {
             throw new CustomException(ErrorCode.INVALID_FURNITURE_POSITION);
         }
+        ValidationResult validationResult = validationService.validate(room, furniture);
 
         Layout draft = new Layout(source.getRoomId(), source.getContextId(), furniture, source.getId());
         layoutRepository.save(draft);
@@ -160,7 +164,7 @@ public class LayoutService {
 
         List<Furniture> mergedFurniture = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         furnitureDomainPolicy.validateFinalState(mergedFurniture);
-        return validationService.validateChange(room, layout.getFurniture(), mergedFurniture);
+        return validationService.validate(room, mergedFurniture);
     }
 
     @Transactional
@@ -176,7 +180,7 @@ public class LayoutService {
 
         List<Furniture> updated = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         furnitureDomainPolicy.validateFinalState(updated);
-        ValidationResult validationResult = validationService.validateChange(room, layout.getFurniture(), updated);
+        ValidationResult validationResult = validationService.validate(room, updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         layout.setFurniture(updated);
         layoutRepository.save(layout);
@@ -248,7 +252,7 @@ public class LayoutService {
         }
 
         furnitureDomainPolicy.validateFinalState(updated);
-        ValidationResult validationResult = validationService.validateChange(room, baseline, updated);
+        ValidationResult validationResult = validationService.validate(room, updated);
         ScoreSummary scoreSummary = scoreService.calculate(context, updated, validationResult);
         if (placedCount > 0) {
             layout.setContextId(context.getId());
@@ -346,8 +350,7 @@ public class LayoutService {
                 request.getSelectedFurnitureId());
         FeedbackExecution execution = feedbackExecutor.execute(plan, room, baseLayout.getFurniture(), context);
         furnitureDomainPolicy.validateFinalState(execution.furniture());
-        ValidationResult validationResult = validationService.validateChange(
-                room, baseLayout.getFurniture(), execution.furniture());
+        ValidationResult validationResult = validationService.validate(room, execution.furniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, execution.furniture(), validationResult);
         Layout responseLayout = baseLayout;
         if (execution.result().applied()) {
@@ -658,8 +661,7 @@ public class LayoutService {
         Room room = roomAccessService.findReadableRoom(layout.getRoomId());
         AgentContext context = agentContextRepository.findById(layout.getContextId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
-        ValidationResult validationResult = validationService.validateChange(
-                room, room.getFurniture(), layout.getFurniture());
+        ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
         return LayoutResponse.ofSnapshot(layout, scoreSummary, validationResult);
     }
