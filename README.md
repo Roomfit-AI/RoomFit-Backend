@@ -1,325 +1,119 @@
 # RoomFit Backend
 
-RoomFit Backend is the Spring Boot backend server for **RoomFit**, an AI-assisted room layout recommendation service.
+RoomFit의 방 구조, 사용자 취향, 가구 상품을 바탕으로 레이아웃을 추천하고 자연어 피드백을 안전하게 반영하는 Spring Boot API입니다.
 
-The backend receives RoomPlan-based room data, builds user preference context, recommends furniture layouts, applies natural language feedback through an LLM-assisted intent parser, and validates the final layout with deterministic placement rules.
-
-> LLMs are used for **intent parsing**, not for directly generating furniture coordinates.
-
----
-
-## Live Demo
-
-| Item | URL |
-|---|---|
-| Base URL | `https://roomfit-backend.onrender.com` |
-| Swagger UI | `https://roomfit-backend.onrender.com/swagger-ui/index.html` |
-| Health Check | `https://roomfit-backend.onrender.com/health` |
-
-> Render Free Tier may sleep when inactive, so the first request can be slow.
-
----
-
-## Architecture
+## 핵심 흐름
 
 ```text
-RoomPlan iOS App
-→ RoomFit JSON Upload
-→ Spring Boot Backend
-→ Agent Context / Product Selection
-→ Layout Recommendation
-→ LLM Feedback Intent Parsing
-→ Rule-based Layout Modification
-→ Placement Validation
-→ Web Frontend Rendering
+RoomPlan 데이터 업로드
+  → 사용자 컨텍스트·상품 선택
+  → 규칙 기반 레이아웃 추천
+  → LLM 또는 규칙 기반 피드백 해석
+  → 결정론적 수정·배치 검증
+  → Web 편집기 렌더링 및 확정
 ```
 
-The backend contains the core AI-assisted layout flow, while the frontend focuses on user interaction and 3D rendering.
+LLM은 자연어를 구조화된 피드백 계획으로 해석하는 보조 역할입니다. 가구 좌표, 회전, 최종 검증 결과를 LLM이 직접 확정하지 않으며, 실제 변경은 서버의 허용 연산·대상 확인·배치 검증을 통과해야 합니다.
 
----
+## 주요 기능
 
-## Key Features
+- RoomPlan 기반 방 구조 업로드 및 샘플 방 조회
+- 라이프스타일, 스타일, 필수 가구, 선택 상품을 포함한 Agent Context 생성
+- 공간 크기·상품 치수·스타일·동선·문/창문 여유 공간을 고려한 레이아웃 추천
+- 자연어 피드백의 LLM 해석과 규칙 기반 fallback
+- 중복 대상은 후보 선택을 요구하고, 복합 명령은 원자적으로 적용
+- LEFT/RIGHT·corner·상품 추가/실패 등 피드백 시나리오의 결정론적 처리
+- 충돌, 방 경계, 문/창문 여유 공간, 이동 경로 검증
+- 최신 `layoutId`를 기준으로 수정·새로고침·확정 흐름을 유지하는 API
 
-- **Room upload API**: receives room structure data from the iOS RoomPlan app.
-- **Agent context API**: builds user preference context from lifestyle goals, design styles, required items, selected style images, and selected products.
-- **Product-aware layout recommendation**: generates furniture layouts using room data, product dimensions, style tags, and clearance rules.
-- **LLM feedback intent parsing**: converts natural language feedback into structured layout modification intents.
-- **Deterministic layout modification**: applies feedback through backend rules instead of letting the LLM directly generate coordinates.
-- **Placement validation**: checks collision, room boundary, door/window clearance, and movement path.
-- **Fallback strategy**: falls back to rule-based feedback parsing if the LLM call fails.
+## API
 
----
-
-## AI Feedback Agent
-
-RoomFit supports natural language layout feedback.
-
-Example feedback:
-
-```text
-책상을 조금 더 넓게 쓰고 싶어
-```
-
-LLM-interpreted intent:
-
-```json
-{
-  "source": "LLM",
-  "rawIntent": "ENLARGE_FURNITURE",
-  "targetFurniture": "desk",
-  "deskMinWidth": 1.4,
-  "constraints": {
-    "minWidth": 1.4
-  },
-  "fallbackUsed": false
-}
-```
-
-Backend result:
-
-```text
-desk width: 1.0m → 1.4m
-```
-
-### Design Principle
-
-The LLM does **not** directly generate:
-
-- furniture `x` position
-- furniture `z` position
-- `rotation`
-- final layout coordinates
-- validation results
-
-Instead, the LLM converts user feedback into structured intent, and the backend applies deterministic layout rules.
-
-This makes the system easier to validate, debug, and safely integrate into a real service.
-
----
-
-## Validation Pipeline
-
-Every recommended or modified layout is validated by the backend.
-
-Validation checks include:
-
-- collision check
-- room boundary check
-- door clearance check
-- window clearance check
-- movement path check
-
-If feedback is applied but causes a layout issue, the API can still return `success: true` with validation warnings.
-
-```json
-{
-  "collisionFree": false,
-  "boundaryValid": false,
-  "warnings": [
-    "가구 충돌이 감지되었습니다.",
-    "방 범위를 벗어난 가구가 있습니다."
-  ]
-}
-```
-
-This means the layout was updated, but the frontend should display warnings to the user.
-
----
-
-## Main APIs
-
-| Method | Endpoint | Description |
+| Method | Endpoint | 설명 |
 |---|---|---|
-| `GET` | `/health` | Server health check |
-| `POST` | `/api/rooms/upload` | Upload RoomPlan room data |
-| `GET` | `/api/rooms/{roomId}` | Get room data |
-| `GET` | `/api/rooms/samples` | Get sample rooms |
-| `GET` | `/api/products/mock` | Get mock furniture products |
-| `GET` | `/api/styles/images` | Get style image metadata |
-| `POST` | `/api/agent/context` | Create user preference context |
-| `POST` | `/api/layouts/recommend` | Create layout recommendation |
-| `POST` | `/api/layouts/validate` | Validate modified layout |
-| `PUT` | `/api/layouts/{layoutId}` | Update layout |
-| `POST` | `/api/layouts/feedback` | Apply natural language feedback |
-| `POST` | `/api/layouts/{layoutId}/confirm` | Confirm final layout |
+| `GET` | `/health` | 헬스 체크 |
+| `POST` | `/api/rooms/upload` | RoomPlan 방 데이터 업로드 |
+| `GET` | `/api/rooms/{roomId}` | 방 데이터 조회 |
+| `GET` | `/api/rooms/samples` | 샘플 방 조회 |
+| `GET` | `/api/products/mock` | 목업 가구 상품 조회 |
+| `POST` | `/api/agent/context` | 사용자 선호 컨텍스트 생성 |
+| `POST` | `/api/layouts/recommend` | 레이아웃 추천 |
+| `POST` | `/api/layouts/validate` | 수정된 레이아웃 검증 |
+| `PUT` | `/api/layouts/{layoutId}` | 레이아웃 저장/수정 |
+| `POST` | `/api/layouts/feedback` | 자연어 피드백 적용 |
+| `POST` | `/api/layouts/{layoutId}/confirm` | 최종 레이아웃 확정 |
 
-Full API details are available in Swagger UI.
+세부 스키마와 예시는 실행 중인 서버의 Swagger UI 또는 [`docs/openapi/roomfit-api.yaml`](docs/openapi/roomfit-api.yaml)을 참조하세요.
 
-The Draft furniture-additions endpoint accepts at most 8 new furniture items per request and at most
-12 active items in the resulting Layout. Repeated types count separately. Requests over either limit are
-rejected before catalog lookup and placement with HTTP `422 FURNITURE_ADDITION_FAILED`; natural-language
-feedback keeps its independent 4-operation limit.
+## 기술 스택
 
----
-
-## Tech Stack
-
-| Area | Stack |
+| 영역 | 사용 기술 |
 |---|---|
 | Language | Java 21 |
-| Backend Framework | Spring Boot |
-| Build Tool | Gradle |
-| API Docs | Swagger / OpenAPI |
-| Deployment | Render |
-| Container | Docker |
-| LLM Integration | OpenAI-compatible Chat Completions API |
-| AI Provider Used | Gemini |
-| Storage | Spring Data JPA (H2 for local/test, PostgreSQL required for production) |
+| Framework | Spring Boot 3 |
+| Build | Gradle Wrapper |
+| Persistence | Spring Data JPA, H2(local/test), PostgreSQL(production) |
+| API 문서 | springdoc OpenAPI / Swagger UI |
+| LLM 연동 | OpenAI-compatible Chat Completions API |
 
----
+## 로컬 실행
 
-## Local Development
-
-### Requirements
-
-- Java 21
-- Gradle Wrapper
-
-### Run
+요구 사항은 Java 21입니다. Gradle은 Wrapper를 사용하므로 별도 설치가 필요하지 않습니다.
 
 ```bash
 ./gradlew bootRun
 ```
 
-Local server:
-
-```text
-http://localhost:8080
-```
-
-Health check:
+기본 주소는 `http://localhost:8080`이며, 다음으로 확인할 수 있습니다.
 
 ```bash
 curl -i http://localhost:8080/health
 ```
 
-### Test
+## 검증
 
 ```bash
 ./gradlew test
-```
-
-### Build
-
-```bash
 ./gradlew clean build
 ```
 
----
-
-## Environment Variables
-
-LLM feedback parsing and LLM-based layout placement are both optional.
-Without these variables, the backend still runs fully on rule-based logic.
-
-| Variable | Description |
-|---|---|
-| `ROOMFIT_LLM_FEEDBACK_ENABLED` | Enable LLM feedback intent parser |
-| `ROOMFIT_LLM_PLACEMENT_ENABLED` | Enable LLM-based layout placement (generates x/z/rotation directly; falls back to rule-based on any failure) |
-| `ROOMFIT_LLM_API_KEY` | LLM provider API key (shared by both features above) |
-| `ROOMFIT_LLM_BASE_URL` | OpenAI-compatible chat completion endpoint |
-| `ROOMFIT_LLM_MODEL` | Model ID |
-| `ROOMFIT_LLM_TIMEOUT_MS` | LLM timeout in milliseconds |
-| `SPRING_PROFILES_ACTIVE` | Set to `prod` in production. The prod profile refuses H2 and missing datasource settings. |
-| `SPRING_DATASOURCE_URL` | Production JDBC URL in exact `jdbc:postgresql://<host>:<port>/<database>` format. A Render `postgresql://...` URL must be converted; it is not accepted as-is. Local development falls back to `jdbc:h2:file:./data/roomfit;AUTO_SERVER=TRUE`. |
-| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | Required production datasource credentials. Do not commit their values. |
-| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Required in the prod profile. Use `update` for the submission deployment plan. |
-
-Example:
-
-```text
-ROOMFIT_LLM_FEEDBACK_ENABLED=true
-ROOMFIT_LLM_PLACEMENT_ENABLED=true
-ROOMFIT_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-ROOMFIT_LLM_MODEL=gemini-3.5-flash
-ROOMFIT_LLM_TIMEOUT_MS=15000
-SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:5432/<db>
-SPRING_DATASOURCE_USERNAME=<user>
-SPRING_DATASOURCE_PASSWORD=<password>
-SPRING_PROFILES_ACTIVE=prod
-SPRING_JPA_HIBERNATE_DDL_AUTO=update
-```
-
-> Never commit real API keys to GitHub.
-
----
-
-## Deployment Notes
-
-The backend is deployed on Render using Docker.
-
-### Production database setup
-
-The `prod` profile has no H2 default. Startup fails if the datasource variables are absent, if the URL is
-not an exact `jdbc:postgresql://...` JDBC URL, or if either credential is blank. In Render, create a managed
-PostgreSQL database and construct the JDBC URL from its internal host, port, and database name. Keep all
-credential values in Render environment variables.
-
-`SPRING_JPA_HIBERNATE_DDL_AUTO=update` is acceptable for the submission deployment plan. A versioned
-migration tool such as Flyway or Liquibase is the safer long-term production schema strategy.
-
-Current MVP limitations:
-
-- Local/default development persists via a file-backed H2 database. Production requires the `prod` profile and PostgreSQL; it cannot fall back to container-local H2 storage.
-- Product data is mock data.
-- Layout recommendation logic is rule-based by default; LLM-based placement (`ROOMFIT_LLM_PLACEMENT_ENABLED`) generates coordinates directly and always falls back to rule-based on failure.
-- Render Free Tier can introduce cold-start latency.
-
----
-
-## Smoke Test
-
-After deployment, run the smoke test script to verify the main backend flow.
+일반 테스트는 외부 LLM 호출을 하지 않습니다. 실제 LLM 의미 검증은 명시적으로 opt-in한 비프로덕션 환경에서만 실행합니다.
 
 ```bash
-./scripts/smoke-test.sh
+export ROOMFIT_LLM_FEEDBACK_ENABLED=true
+export ROOMFIT_LLM_BASE_URL=https://api.openai.com/v1
+export ROOMFIT_LLM_MODEL=<model-id>
+export ROOMFIT_LLM_API_KEY=<secret>
+./gradlew realLlmEvaluation
 ```
 
-The script checks:
+실행 전용 API 키는 셸 또는 CI secret으로 주입하고, 출력·커밋·문서 기록을 금지합니다. 이 검증은 Production Backend나 Production DB에 연결하지 않아야 합니다.
 
-- health check
-- product mock API
-- style image API
-- sample room API
-- agent context creation
-- layout recommendation
-- LLM feedback parsing
+## 환경변수
 
-Expected final output:
+LLM 기능은 선택 사항입니다. 설정하지 않아도 규칙 기반 추천과 피드백 처리로 서버를 실행할 수 있습니다.
 
-```text
-🎉 Smoke test passed
-```
+| 변수 | 설명 |
+|---|---|
+| `ROOMFIT_LLM_FEEDBACK_ENABLED` | LLM 피드백 해석 활성화 |
+| `ROOMFIT_LLM_PLACEMENT_ENABLED` | 선택적 LLM 배치 제안 활성화 |
+| `ROOMFIT_LLM_API_KEY` | LLM 제공자 API 키 — secret으로만 주입 |
+| `ROOMFIT_LLM_BASE_URL` | OpenAI 호환 Chat Completions base URL |
+| `ROOMFIT_LLM_MODEL` | 모델 ID |
+| `ROOMFIT_LLM_TIMEOUT_MS` | LLM 호출 제한 시간(ms) |
+| `SPRING_PROFILES_ACTIVE` | Production에서는 `prod` |
+| `SPRING_DATASOURCE_URL` | Production PostgreSQL JDBC URL |
+| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | Production DB 자격 증명 |
+| `SPRING_JPA_HIBERNATE_DDL_AUTO` | Production 스키마 설정 |
 
----
+`prod` 프로필은 H2 fallback을 허용하지 않습니다. Production에서는 PostgreSQL JDBC URL과 자격 증명을 모두 제공해야 하며, 값은 저장소에 커밋하지 않습니다.
 
-## Portfolio Highlights
+## 운영 및 개발 문서
 
-This backend demonstrates:
+- [Frontend API 연동 가이드](docs/frontend-api-integration.md)
+- [LLM 피드백 평가 가이드](docs/llm-feedback-evaluation.md)
+- [OpenAPI 명세](docs/openapi/roomfit-api.yaml)
+- [배포 후 smoke test](scripts/smoke-test.sh)
 
-- REST API design for an AI-assisted service
-- RoomPlan JSON ingestion and room data modeling
-- Product-aware furniture layout recommendation
-- LLM-based natural language feedback interpretation
-- Safe AI architecture using deterministic post-processing
-- Layout validation pipeline for collision, boundary, clearance, and path checks
-- Fallback handling for LLM failure
-- Render deployment and frontend integration support
+## 현재 범위
 
----
-
-## Roadmap
-
-- Persist rooms, contexts, products, and layouts in a database
-- Expand supported feedback intents
-- Add recommendation reason generation
-- Improve automatic collision resolution after feedback
-- Add real product catalog integration
-- Add user/session management
-- Improve Swagger examples and schema descriptions
-
----
-
-## License
-
-This project is currently developed for the RoomFit AI/SW competition MVP.
+상품 카탈로그는 목업 데이터이며, 추천은 설명 가능한 규칙 기반 결과를 우선합니다. LLM 장애·시간 초과·안전하지 않은 해석에서는 fallback 또는 명확화 응답을 반환해 현재 레이아웃을 보존합니다.
