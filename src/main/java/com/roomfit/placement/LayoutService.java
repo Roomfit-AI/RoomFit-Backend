@@ -6,6 +6,8 @@ import com.roomfit.common.CustomException;
 import com.roomfit.common.ErrorCode;
 import com.roomfit.placement.dto.*;
 import com.roomfit.product.catalog.GeneratedFurnitureCatalog;
+import com.roomfit.product.domain.MockProduct;
+import com.roomfit.product.repository.MockProductRepository;
 import com.roomfit.room.Furniture;
 import com.roomfit.room.FurnitureBoundary;
 import com.roomfit.room.FurnitureStatus;
@@ -41,6 +43,7 @@ public class LayoutService {
     private final ScoreService scoreService;
     private final FurnitureAdditionPolicy furnitureAdditionPolicy;
     private final FurnitureDomainPolicy furnitureDomainPolicy;
+    private final MockProductRepository mockProductRepository;
 
     public LayoutService(LayoutRepository layoutRepository,
                           AgentContextRepository agentContextRepository,
@@ -52,7 +55,8 @@ public class LayoutService {
                           DeterministicFeedbackExecutor feedbackExecutor,
                           ScoreService scoreService,
                           FurnitureAdditionPolicy furnitureAdditionPolicy,
-                          FurnitureDomainPolicy furnitureDomainPolicy) {
+                          FurnitureDomainPolicy furnitureDomainPolicy,
+                          MockProductRepository mockProductRepository) {
         this.layoutRepository = layoutRepository;
         this.agentContextRepository = agentContextRepository;
         this.roomRepository = roomRepository;
@@ -64,6 +68,74 @@ public class LayoutService {
         this.scoreService = scoreService;
         this.furnitureAdditionPolicy = furnitureAdditionPolicy;
         this.furnitureDomainPolicy = furnitureDomainPolicy;
+        this.mockProductRepository = mockProductRepository;
+    }
+
+    /**
+     * AgentContext 없이 방의 기존 가구만 담은 빈 Layout을 만든다 — AI 추천을 거치지
+     * 않고 카탈로그에서 가구를 직접 드래그해 배치하는 흐름의 시작점.
+     */
+    @Transactional
+    public LayoutResponse createBlankLayout(CreateLayoutRequest request) {
+        if (request == null || request.getRoomId() == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        Room room = roomAccessService.findWritableRoom(request.getRoomId());
+        List<Furniture> furniture = deepCopyFurniture(room.getFurniture());
+        ValidationResult validationResult = validationService.validate(room, furniture);
+        ScoreSummary scoreSummary = scoreService.calculate(null, furniture, validationResult);
+
+        Layout layout = new Layout(room.getId(), null, furniture);
+        layoutRepository.save(layout);
+        return LayoutResponse.ofSnapshot(layout, scoreSummary, validationResult);
+    }
+
+    /**
+     * 카탈로그 제품을 클라이언트가 고른 좌표/회전 그대로 Layout에 추가한다. AI 배치와
+     * 달리 서버는 좌표를 안전한 위치로 옮기거나 clamp하지 않는다 — 방 밖이거나 다른
+     * 가구와 겹쳐도 추가 자체는 허용하고, 결과 validationResult.issues로 알려준다
+     * (프론트가 3D 뷰에 빨강/주황으로 표시). 최종 확정(confirm)은 여전히
+     * hard-valid(ERROR 이슈 없음)를 요구한다.
+     */
+    @Transactional
+    public LayoutResponse addFurnitureDirect(Long layoutId, AddFurnitureRequest request) {
+        Layout layout = findLayoutOrThrow(layoutId);
+        roomAccessService.findWritableRoom(layout.getRoomId());
+        if (layout.isConfirmed()) {
+            throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
+        }
+        if (request == null || request.getProductId() == null || request.getPosition() == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST_BODY);
+        }
+        Room room = roomAccessService.findWritableRoom(layout.getRoomId());
+        MockProduct product = mockProductRepository.findById(request.getProductId())
+                .orElseThrow(() -> new CustomException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        List<Furniture> updated = deepCopyFurniture(layout.getFurniture());
+        String furnitureId = generateDirectFurnitureId(product.getType(), updated);
+        Position position = new Position(request.getPosition().getX(), request.getPosition().getZ());
+        Furniture added = new Furniture(furnitureId, product.getType(), product.getName(),
+                product.getWidth(), product.getDepth(), product.getHeight(), position, request.getRotation(),
+                FurnitureStatus.USER_MODIFIED, product.getProductId(), product.getStyleTags(),
+                product.getVariantId());
+        updated.add(added);
+
+        furnitureDomainPolicy.validateFinalState(updated);
+        ValidationResult validationResult = validationService.validate(room, updated);
+        ScoreSummary scoreSummary = scoreService.calculate(null, updated, validationResult);
+        layout.setFurniture(updated);
+        layoutRepository.save(layout);
+        return LayoutResponse.ofUpdate(layout, RecommendationStatus.SUCCESS, scoreSummary, validationResult);
+    }
+
+    private String generateDirectFurnitureId(String type, List<Furniture> furniture) {
+        String prefix = (type == null ? "furniture" : type).toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+        if (prefix.isBlank()) prefix = "furniture";
+        Set<String> existingIds = furniture.stream().map(Furniture::getId).collect(Collectors.toSet());
+        int sequence = 1;
+        while (existingIds.contains(prefix + "-" + sequence)) sequence++;
+        return prefix + "-" + sequence;
     }
 
     public LayoutResponse recommend(RecommendRequest request) {
@@ -75,9 +147,17 @@ public class LayoutService {
             throw new CustomException(ErrorCode.ROOM_CONTEXT_MISMATCH);
         }
 
+        // discardExisting=true: recommend as if the room had no furniture yet,
+        // without ever mutating/saving the persisted Room entity. `placementRoom`
+        // is a detached copy used only as read-only input to the placement
+        // engine (which only reads geometry/furniture off it) — the real `room`
+        // (and its confirmed furniture) is untouched either way.
+        Room placementRoom = request.isDiscardExisting() ? withoutFurniture(room) : room;
+        List<Furniture> baselineFurniture = request.isDiscardExisting() ? List.of() : room.getFurniture();
+
         PlacementResult placementResult;
         try {
-            placementResult = placementService.recommend(context, room);
+            placementResult = placementService.recommend(context, placementRoom);
         } catch (Exception e) {
             // TODO: AI Agent 호출 실패 시 규칙 기반 fallback 로직으로 재시도.
             // 지금은 스켈레톤이라 바로 예외 처리.
@@ -86,7 +166,7 @@ public class LayoutService {
 
         furnitureDomainPolicy.validateFinalState(placementResult.getRecommendedFurniture());
         ValidationResult changeValidationResult = validationService.validateChange(
-                room, room.getFurniture(), placementResult.getRecommendedFurniture());
+                room, baselineFurniture, placementResult.getRecommendedFurniture());
         ValidationResult validationResult = validationService.validate(
                 room, placementResult.getRecommendedFurniture());
         // A PlacementService may use a provisional summary while it constructs a
@@ -119,6 +199,18 @@ public class LayoutService {
     private boolean isHardValid(ValidationResult result) {
         return result.isCollisionFree() && result.isBoundaryValid() && result.isDoorClearance()
                 && result.isWindowClearance() && result.isPathSecured();
+    }
+
+    /**
+     * A detached copy of {@code room} with an empty furniture list, for
+     * discardExisting recommendations. Never persisted — {@link RoomRepository}
+     * is never called with this instance, and the caller must keep using the
+     * original {@code room} for anything that touches the database.
+     */
+    private Room withoutFurniture(Room room) {
+        return new Room(room.getId(), room.getName(), room.getWidth(), room.getDepth(), room.getHeight(),
+                room.getUnit(), room.getWalls(), room.getOpenings(), List.of(),
+                room.getSource(), room.getCreatedAt(), room.getClientScope());
     }
 
     public LayoutResponse getLayout(Long layoutId) {
@@ -175,8 +267,7 @@ public class LayoutService {
             throw new CustomException(ErrorCode.ALREADY_CONFIRMED);
         }
         Room room = roomAccessService.findWritableRoom(layout.getRoomId());
-        AgentContext context = agentContextRepository.findById(layout.getContextId())
-                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
+        AgentContext context = findContextOrNull(layout.getContextId());
 
         List<Furniture> updated = applyPositionOverrides(layout.getFurniture(), request.getFurniture(), room);
         furnitureDomainPolicy.validateFinalState(updated);
@@ -659,11 +750,19 @@ public class LayoutService {
 
     private LayoutResponse snapshotResponse(Layout layout) {
         Room room = roomAccessService.findReadableRoom(layout.getRoomId());
-        AgentContext context = agentContextRepository.findById(layout.getContextId())
-                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
+        AgentContext context = findContextOrNull(layout.getContextId());
         ValidationResult validationResult = validationService.validate(room, layout.getFurniture());
         ScoreSummary scoreSummary = scoreService.calculate(context, layout.getFurniture(), validationResult);
         return LayoutResponse.ofSnapshot(layout, scoreSummary, validationResult);
+    }
+
+    /** contextId가 null인 blank/direct-placement Layout(§8)을 위한 조회 — null이면 그대로 null 반환. */
+    private AgentContext findContextOrNull(Long contextId) {
+        if (contextId == null) {
+            return null;
+        }
+        return agentContextRepository.findById(contextId)
+                .orElseThrow(() -> new CustomException(ErrorCode.CONTEXT_NOT_FOUND));
     }
 
     private List<Furniture> deepCopyFurniture(List<Furniture> furniture) {
